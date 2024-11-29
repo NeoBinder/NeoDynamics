@@ -1,0 +1,11 @@
+name: neomd
+channels:
+  - conda-forge
+dependencies:
+  - python
+  - openmm
+  - openmmforcefields
+  - openff-forcefields
+  - openff-toolkit
+  - pip:
+    - python-box

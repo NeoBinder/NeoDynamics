@@ -1,0 +1,14 @@
+REMARK   1 CREATED WITH OPENMM 5.2, 2013-10-01
+REMARK   1 CRYST1 ADDED MANUALLY BY JDC 2016-06-02
+CRYST1   32.853   32.862   31.855  90.00  90.00  90.00 P 1           1
+ATOM      2  CH3 ACE A   1      15.377  12.899  15.886  1.00  0.00           C  
+ATOM      5  C   ACE A   1      16.244  14.114  16.225  1.00  0.00           C  
+ATOM      6  O   ACE A   1      17.382  13.964  16.665  1.00  0.00           O  
+ATOM      7  N   ALA A   2      15.699  15.314  16.018  1.00  0.00           N  
+ATOM      9  CA  ALA A   2      16.418  16.541  16.300  1.00  0.00           C  
+ATOM     11  CB  ALA A   2      17.696  16.630  15.473  1.00  0.00           C  
+ATOM     15  C   ALA A   2      15.568  17.761  15.975  1.00  0.00           C  
+ATOM     16  O   ALA A   2      14.428  17.628  15.534  1.00  0.00           O  
+ATOM     17  N   NME A   3      16.126  18.953  16.194  1.00  0.00           N  
+ATOM     19  C   NME A   3      15.420  20.190  15.926  1.00  0.00           C  
+TER      23      NME A   3

@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "NeoDynamics"
+authors = [
+  { name="huyilang"},
+  { name = "Xinhao Han"}
+]
+dynamic = ["version"]
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+
+[tool.setuptools.dynamic]
+version = {attr = "neomd.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.urls]
+Homepage = "https://github.com/NeoBinder/NeoDynamics"
+Issues = "https://github.com/NeoBinder/NeoDynamics/issues"
+
+[tool.pip]
+index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"

@@ -1,0 +1,28 @@
+method: eq
+continue_md: false
+steps: 50000
+
+integrator:
+  integrator_name: LangevinIntegrator
+  dt: 0.002
+  friction_coeff: 1.0
+barostat:
+  frequency: 25
+  pressure: 1.0
+temperature: 298
+seed: 0
+
+
+input_files:
+  complex: /path/to/output/solv.pdbx
+  system: /path/to/output/system.xml
+
+# system_modification: 
+#   idx:
+#     mass: 999
+
+output:
+  output_dir: /path/to/output
+  trajectory_interval: 5000
+  checkpoint_interval: 5000
+

@@ -1,0 +1,52 @@
+method: metadynamics
+continue_md: false
+steps: 20000
+
+integrator:
+  dt: 0.002
+  friction_coeff: 1.0
+barostat:
+  frequency: 25
+  pressure: 1.0
+temperature: 298
+seed: 0
+
+colvars:
+  colvar1:
+    type: dihedral
+    grp1_idx: '4'
+    grp2_idx: '6'
+    grp3_idx: '8'
+    grp4_idx: '14'
+    min_cv_degree: -180
+    max_cv_degree: 180
+    bins: 100
+    biasWidth_degree: 30
+    is_period: true
+  colvar2:
+    type: dihedral
+    grp1_idx: '6'
+    grp2_idx: '8'
+    grp3_idx: '14'
+    grp4_idx: '16'
+    min_cv_degree: -180
+    max_cv_degree: 180
+    bins: 100
+    biasWidth_degree: 30
+    is_period: true
+
+meta_set:
+  biasFactor: 4.3    
+  height: 1
+  frequency: 100
+
+
+input_files:
+  complex: /path/to/output/solv.pdbx
+  system: /path/to/output/system.xml
+
+output:
+  output_dir: /path/to/output
+  report_interval: 5000
+  trajectory_interval: 5000
+  checkpoint_interval: 5000

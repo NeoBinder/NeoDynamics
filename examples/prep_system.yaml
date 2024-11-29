@@ -1,0 +1,13 @@
+protein:
+  path: /path/to/project/NeoDynamics/examples/data/ala_noH.pdb
+
+additional:
+  add_solv_ions: true
+  add_hydrogens: true
+  ion_Strength: 0.1
+
+ff_setting: 
+  base_ff: amber/protein.ff14SB.xml
+  water_model: amber/tip3p_standard.xml
+
+output_dir: /path/to/output
