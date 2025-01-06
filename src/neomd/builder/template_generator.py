@@ -239,7 +239,7 @@ class GAFFTemplateGenerator(openffGAFFTemplateGenerator):
         total_charge = sum(molecule.partial_charges)
         sum_of_absolute_charge = sum(abs(molecule.partial_charges))
         charge_deficit = net_charge - total_charge
-        # incase each atom is zero charged then sum_of_absolute_charge also is 0
+        # if each atom is zero charged,like H2, then "abs(molecule.partial_charges) / sum_of_absolute_charge" would be error
         if sum_of_absolute_charge.magnitude > 0.0:
             # Redistribute excess charge proportionally to absolute charge
             molecule.partial_charges += (

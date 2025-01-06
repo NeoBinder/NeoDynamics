@@ -115,9 +115,6 @@ class Ligand:
         if os.path.splitext(ligand_path)[1] in [".pdb"]:
             Chem.AssignAtomChiralTagsFromStructure(rdkitmolh)
         ligand_mol = openff_Molecule.from_rdkit(rdkitmolh)
-        # _pos = unit.Quantity(ligand_mol.conformers[0].magnitude,
-        #                                          unit.angstrom)
-        # ligand_mol._add_conformer(_pos)
         return Ligand(ligand_mol)
 
     @classmethod

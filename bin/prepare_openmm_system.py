@@ -143,9 +143,6 @@ def make_system(
                     ligand_mol.to_topology().to_openmm(), ligand_mol.conformers[0]
                 )
             else:
-                # modeller.add(
-                #     ligand_mol.to_topology().to_openmm(), ligand_mol.conformers[0]
-                # )
                 _pos = unit.Quantity(ligand_mol.conformers[0].magnitude,
                                             unit.angstrom)
                 modeller.add(
