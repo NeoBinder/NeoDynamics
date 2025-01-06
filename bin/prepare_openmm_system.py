@@ -143,15 +143,17 @@ def make_system(
                     ligand_mol.to_topology().to_openmm(), ligand_mol.conformers[0]
                 )
             else:
+                # modeller.add(
+                #     ligand_mol.to_topology().to_openmm(), ligand_mol.conformers[0]
+                # )
+                _pos = unit.Quantity(ligand_mol.conformers[0].magnitude,
+                                            unit.angstrom)
                 modeller.add(
-                    ligand_mol.to_topology().to_openmm(), ligand_mol.conformers[0]
+                    ligand_mol.to_topology().to_openmm(), _pos
                 )
-            _res = [res for res in modeller.topology.residues()][-1]
             forcefield.add_molecule(
                 ligand.molecule,
                 gaff_generator,
-                residue=_res,
-                template_path=ligand.template_path,
             )
         forcefield.forcefield.registerTemplateGenerator(gaff_generator.generator)
 

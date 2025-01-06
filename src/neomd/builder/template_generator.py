@@ -177,11 +177,10 @@ class GAFFTemplateGenerator(openffGAFFTemplateGenerator):
         assert len(molecule.atoms) == len(set(atom.name for atom in molecule.atoms))
         # Compute net formal charge
         net_charge = molecule.total_charge
-        from openmm import unit
+        import pint
 
-        if type(net_charge) != unit.Quantity:
-            # openforcefield toolkit < 0.7.0 did not return unit-bearing quantity
-            net_charge = float(net_charge) * unit.elementary_charge
+        if not isinstance(net_charge, pint.Quantity):
+            net_charge = float(net_charge) * pint.Unit('elementary_charge')
         _logger.debug(f"Total charge is {net_charge}")
 
         # Compute partial charges if required
@@ -194,7 +193,7 @@ class GAFFTemplateGenerator(openffGAFFTemplateGenerator):
             # NOTE: generate_conformers seems to be required for some molecules
             # https://github.com/openforcefield/openff-toolkit/issues/492
             molecule.generate_conformers(n_conformers=10)
-            molecule.compute_partial_charges_am1bcc()
+            molecule.assign_partial_charges(partial_charge_method="am1bcc")
 
         # Geneate a single conformation
         _logger.debug(f"Generating a conformer...")
@@ -236,13 +235,12 @@ class GAFFTemplateGenerator(openffGAFFTemplateGenerator):
         #       or pure numbers.
         _logger.debug(f"Fixing partial charges...")
         _logger.debug(f"{molecule.partial_charges}")
-        from openmm import unit
 
-        residue_charge = 0.0 * unit.elementary_charge
-        total_charge = unit.sum(molecule.partial_charges)
-        sum_of_absolute_charge = unit.sum(abs(molecule.partial_charges))
+        total_charge = sum(molecule.partial_charges)
+        sum_of_absolute_charge = sum(abs(molecule.partial_charges))
         charge_deficit = net_charge - total_charge
-        if sum_of_absolute_charge / unit.elementary_charge > 0.0:
+        # incase each atom is zero charged then sum_of_absolute_charge also is 0
+        if sum_of_absolute_charge.magnitude > 0.0:
             # Redistribute excess charge proportionally to absolute charge
             molecule.partial_charges += (
                 charge_deficit * abs(molecule.partial_charges) / sum_of_absolute_charge
@@ -289,7 +287,7 @@ class GAFFTemplateGenerator(openffGAFFTemplateGenerator):
                 "Atom",
                 name=atom.name,
                 type=atom.gaff_type,
-                charge=str(atom.partial_charge / unit.elementary_charge),
+                charge=str(atom.partial_charge.magnitude),
             )
         for bond in molecule.bonds:
             if (bond.atom1 in residue_atoms) and (bond.atom2 in residue_atoms):
