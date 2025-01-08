@@ -5,7 +5,7 @@ import numpy as np
 from openff.toolkit.topology import Molecule as openff_Molecule
 from openff.toolkit.topology import Topology as openff_Topology
 from rdkit import Chem
-
+from openmm import unit
 
 def load_rdmol(ligand_path):
     """
@@ -97,8 +97,6 @@ class Ligand:
         return self.molecule.to_rdkit()
 
     def assign_partial_charges(self, value, normalize=True):
-        from openmm import unit
-
         charges = unit.Quantity(value, unit.elementary_charge)
         self.molecule.partial_charges = charges
         if normalize:
@@ -124,10 +122,4 @@ class Ligand:
         return openff_Molecule.from_smiles(smiles, hydrogens_are_explicit=True)
 
     def generate_unique_atom_names(self):
-        from collections import defaultdict
-
-        element_counts = defaultdict(int)
-        for atom in self.molecule.atoms:
-            symbol = atom.element.symbol
-            element_counts[symbol] += 1
-            atom.name = symbol + str(element_counts[symbol])
+        self.molecule.generate_unique_atom_names(suffix='')

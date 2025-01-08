@@ -1,0 +1,19 @@
+protein:
+  path: /work_dir/sys_prep/3htb_pro_fix.pdb
+
+ligands:
+  lig1: 
+    path: /work_dir/sys_prep/jz4.sdf
+    smiles: 'CCCc1ccccc1O'
+    resname: JZ4
+  
+additional:
+  add_solv_ions: true
+  add_hydrogens: true
+  ion_Strength: 0.1
+
+ff_setting: 
+  base_ff: amber/protein.ff14SB.xml
+  water_model: amber/tip3p_standard.xml
+
+output_dir: /work_dir/sys_prep/3htb

@@ -1,0 +1,15 @@
+method: min
+min_params:
+  tolerance: 10 
+  maxiter: 10000
+integrator:
+  dt: 0.001
+  friction_coeff: 1.0
+
+input_files:
+  complex: /work_dir/sys_prep/3htb/solv.pdbx
+  system: /work_dir/sys_prep/3htb/system.xml
+  ligands: /work_dir/sys_prep/3htb/ligand.json
+
+output:
+  output_dir: /work_dir/min
