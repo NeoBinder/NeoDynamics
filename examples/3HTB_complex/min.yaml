@@ -13,6 +13,3 @@ input_files:
 
 output:
   output_dir: /work_dir/min
-
-seed: 0
-temperature: 0

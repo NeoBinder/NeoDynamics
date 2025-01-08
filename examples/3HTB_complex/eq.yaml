@@ -1,5 +1,4 @@
 method: eq
-continue_md: false
 steps: 5000
 
 integrator:
