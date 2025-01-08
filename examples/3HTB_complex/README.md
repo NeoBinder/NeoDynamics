@@ -109,9 +109,9 @@ Chem.MolToMolFile(mol,
 ```
 While a `.pdb` file is also usable, an `.sdf` file is always recommended for ligands because it contains more detailed information and preserves the correct ligand topology.
 
-If you use `jz4.pdb` in this case, the 6-member ring of the ligand may be considered as cyclohexane instead of benzene, which is incorrect.
+If you use `jz4.pdb` in this case, the 6-member ring of the ligand might be misinterpreted as cyclohexane instead of benzene, which is incorrect.
 
-Any method to generat `.sdf` file is allowed, just ensure the following in the `.sdf` file:
+Any method to generate `.sdf` file is allowed, just ensure the following in the `.sdf` file:
 - Add all hydrogen atoms.
 - Check bond types (double, triple, aromatic).
 - Check chirality of carbon atoms.
@@ -127,13 +127,13 @@ python3 /NeoDynamics/bin/prepare_openmm_system.py ./prepare.yaml
 Example prepare.yaml file:
 ```yaml
 # protein information in this section
-# if your system don't need protein, just delete this section
+# if your system does not need any protein, just delete this section
 protein:
   # for most cases, only the path to fixed.pdb is enough
   path: /work_dir/sys_prep/3htb_pro_fix.pdb
 
 # ligand information in this section
-# if your system don't need protein, just delete this section
+# if your system does not need any ligand, just delete this section
 ligands:
   # 'lig1' is a user defined name to specify individual ligand in a system
   # this name won't effect any thing in output, unique is the only need
@@ -153,7 +153,7 @@ additional:
   add_solv_ions: true
   # if or not  add H atoms
   add_hydrogens: true
-  # ions concentration to netrual system charge
+  # ions concentration to neutralize system charge
   ion_Strength: 0.1
 
 # set which forcefield and water model to use
@@ -190,7 +190,7 @@ integrator:
   friction_coeff: 1.0
 # paths to input files
 input_files:
-  # coordiante file,either .pdbx or .pdb is ok, only demanding all atoms in right order
+  # coordiante file,either .pdbx or .pdb is acceptable, ensuring all atoms are in the correct order
   complex: /work_dir/sys_prep/3htb/solv.pdbx
   # topology file in .xml format
   system: /work_dir/sys_prep/3htb/system.xml
@@ -262,7 +262,7 @@ Generated files:
 - last.ckpt: Checkpoint file for system state at the end of simulation.
 
 ## 4. Equilibrium with restraints
-To add additional restraint forces during equilibrium, include a `restraint` block in the `.yaml`. Here is an example showing how to restraint the center of protein at the center of the box, which can aviod cross-boundary situation:
+To add additional restraint forces during equilibrium, include a `restraint` block in the `.yaml`. Here is an example showing how to restraint the center of protein at the center of the box, which can avoid cross-boundary situation:
 ```yaml
 method: eq
 steps: 5000
@@ -285,7 +285,7 @@ restraint:
     type: dist_ref_position
     # select a group of atoms to restrain,
     # selection is based on atom index,which is always 0 for the first atom then +1 along the order
-    # selection of index always in string format
+    # selection of indices always in string format
     # indices between atoms are separated by commas 
     restr_grp:  '4,21,35,54,74,89,106,125,149,168,180,195,202,221,245,264,286,305,326,348,360,374,389,396,417,438,452,471,478,497,504,521,540,559,573,595,605,620,632,651,665,675,685,707,718,733,752,764,786,796,815,822,846,860,871,885,892,908,927,941,963,975,990,1000,1015,1037,1056,1076,1090,1107,1119,1135,1147,1157,1167,1183,1207,1214,1233,1252,1276,1290,1300,1322,1341,1362,1377,1393,1414,1426,1437,1456,1468,1478,1494,1518,1542,1553,1563,1573,1592,1606,1623,1639,1659,1676,1693,1700,1715,1729,1736,1752,1762,1769,1789,1803,1817,1828,1847,1871,1888,1907,1924,1941,1963,1987,2011,2023,2038,2048,2058,2074,2088,2107,2117,2139,2150,2174,2198,2219,2233,2250,2263,2278,2290,2314,2324,2346,2370,2386,2405,2419,2433,2453,2477,2491,2498,2512,2536,2548,2558,2579,2601,2615'
     # set the reference position in units of nanometer, here set half size of box as center of box
@@ -305,7 +305,7 @@ input_files:
 
 output:
   output_dir: /work_dir/eq_restraints/
-  # if or not to ducument restraint information  
+  # if or not to document restraint information  
   report_restraint: true
   # set how many steps to document the restraint information
   report_interval: 1000
