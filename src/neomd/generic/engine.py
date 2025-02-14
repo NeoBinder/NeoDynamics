@@ -258,7 +258,7 @@ class OpenmmEngine(BaseEngine):
                     output_dcd,
                     config.output.trajectory_interval,
                     append=is_append,
-                    enforcePeriodicBox=False,
+                    enforcePeriodicBox=True,
                 )
             )
         if config.output.checkpoint_interval > 0:
