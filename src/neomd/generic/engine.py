@@ -71,15 +71,16 @@ class OpenmmEngine(BaseEngine):
         )
         # please double check the box vectors is correct
         simulation.context.setPeriodicBoxVectors(
-            *neosystem.get_default_periodicbox_vectors()
-        )
+            *neosystem.system.getDefaultPeriodicBoxVectors())
         if checkpoint:
             simulation.loadCheckpoint(checkpoint)
-        if state is None and checkpoint is None:
+        elif state: 
+            simulation.loadState(state)
+        else:
             simulation.context.setPositions(neosystem.positions)
-        # please make sure temperature has been set
-        # otherwise particle will be nan
-        simulation.context.setVelocitiesToTemperature(config.temperature)
+            # please make sure temperature has been set
+            # otherwise particle will be nan
+            simulation.context.setVelocitiesToTemperature(config.temperature)
         return cls(simulation)
 
     @property

@@ -104,15 +104,19 @@ class Pipeline(BasePipeline):
         if config.get("temperature") is None:
             config.temperature = 298
 
-        config["continue_md"] = config.get("continue_md", False)
+        config['continue_md'] = config.get("continue_md", False)
         if config.continue_md:
-            config.input_files["checkpoint"] = config.input_files.get(
-                "checkpoint", os.path.join(config.output.output_dir, "output.ckpt")
-            )
-            config.input_files["state"] = config.input_files.get("state", None)
+            if config.input_files.get("checkpoint") and config.input_files.get("state"):
+                raise ValueError('checkpoint and state can not be both specified')
+            elif not config.input_files.get("state"):
+                config.input_files['checkpoint'] = config.input_files.get('checkpoint',
+                                                                        os.path.join(config.output.output_dir, "output.ckpt"))
+                config.input_files['state'] = None
+            else:
+                config.input_files['checkpoint'] = None
         else:
-            config.input_files["state"] = None
-            config.input_files["checkpoint"] = None
+            config.input_files['state'] = None
+            config.input_files['checkpoint'] = None
 
         config.output["trajectory_interval"] = config.output.get(
             "trajectory_interval", 0
