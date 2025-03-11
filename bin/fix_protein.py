@@ -13,6 +13,7 @@ def get_box_vectors(modeller, padding=0 * unit.nanometer):
     box_vec = (
         Vec3(box_vec[0], 0, 0) * unit.nanometer,
         Vec3(0, box_vec[1], 0) * unit.nanometer,
+        # 不知道打错了还是有啥目的，看起来Vec3(0, 0, box_vec[2])更合理
         Vec3(0, 0, box_vec[1]) * unit.nanometer,
     )
     return Quantity(box_vec)

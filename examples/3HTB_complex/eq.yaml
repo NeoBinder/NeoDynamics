@@ -1,0 +1,25 @@
+method: eq
+steps: 5000
+
+integrator:
+  dt: 0.002
+  friction_coeff: 1.0
+barostat:
+  frequency: 25
+  pressure: 1.0
+temperature: 298
+seed: 0
+
+input_files:
+  complex: /work_dir/min/last.pdbx
+  system: /work_dir/sys_prep/3htb/system.xml
+  ligands: /work_dir/sys_prep/3htb/ligand.json
+
+output:
+  output_dir: /work_dir/eq/
+  trajectory_interval: 1000
+  checkpoint_interval: 1000
+
+
+
+
