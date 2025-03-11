@@ -10,11 +10,19 @@ authors = [
 ]
 dynamic = ["version"]
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
+]
+dependencies = [
+    "openff-toolkit",
+    "openforcefields",
+    "openmm>=8.2.0",
+    "openmmforcefields",
+    "pdbfixer",
+    "python-box>=7.3.2",
 ]
 
 
@@ -28,5 +36,11 @@ where = ["src"]
 Homepage = "https://github.com/NeoBinder/NeoDynamics"
 Issues = "https://github.com/NeoBinder/NeoDynamics/issues"
 
-[tool.pip]
+[tool.uv.pip]
 index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+
+[tool.uv.sources]
+openmmforcefields = { git = "https://github.com/openmm/openmmforcefields.git" }
+pdbfixer = { git = "https://github.com/openmm/pdbfixer.git" }
+openforcefields = { git = "https://github.com/openforcefield/openff-forcefields.git" }
+openff-toolkit = { git = "https://github.com/openforcefield/openff-toolkit.git" }
