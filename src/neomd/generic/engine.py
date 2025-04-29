@@ -66,7 +66,6 @@ class OpenmmEngine(BaseEngine):
             neosystem.topology,
             neosystem.system,
             get_integrator(config),
-            state=state,
             **platform_config,
         )
         # please double check the box vectors is correct
