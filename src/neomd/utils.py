@@ -1,7 +1,6 @@
 import os
 
 import openmm
-import parmed
 from openmm import app
 
 
@@ -48,6 +47,7 @@ def get_platform(method="cuda", cuda_index="0"):
 
 
 def load_pdb_positions_and_box_vectors(pdb_coords_filename):
+    import parmed
     pdbf = app.PDBFile(pdb_coords_filename)
     pdb_parmed = parmed.load_file(pdb_coords_filename)
     assert pdb_parmed.box_vectors is not None, (
