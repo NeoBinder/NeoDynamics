@@ -21,7 +21,7 @@ dependencies = [
   "importlib-resources",
   "pint",
   "networkx",
-  "rdkit"
+  "rdkit",
   "openff-toolkit",
   "openff-units",
   "openff-utilities",
@@ -29,7 +29,9 @@ dependencies = [
   "openmm>=8.2.0",
   "openmmforcefields",
   "pdbfixer",
-  "pyyaml"
+  "pyyaml",
+  "pip",
+  "cachetools"
 ]
 
 
