@@ -176,3 +176,7 @@ idea/
 *_dev.yaml
 *_bak
 *_test
+
+# pixi environments
+.pixi
+*.egg-info

@@ -12,8 +12,19 @@ This Package contains:
 
 ## Installation
 NeoDynamics can be installed with:
+* pixi(recommended)
 
-
+1. Install [pixi](https://pixi.sh/latest/#alternative-installation-methods)
+```bash
+curl -fsSL https://pixi.sh/install.sh | sh
+```
+2. Install package
+```bash
+git clone git@github.com:NeoBinder/NeoDynamics.git
+cd NeoDynamics
+pixi install
+pixi shell
+```
 
 * source code installation
 ```bash
