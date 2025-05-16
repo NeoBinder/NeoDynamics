@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools", "versioningit"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -10,33 +10,15 @@ authors = [
 ]
 dynamic = ["version"]
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = "==3.11.*"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-dependencies = [
-  "python-box>=7.3.2",
-  "importlib-resources",
-  "pint",
-  "networkx",
-  "rdkit",
-  "openff-toolkit",
-  "openff-units",
-  "openff-utilities",
-  "openforcefields",
-  "openmm>=8.2.0",
-  "openmmforcefields",
-  "pdbfixer",
-  "pyyaml",
-  "pip",
-  "cachetools"
-]
 
 
-[tool.setuptools.dynamic]
-version = {attr = "neomd.__version__"}
+[tool.versioningit]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -44,14 +26,3 @@ where = ["src"]
 [project.urls]
 Homepage = "https://github.com/NeoBinder/NeoDynamics"
 Issues = "https://github.com/NeoBinder/NeoDynamics/issues"
-
-[tool.uv.pip]
-index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
-
-[tool.uv.sources]
-openmmforcefields = { git = "https://github.com/openmm/openmmforcefields.git" }
-pdbfixer = { git = "https://github.com/openmm/pdbfixer.git" }
-openforcefields = { git = "https://github.com/openforcefield/openff-forcefields.git" }
-openff-toolkit = { git = "https://github.com/openforcefield/openff-toolkit.git" }
-openff-units = { git = "https://github.com/openforcefield/openff-units.git" }
-openff-utilities = {git = "https://github.com/openforcefield/openff-utilities.git"}

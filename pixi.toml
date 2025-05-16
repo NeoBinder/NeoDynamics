@@ -1,0 +1,20 @@
+
+[workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[pypi-dependencies]
+NeoDynamics = { path = ".", editable = true }
+python-box = ">=7.3.2"
+
+[environments]
+default = { solve-group = "default" }
+
+[tasks]
+
+[pypi-options]
+index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+
+[dependencies]
+openmmforcefields = ">=0.14.1,<0.15"
+openff-toolkit = ">=0.16.9,<0.17"

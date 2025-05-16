@@ -12,17 +12,18 @@ This Package contains:
 
 ## Installation
 NeoDynamics can be installed with:
+* pixi(recommended)
 
-* uv (Recommended)
-
-1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/)
+1. Install [pixi](https://pixi.sh/latest/#alternative-installation-methods)
+```bash
+curl -fsSL https://pixi.sh/install.sh | sh
+```
 2. Install package
 ```bash
 git clone git@github.com:NeoBinder/NeoDynamics.git
 cd NeoDynamics
-uv venv -p 3.11
-source ./.venv/bin/activate
-uv sync
+pixi install
+pixi shell
 ```
 
 * source code installation
@@ -36,9 +37,6 @@ conda env create --name neomd -f environment.yaml
 conda activate neomd
 pip install -e ./
 ```
-
-* pypi
-to be published
 
 
 

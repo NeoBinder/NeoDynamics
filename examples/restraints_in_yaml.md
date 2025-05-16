@@ -1,5 +1,6 @@
 This file contains format/keywords and explains of restarints that can be used in the YAML file.
-##     if restraint_config["type"] == "sphere":
+```python
+    if restraint_config["type"] == "sphere":
         restraint = generate_restraint_sphere(restraint_config)
     elif restraint_config["type"] == "funnel":
         restraint = generate_restraint_funnel(restraint_config)
@@ -19,3 +20,4 @@ This file contains format/keywords and explains of restarints that can be used i
         restraint = generate_vec_restraint(restraint_config)
     elif restraint_config["type"] == "test":
         restraint = force_test(restraint_config)
+```
