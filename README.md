@@ -13,17 +13,7 @@ This Package contains:
 ## Installation
 NeoDynamics can be installed with:
 
-* uv (Recommended)
 
-1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/)
-2. Install package
-```bash
-git clone git@github.com:NeoBinder/NeoDynamics.git
-cd NeoDynamics
-uv venv -p 3.11
-source ./.venv/bin/activate
-uv sync
-```
 
 * source code installation
 ```bash
@@ -36,9 +26,6 @@ conda env create --name neomd -f environment.yaml
 conda activate neomd
 pip install -e ./
 ```
-
-* pypi
-to be published
 
 
 
