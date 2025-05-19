@@ -16,6 +16,9 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
+dependencies = [
+  "python-box >= 7.3.2",
+]
 
 
 [tool.versioningit]
