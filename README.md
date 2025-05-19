@@ -10,14 +10,34 @@ This Package contains:
 - Protein Conformation analysis based on OpenMM engine with various Forcefileds
 - Ligand Force Fileds creation and Ligand ForceFileds supplied externally (from AM1BCC / DFT / or expert designed)
 
-## Installation
+# Installation
 NeoDynamics can be installed with:
-* pixi(recommended)
+## (*preferred*) By pixi Installation 
 
 1. Install [pixi](https://pixi.sh/latest/#alternative-installation-methods)
 ```bash
 curl -fsSL https://pixi.sh/install.sh | sh
 ```
+
+### Custom Runtime Environment
+2. Install package
+```bash
+mkdir -p /path/to/env
+cd /path/to/env
+pixi init neomd
+cd neomd
+pixi add "python==3.11.*"
+# git installation
+pixi add --pypi "neodynamics @ git+https://https://github.com/NeoBinder/NeoDynamics"
+# local installation
+pixi add --pypi "neodynamics @ file:///path/to/NeoDynamics"
+
+pixi add my_custom_conda_package
+pixi add --pypi my_custom_pypi_package
+pixi shell
+```
+
+### Development Environment
 2. Install package
 ```bash
 git clone git@github.com:NeoBinder/NeoDynamics.git
@@ -26,7 +46,7 @@ pixi install
 pixi shell
 ```
 
-* source code installation
+## By Conda Installation
 ```bash
 mkdir -p /path/to/project
 cd /path/to/project
