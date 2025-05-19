@@ -5,7 +5,7 @@ NeoDynamics is NeoBinder's open soruce project for Molecular Dynamics SDK ontop 
 NeoDynamics is tested on method generic md methods and metadynamics.
 
 This Package contains:
-- OpenMM related pipelines including generic md, metadynamics. (possibly qmmm/gamd relased later.)
+- OpenMM related pipelines including generic md, metadynamics. (possibly qmmm/gamd/machine-learning powered md released later.)
 - OpenMM system build
 - Protein Conformation analysis based on OpenMM engine with various Forcefileds
 - Ligand Force Fileds creation and Ligand ForceFileds supplied externally (from AM1BCC / DFT / or expert designed)
