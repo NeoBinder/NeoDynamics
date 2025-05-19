@@ -28,7 +28,7 @@ pixi init neomd
 cd neomd
 pixi add "python==3.11.*"
 # git installation
-pixi add --pypi "neodynamics @ git+https://https://github.com/NeoBinder/NeoDynamics"
+pixi add --pypi "neodynamics @ git+https://github.com/NeoBinder/NeoDynamics"
 # local installation
 pixi add --pypi "neodynamics @ file:///path/to/NeoDynamics"
 
