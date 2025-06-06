@@ -6,6 +6,7 @@ platforms = ["linux-64"]
 [pypi-dependencies]
 NeoDynamics = { path = ".", editable = true }
 python-box = ">=7.3.2"
+numpy = "*"
 
 [environments]
 default = { solve-group = "default" }

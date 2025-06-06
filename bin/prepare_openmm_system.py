@@ -11,11 +11,11 @@ from neomd.builder.ligand import ligands_from_config
 from neomd.io.system_loader import load_complex
 
 
-def custom_bonds(top, pos, cutom_config):
-    for resname, res_bonds in cutom_config.items():
+def custom_bonds(top, pos, custom_config):
+    for resname, res_bonds in custom_config.items():
         if resname not in top._standardBonds:
             bonds = []
-            print(f"res {resname} not in top._standardBonds")
+            print(f"res {resname} not in top._standardBonds,will add bonds")
             top._standardBonds[resname] = bonds
         else:
             raise Exception(
@@ -38,11 +38,11 @@ def custom_bonds(top, pos, cutom_config):
             if not find_res:
                 raise ValueError(
                     'Cannot find info of residue "{}" in file "{}"'.format(
-                        resname, res_addH["H_from_ffxml"]
+                        resname, res_bonds["bonds_from_ffxml"]
                     )
                 )
-        if res_bonds.get("cutsom_bonds"):
-            for bond in res_bonds["cutsom_bonds"]:
+        if res_bonds.get("custom_bonds"):
+            for bond in res_bonds["custom_bonds"]:
                 bonds.append((bond[0], bond[1]))
     top._bonds = []
     top.createStandardBonds()
@@ -53,6 +53,7 @@ def custom_addH(modeller, forcefield, custom_config):
     infinity = float("Inf")
     for resname, res_addH in custom_config.items():
         data = modeller._ResidueData(resname)
+        data.variants.append(resname)
         modeller._residueHydrogens[resname] = data
         if res_addH.get("H_from_ffxml"):
             import xml.etree.ElementTree as etree
@@ -148,6 +149,8 @@ def make_system(
                 modeller.add(
                     ligand_mol.to_topology().to_openmm(), _pos
                 )
+            _res=[res for res in modeller.topology.residues()][-1]
+            _res.name=ligand_mol.name
             forcefield.add_molecule(
                 ligand.molecule,
                 gaff_generator,
