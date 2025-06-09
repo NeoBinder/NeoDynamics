@@ -152,8 +152,8 @@ class MetadynamicsEngine(OpenmmEngine):
         system.addForce(self._force)
 
     def continue_metadynamics(self, input_dir):
-        colvar_file = os.path.join(input_dir, "COLVAR")
-        bias_file = os.path.join(input_dir, "bias.npy")
+        colvar_file = os.path.join(input_dir, "COLVAR.npy")
+        bias_file = os.path.join(input_dir, "bias_last.npy")
         if os.path.isfile(colvar_file):
             self.colvar_array = np.load(colvar_file)
             logger.info("Load COLVAR FILE:{}".format(colvar_file))

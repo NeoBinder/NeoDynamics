@@ -135,7 +135,7 @@ class Pipeline(BasePipeline):
         self.engine.config_reporter(output_dir, self.config)
         # run simulatoin
         # self.engine.minimize_energy()
-        if kwargs.get("use_scipy", True):
+        if kwargs.get("use_scipy", False):
             self.engine.minimize_energy_scipy(**kwargs)
         else:
             self.engine.minimize_energy(**kwargs)
