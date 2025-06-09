@@ -103,7 +103,7 @@ def make_system(
     box_vectors = None
     modeller = None
 
-    # if system without protien,no box_vectos/modeller get, then get them from ligands
+    # if system without protein,no box_vectos/modeller get, then get them from ligands
     if protein_config:
         protein = load_complex(protein_config.path)
         if protein_config.get("custom_res_bonds"):
@@ -112,16 +112,20 @@ def make_system(
             )
         box_vectors = protein.getTopology().getPeriodicBoxVectors()
         modeller = app.Modeller(protein.topology, protein.positions)
-    if ligands_config is not None:
+    if ligands_config:
         ligands = ligands_from_config(ligands_config)
+        ligands_pos_opmm_unit = [
+            unit.Quantity(ligand.molecule.conformers[0].magnitude, unit.angstrom)
+            for ligand in ligands
+        ]
 
-    # if didn't get box_vectors from protien,get it from ligands
+    # if didn't get box_vectors from protein,get it from ligands
     if box_vectors is None:
         from openmm.app.internal.unitcell import computePeriodicBoxVectors
 
         _unit = unit.nanometers
         pos_list = [
-            _lig.molecule.conformers[0].value_in_unit(_unit) for _lig in ligands
+            pos.value_in_unit(_unit) for pos in ligands_pos_opmm_unit
         ]
         pos_np = np.concatenate(pos_list, axis=0) * _unit
         box_size = max(pos_np.max(axis=0) - pos_np.min(axis=0)) + 2 * 1 * _unit
@@ -134,20 +138,18 @@ def make_system(
     forcefield = ComplexForceField(**forcefield_kwargs)
     if ligands:
         gaff_generator = forcefield.init_gaff_generator()
-        for ligand in ligands:
+        for lig_i,ligand in enumerate(ligands):
             # give unique names for all atoms in the molecule, so that we don't need
             # to rename them when generate topology and template from molecule
             ligand.generate_unique_atom_names()
             ligand_mol = ligand.molecule
             if modeller is None:
                 modeller = app.Modeller(
-                    ligand_mol.to_topology().to_openmm(), ligand_mol.conformers[0]
+                    ligand_mol.to_topology().to_openmm(), ligands_pos_opmm_unit[lig_i]
                 )
             else:
-                _pos = unit.Quantity(ligand_mol.conformers[0].magnitude,
-                                            unit.angstrom)
                 modeller.add(
-                    ligand_mol.to_topology().to_openmm(), _pos
+                    ligand_mol.to_topology().to_openmm(), ligands_pos_opmm_unit[lig_i]
                 )
             _res=[res for res in modeller.topology.residues()][-1]
             _res.name=ligand_mol.name
