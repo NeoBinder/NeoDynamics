@@ -128,8 +128,10 @@ class OpenmmEngine(BaseEngine):
         return _state.getPeriodicBoxVectors(asNumpy=asNumpy)
 
     def get_positions(self, as_numpy=False):
-        return self.simulation.context.getState(getPositions=True).getPositions(
-            asNumpy=as_numpy
+        return self.simulation.context.getState(
+            getPositions=True, enforcePeriodicBox=True
+        ).getPositions(
+            asNumpy=as_numpy,
         )
 
     def set_positions(self, positions):

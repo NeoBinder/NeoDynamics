@@ -114,7 +114,8 @@ class Ligand:
         #  rdkitmolh = Chem.AddHs(rdkitmol, addCoords=True)
         if os.path.splitext(ligand_path)[1] in [".pdb"]:
             Chem.AssignAtomChiralTagsFromStructure(rdkitmolh)
-        ligand_mol = openff_Molecule.from_rdkit(rdkitmolh)
+        ligand_mol = openff_Molecule.from_rdkit(rdkitmolh,
+                            hydrogens_are_explicit = True)
         return Ligand(ligand_mol)
 
     @classmethod

@@ -195,7 +195,7 @@ class GAFFTemplateGenerator(openffGAFFTemplateGenerator):
             molecule.generate_conformers(n_conformers=10)
             molecule.assign_partial_charges(partial_charge_method="am1bcc")
 
-        # Geneate a single conformation
+        # Generate a single conformation
         _logger.debug(f"Generating a conformer...")
         molecule.generate_conformers(n_conformers=1)
 
@@ -306,6 +306,26 @@ class GAFFTemplateGenerator(openffGAFFTemplateGenerator):
                     residue, "ExternalBond", atomName=bond.atom2.name
                 )
         # Render XML into string and append to parameters
+
+        def strip_all_element_text_tail(element):
+            if element.text is not None:
+                original = element.text
+                stripped = original.strip()
+                if stripped:
+                    element.text = stripped
+                else:
+                    element.text = None
+            if element.tail is not None:
+                original = element.tail
+                stripped = original.strip()
+                if stripped:
+                    element.tail = stripped
+                else:
+                    element.tail = None
+            for child in element.getchildren():
+                strip_all_element_text_tail(child)
+
+        strip_all_element_text_tail(root)
         ffxml_contents = etree.tostring(root, pretty_print=True, encoding="unicode")
         _logger.debug(f"ffxml creation complete.")
 

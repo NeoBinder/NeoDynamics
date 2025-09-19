@@ -100,7 +100,6 @@ def make_system(
 ):
     protein = None
     ligands = None
-    box_vectors = None
     modeller = None
 
     # if system without protein,no box_vectos/modeller get, then get them from ligands
@@ -110,7 +109,6 @@ def make_system(
             custom_bonds(
                 protein.topology, protein.positions, protein_config["custom_res_bonds"]
             )
-        box_vectors = protein.getTopology().getPeriodicBoxVectors()
         modeller = app.Modeller(protein.topology, protein.positions)
     if ligands_config:
         ligands = ligands_from_config(ligands_config)
@@ -119,21 +117,6 @@ def make_system(
             for ligand in ligands
         ]
 
-    # if didn't get box_vectors from protein,get it from ligands
-    if box_vectors is None:
-        from openmm.app.internal.unitcell import computePeriodicBoxVectors
-
-        _unit = unit.nanometers
-        pos_list = [
-            pos.value_in_unit(_unit) for pos in ligands_pos_opmm_unit
-        ]
-        pos_np = np.concatenate(pos_list, axis=0) * _unit
-        box_size = max(pos_np.max(axis=0) - pos_np.min(axis=0)) + 2 * 1 * _unit
-        _size = box_size.value_in_unit(_unit)
-        _angle = 90 * np.pi / 180.0
-        box_vectors = computePeriodicBoxVectors(
-            _size, _size, _size, _angle, _angle, _angle
-        )
 
     forcefield = ComplexForceField(**forcefield_kwargs)
     if ligands:
@@ -158,6 +141,25 @@ def make_system(
                 gaff_generator,
             )
         forcefield.forcefield.registerTemplateGenerator(gaff_generator.generator)
+
+    # if didn't get box_vectors from protein,get it from ligands
+    if modeller.getTopology().getPeriodicBoxVectors():
+        box_vectors = modeller.getTopology().getPeriodicBoxVectors()
+    else:
+        from openmm.app.internal.unitcell import computePeriodicBoxVectors
+
+        _unit = unit.nanometers
+        pos_list = [
+            pos.value_in_unit(_unit) for pos in ligands_pos_opmm_unit
+        ]
+        pos_np = np.concatenate(pos_list, axis=0) * _unit
+        box_size = max(pos_np.max(axis=0) - pos_np.min(axis=0)) + 2 * 1 * _unit
+        _size = box_size.value_in_unit(_unit)
+        _angle = 90 * np.pi / 180.0
+        box_vectors = computePeriodicBoxVectors(
+            _size, _size, _size, _angle, _angle, _angle
+        )
+        modeller.getTopology().setPeriodicBoxVectors(box_vectors)
 
     if additional_config is None:
         additional_config = {}
@@ -201,7 +203,7 @@ def make_system(
             if resvariant[index] is None:
                 continue
             print(
-                "residue {} {} change form {} to {}\n".format(
+                "residue {} {} change from {} to {}\n".format(
                     res.id, res.chain.id, res.name, resvariant[index]
                 )
             )
