@@ -144,6 +144,8 @@ class Pipeline(BasePipeline):
         return positions
 
     def run_md(self, output_dir=None):
+        import time,datetime
+
         if output_dir is None:
             output_dir = self.basedir
         os.makedirs(output_dir, exist_ok=True)
@@ -156,7 +158,36 @@ class Pipeline(BasePipeline):
             )
         )
         # run simulatoin
-        self.engine.run_md(remaining_steps)
+        start_time = time.time()
+        interval = 5000
+        dt = self.engine.simulation.integrator.getStepSize() / unit.nanoseconds
+        for _turn in range(int(remaining_steps / interval) + 1):
+            _steps = min(remaining_steps - interval * _turn, interval)
+            self.engine.run_md(_steps)
+            end_time = time.time()
+
+            finished_steps = _turn * interval + _steps
+            progress = finished_steps / remaining_steps
+            elapsed_sec = time.time() - start_time
+            elapsed_str = str(datetime.timedelta(seconds=int(elapsed_sec)))
+
+            steps_per_sec = (_turn * interval + _steps) / (end_time - start_time)
+            steps_per_hour = 3600 * steps_per_sec
+            steps_per_day = 24 * steps_per_hour
+
+            remaining_sec = (remaining_steps - finished_steps) / steps_per_sec
+            end_time = start_time + elapsed_sec + remaining_sec
+            end_time_str = datetime.datetime.fromtimestamp(end_time).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+
+            print(
+                f"已运行: {elapsed_str} | "
+                + f"已完成: {progress:.2f}% | "
+                + f"速率: {steps_per_day*dt:.1f} ns/day ({steps_per_hour*dt:.1f} ns/hour) | "
+                + f"预计结束: {end_time_str}",
+                end="\r",
+            )
         self.engine.save_last(output_dir)
         positions = self.engine.get_positions()
         return positions
