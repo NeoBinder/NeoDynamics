@@ -140,6 +140,161 @@ class GAFFTemplateGenerator(openffGAFFTemplateGenerator):
 
         return self._generator(forcefield, residue)
 
+    def _run_antechamber(
+        self,
+        molecule_filename,
+        input_format="sdf",
+        gaff_mol2_filename=None,
+        frcmod_filename=None,
+        verbosity=0,
+        net_charge=0
+    ):
+        """Run AmberTools antechamber and parmchk2 to create GAFF mol2 and frcmod files.
+
+        Parameters
+        ----------
+        molecule_filename : str
+            The molecule to be parameterized.
+        input_format : str
+            antechamber input format for molecule_filename
+        gaff_mol2_filename : str, optional, default=None
+            Name of GAFF mol2 filename to output.  If None, uses local directory
+            and molecule_name
+        frcmod_filename : str, optional, default=None
+            Name of GAFF frcmod filename to output.  If None, uses local directory
+            and molecule_name
+        input_format : str, optional, default='mol2'
+            Format specifier for input file to pass to antechamber.
+        verbosity : int, default=0
+            Verbosity for antechamber
+
+        Returns
+        -------
+        gaff_mol2_filename : str
+            GAFF format mol2 filename produced by antechamber containing GAFF 1/2 atom types
+        frcmod_filename : str
+            Amber frcmod file containing additional parameters for the molecule not found in corresponding gaff.dat
+        """
+        if gaff_mol2_filename is None:
+            gaff_mol2_filename = "molecule.gaff.mol2"
+        if frcmod_filename is None:
+            frcmod_filename = "molecule.frcmod"
+
+        # Build absolute paths for input and output files
+        import os
+
+        molecule_filename = os.path.abspath(molecule_filename)
+        gaff_mol2_filename = os.path.abspath(gaff_mol2_filename)
+        frcmod_filename = os.path.abspath(frcmod_filename)
+
+        def read_file_contents(filename):
+            infile = open(filename)
+            contents = infile.read()
+            infile.close()
+            return contents
+
+        # Use temporary directory context to do this to avoid issues with spaces in filenames, etc.
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cwd = os.getcwd()
+            os.chdir(tmpdir)
+
+            local_input_filename = "in." + input_format
+            import shutil
+
+            shutil.copy(molecule_filename, local_input_filename)
+
+            # Determine whether antechamber supports -dr [yes/no] option
+            cmd = "antechamber -h | grep dr"
+            supports_acdoctor = False
+            if "acdoctor" in subprocess.getoutput(cmd):
+                supports_acdoctor = True
+
+            if self._gaff_major_version == "1":
+                atom_type = "gaff"
+                charge_type="bcc"
+            elif self._gaff_major_version == "2":
+                atom_type = "gaff2"
+                charge_type="abcg2"
+            else:
+                raise ValueError(f"gaff major version {self._gaff_major_version} unknown")
+
+            # Run antechamber without charging (which is done separately)
+            cmd = (
+                f"antechamber -i {local_input_filename} -fi {input_format} "
+                f"-o out.mol2 -fo mol2 -s {verbosity} -at {atom_type} "
+                f"-c {charge_type} -nc {int(net_charge.magnitude)} "
+            )
+            if supports_acdoctor:
+                cmd += " -dr " + ("yes" if verbosity else "no")
+
+            _logger.debug(cmd)
+            output = subprocess.getoutput(cmd)
+            import os
+
+            if not os.path.exists("out.mol2"):
+                msg = "antechamber failed to produce output mol2 file\n"
+                msg += f"command: {cmd}\n"
+                msg += "output:\n"
+                msg += 8 * "----------" + "\n"
+                msg += output
+                msg += 8 * "----------" + "\n"
+                msg += "input:\n"
+                msg += 8 * "----------" + "\n"
+                msg += read_file_contents(local_input_filename)
+                msg += 8 * "----------" + "\n"
+                # TODO: Run antechamber again with acdoctor mode on (-dr yes) to get more debug info, if supported
+                os.chdir(cwd)
+                raise Exception(msg)
+            _logger.debug(output)
+
+            # Run parmchk.
+            shutil.copy(self.gaff_dat_filename, "gaff.dat")
+            cmd = f"parmchk2 -i out.mol2 -f mol2 -p gaff.dat -o out.frcmod -s {self._gaff_major_version} -a Y"
+
+            _logger.debug(cmd)
+            output = subprocess.getoutput(cmd)
+            if not os.path.exists("out.frcmod"):
+                msg = "parmchk2 failed to produce output frcmod file\n"
+                msg += f"command: {cmd}\n"
+                msg += "output:\n"
+                msg += 8 * "----------" + "\n"
+                msg += output
+                msg += 8 * "----------" + "\n"
+                msg += "input mol2:\n"
+                msg += 8 * "----------" + "\n"
+                msg += read_file_contents("out.mol2")
+                msg += 8 * "----------" + "\n"
+                os.chdir(cwd)
+                raise Exception(msg)
+            _logger.debug(output)
+            self._check_for_errors(output)
+
+            # Copy back
+            shutil.copy("out.mol2", gaff_mol2_filename)
+            shutil.copy("out.frcmod", frcmod_filename)
+
+            os.chdir(cwd)
+
+        return gaff_mol2_filename, frcmod_filename
+
+    def get_charges_from_mol2(self, mol2):
+        import pint
+
+        with open(mol2, "r") as f:
+            lines = f.readlines()
+        for i, line in enumerate(lines):
+            if line.startswith("@<TRIPOS>ATOM"):
+                line0 = i
+            if line.startswith("@<TRIPOS>BOND"):
+                line1 = i
+                break
+        charges = [
+            float(line.strip().split()[-1]) for line in lines[line0 + 1 : line1]
+        ] * pint.Unit("elementary_charge")
+        return charges
     def generate_residue_template(
         self, molecule, original_residue=None, residue_atoms=None
     ):
@@ -177,23 +332,6 @@ class GAFFTemplateGenerator(openffGAFFTemplateGenerator):
         assert len(molecule.atoms) == len(set(atom.name for atom in molecule.atoms))
         # Compute net formal charge
         net_charge = molecule.total_charge
-        import pint
-
-        if not isinstance(net_charge, pint.Quantity):
-            net_charge = float(net_charge) * pint.Unit('elementary_charge')
-        _logger.debug(f"Total charge is {net_charge}")
-
-        # Compute partial charges if required
-        if self._molecule_has_user_charges(molecule):
-            _logger.debug(
-                f"Using user-provided charges because partial charges are nonzero..."
-            )
-        else:
-            _logger.debug(f"Computing AM1-BCC charges...")
-            # NOTE: generate_conformers seems to be required for some molecules
-            # https://github.com/openforcefield/openff-toolkit/issues/492
-            molecule.generate_conformers(n_conformers=10)
-            molecule.assign_partial_charges(partial_charge_method="am1bcc")
 
         # Generate a single conformation
         _logger.debug(f"Generating a conformer...")
@@ -219,6 +357,7 @@ class GAFFTemplateGenerator(openffGAFFTemplateGenerator):
             input_format="mdl",
             gaff_mol2_filename=gaff_mol2_filename,
             frcmod_filename=frcmod_filename,
+            net_charge = net_charge
         )
 
         # Read the resulting GAFF mol2 file atom types
@@ -236,14 +375,31 @@ class GAFFTemplateGenerator(openffGAFFTemplateGenerator):
         _logger.debug(f"Fixing partial charges...")
         _logger.debug(f"{molecule.partial_charges}")
 
+        import pint
+
+        if not isinstance(net_charge, pint.Quantity):
+            net_charge = float(net_charge) * pint.Unit('elementary_charge')
+        _logger.debug(f"Total charge is {net_charge}")
+        # Compute partial charges if required
+        if self._molecule_has_user_charges(molecule):
+            _logger.debug(
+                f"Using user-provided charges because partial charges are nonzero..."
+            )
+        else:
+            _logger.debug(f"Computing AM1-BCC charges...")
+            # NOTE: generate_conformers seems to be required for some molecules
+            # https://github.com/openforcefield/openff-toolkit/issues/492
+            molecule.partial_charges = self.get_charges_from_mol2(gaff_mol2_filename)
+
         total_charge = sum(molecule.partial_charges)
         sum_of_absolute_charge = sum(abs(molecule.partial_charges))
         charge_deficit = net_charge - total_charge
         # if each atom is zero charged,like H2, then "abs(molecule.partial_charges) / sum_of_absolute_charge" would be error
+
         if sum_of_absolute_charge.magnitude > 0.0:
             # Redistribute excess charge proportionally to absolute charge
-            molecule.partial_charges += (
-                charge_deficit * abs(molecule.partial_charges) / sum_of_absolute_charge
+            molecule.partial_charges = (
+                molecule.partial_charges + charge_deficit * abs(molecule.partial_charges) / sum_of_absolute_charge
             )
         _logger.debug(f"{molecule.partial_charges}")
 

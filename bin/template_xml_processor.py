@@ -2,6 +2,7 @@ import argparse
 from box import Box
 import pandas as pd
 import numpy as np
+import os
 from neomd.builder.forcefiled import ComplexForceField
 from neomd.builder.ligand import ligands_from_config
 from openmm import app, unit
@@ -48,7 +49,9 @@ def fix_torsion_params(torsions,fix_info):
             continue
         torsions.remove(torsion)
 
-    for key,csv_f in fix_info.items():
+    for key,_fix_info in fix_info.items():
+        if _fix_info.__class__ != Box: continue
+        if not _fix_info.get('param_csv'): continue
         class1, class2, class3, class4 = key.split('-')
         torsion = ET.SubElement(torsions, 
                                 'Proper',            
@@ -56,13 +59,16 @@ def fix_torsion_params(torsions,fix_info):
                                 class2=class2,
                                 class3=class3,
                                 class4=class4)
-        df=pd.read_csv(csv_f)
+        divide_factor = _fix_info.get('divide_factor',1)
+        df=pd.read_csv(_fix_info['param_csv'])
         for index, row in df.iterrows():
             torsion.set(f'periodicity{index+1}',
                         str(int(np.round(row['periodicity'])))
                         )
             torsion.set(f'phase{index+1}', str(row['phase']))
-            torsion.set(f'k{index+1}', str(row['k']))
+            torsion.set(f'k{index+1}',
+                         str(row['k']/divide_factor)
+                         )
 def strip_all_element_text_tail(root):
     for e in root.iter(): 
         if e.text is not None:

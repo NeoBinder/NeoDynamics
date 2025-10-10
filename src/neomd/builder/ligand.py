@@ -74,10 +74,10 @@ def ligands_from_config(config):
             )
         if lig_info.get("partial_charges"):
             with open(lig_info["partial_charges"]) as f:
-                charge = f.read()
-            charge = list(map(float, charge.split()))
-            charge = np.array(charge)
-            ligand.assign_partial_charges(charge)
+                charges = [float(line.strip().split()[-1]) for line in f 
+                        if line.strip()]
+            charges = np.array(charges)
+            ligand.assign_partial_charges(charges)
         ligands.append(ligand)
     return ligands
 
