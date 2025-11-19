@@ -1,18 +1,18 @@
 # NeoDynamics
 
-NeoDynamics is NeoBinder's open soruce project for Molecular Dynamics SDK ontop of openmm.
+NeoDynamics is NeoBinder's open source project for Molecular Dynamics SDK built on top of OpenMM.
 
-NeoDynamics is tested on method generic md methods and metadynamics.
+NeoDynamics has been tested with generic MD methods and metadynamics.
 
-This Package contains:
-- OpenMM related pipelines including generic md, metadynamics. (possibly qmmm/gamd/machine-learning powered md released later.)
-- OpenMM system build
-- Protein Conformation analysis based on OpenMM engine with various Forcefileds
-- Ligand Force Fileds creation and Ligand ForceFileds supplied externally (from AM1BCC / DFT / or expert designed)
+This package contains:
+- OpenMM related pipelines including generic MD, metadynamics (QM/MM, GAMD, and machine learning-powered MD to be released later)
+- OpenMM system building tools
+- Protein conformation analysis based on OpenMM engine with various forcefields
+- Ligand forcefield creation and support for externally supplied ligand forcefields (from AM1BCC, DFT, or expert designed)
 
 # Installation
-NeoDynamics can be installed with:
-## (*preferred*) By pixi Installation 
+NeoDynamics can be installed using:
+## (*preferred*) Pixi Installation 
 
 1. Install [pixi](https://pixi.sh/latest/#alternative-installation-methods)
 ```bash
@@ -46,14 +46,14 @@ pixi install
 pixi shell
 ```
 
-## By Conda Installation
+## Conda Installation
 ```bash
 mkdir -p /path/to/project
 cd /path/to/project
 git clone git@github.com:NeoBinder/NeoDynamics.git
 cd /path/to/project/NeoDynamics
 conda env create --name neomd -f environment.yaml
-# devmode installation
+# development mode installation
 conda activate neomd
 pip install -e ./
 ```
@@ -62,9 +62,9 @@ pip install -e ./
 
 ## Examples
 ```bash
-# prep_system
-python3  /path/to/project/NeoDynamics/bin/prepare_openmm_system /path/to/project/NeoDynamics/examples/prep_system.yaml
-# generic md
+# prepare system
+python3 /path/to/project/NeoDynamics/bin/prepare_openmm_system.py /path/to/project/NeoDynamics/examples/prep_system.yaml
+# generic MD
 python3 /path/to/project/NeoDynamics/bin/run_generic_md.py /path/to/project/NeoDynamics/examples/min.yaml
 python3 /path/to/project/NeoDynamics/bin/run_generic_md.py /path/to/project/NeoDynamics/examples/eq.yaml
 # metadynamics
