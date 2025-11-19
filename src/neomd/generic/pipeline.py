@@ -159,19 +159,21 @@ class Pipeline(BasePipeline):
         )
         # run simulatoin
         start_time = time.time()
+        _current_time = start_time
         interval = 5000
         dt = self.engine.simulation.integrator.getStepSize() / unit.nanoseconds
         for _turn in range(int(remaining_steps / interval) + 1):
             _steps = min(remaining_steps - interval * _turn, interval)
+            if not _steps: break
             self.engine.run_md(_steps)
-            end_time = time.time()
+            current_time = time.time()
 
             finished_steps = _turn * interval + _steps
             progress = finished_steps / remaining_steps
-            elapsed_sec = time.time() - start_time
+            elapsed_sec = current_time - start_time
             elapsed_str = str(datetime.timedelta(seconds=int(elapsed_sec)))
 
-            steps_per_sec = (_turn * interval + _steps) / (end_time - start_time)
+            steps_per_sec = _steps / (current_time - _current_time)
             steps_per_hour = 3600 * steps_per_sec
             steps_per_day = 24 * steps_per_hour
 
@@ -183,11 +185,12 @@ class Pipeline(BasePipeline):
 
             print(
                 f"已运行: {elapsed_str} | "
-                + f"已完成: {progress:.2f}% | "
+                + f"已完成: {progress * 100:.2f}% | "
                 + f"速率: {steps_per_day*dt:.1f} ns/day ({steps_per_hour*dt:.1f} ns/hour) | "
                 + f"预计结束: {end_time_str}",
                 end="\r",
             )
+            _current_time = current_time
         self.engine.save_last(output_dir)
         positions = self.engine.get_positions()
         return positions

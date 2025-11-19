@@ -40,7 +40,7 @@ def add_chirals_constraint(chirals,match_ls,ff,degree_tolerance=5):
                                         dih_deg-degree_tolerance,
                                         dih_deg+degree_tolerance,
                                         1.e4)
-            
+
 def get_chiral_dihedrals(mol,chiral_id,match_ls,confid=0):
     neighbors_id = [n.GetIdx() for n in mol.GetAtomWithIdx(chiral_id).GetNeighbors()]
     assert len(neighbors_id) == 4
@@ -55,7 +55,7 @@ def get_chiral_dihedrals(mol,chiral_id,match_ls,confid=0):
                 if at4 in match_ls or at4 in [at1,at3]: continue
                 dihs[f'{at1}-{chiral_id}-{at3}-{at4}']= rdMolTransforms.GetDihedralDeg(conf, at1,chiral_id,at3,at4)
     return dihs
-    
+
 def get_chirals(mol,match_ls):
     """获取分子中所有手性碳的信息"""
     chiral_centers = {}
@@ -207,6 +207,8 @@ def pos_smiles2sdf(args):
             )
     elif args.input.endswith('.sdf'):
         struct = Chem.MolFromMolFile(args.input)
+    else:
+        raise ValueError("输入文件格式不支持, 仅支持.pdb或.sdf文件")
     
     mol = mol_smiles_to_pos_mol(
         struct, 
@@ -217,9 +219,16 @@ def pos_smiles2sdf(args):
     if args.fix_CH:
         mol = fix_CH_angle(mol)
     
-    Chem.MolToMolFile(mol, args.output)
+    if args.output.endswith('.sdf'):
+        Chem.MolToMolFile(mol, args.output)
+    elif args.output.endswith('.pdb'):
+        Chem.MolToPDBFile(mol, args.output)
+    elif args.output.endswith('.xyz'):
+        Chem.MolToXYZFile(mol, args.output)
+    else:
+        raise ValueError(f"不支持输出格式: {args.output}")
     print(f"生成文件: {args.output}")
-    
+
 
 def conformer_generation(mol,N_CONF=100):
     # Generate conformers
@@ -278,6 +287,42 @@ def smiles2sdf(args):
     print(f'sdf saved to: {output_f}')
     return mol
 
+def reorder_sdf(args):
+    input_f = args.input
+    order_str = args.order
+    order = [int(x)-1 for x in order_str.split(',')]
+
+    mol = Chem.MolFromMolFile(input_f,removeHs=False)
+    if mol is None:
+        raise ValueError("无法读取输入文件或文件为空")
+
+    if len(order) != mol.GetNumAtoms():
+        raise ValueError("提供的原子顺序长度与分子原子数不匹配")
+        
+    # 创建新的分子并按指定顺序添加原子
+    emol = Chem.EditableMol(Chem.Mol())
+    for idx in order:
+        atom = mol.GetAtomWithIdx(idx)
+        emol.AddAtom(atom) 
+
+    # 添加键
+    for bond in mol.GetBonds():
+        begin_idx = bond.GetBeginAtomIdx()
+        end_idx = bond.GetEndAtomIdx()
+        new_begin_idx = order.index(begin_idx)
+        new_end_idx = order.index(end_idx)
+        emol.AddBond(new_begin_idx, new_end_idx, bond.GetBondType())
+
+    new_mol = emol.GetMol()
+    AllChem.EmbedMolecule(new_mol)
+    conf = new_mol.GetConformer(0)
+    for idx in range(new_mol.GetNumAtoms()):
+        _pos = mol.GetConformer(0).GetAtomPosition(order[idx])
+        conf.SetAtomPosition(idx, _pos)   
+    Chem.SanitizeMol(new_mol)
+    Chem.MolToMolFile(new_mol,
+                    args.output)
+
 def main():
     parser = argparse.ArgumentParser(description='RDKit分子处理工具集')
     subparsers = parser.add_subparsers(dest='command', required=True)
@@ -308,6 +353,20 @@ def main():
                               help='输出文件(.sdf/.pdb/.xyz)')
     parser_convert.set_defaults(func=convert_format)
 
+    parser_convert = subparsers.add_parser('reorder_sdf', 
+                                         help='转换sdf文件内原子顺序')
+    parser_convert.add_argument('-i', '--input', required=True,
+                              help='输入文件(.sdf)')
+    parser_convert.add_argument(
+        "-od","--order",
+        required=True,
+        help='原子顺序, 逗号分隔的原子索引列表, 从1开始计数。\
+如希望现在的atom 1,2,3 按2,3,1顺序排列, 则输入"2,3,1"',
+    )
+    parser_convert.add_argument('-o', '--output', required=True,
+                              help='输出文件(.sdf)')
+    parser_convert.set_defaults(func=reorder_sdf)
+
     parser_smiles2sdf = subparsers.add_parser('smiles2sdf', 
                                          help='将SMILES结构匹配到坐标文件并生成SDF')
     parser_smiles2sdf.add_argument('-s', '--smiles', required=True,
@@ -315,7 +374,6 @@ def main():
     parser_smiles2sdf.add_argument('-o', '--output', required=True,
                               help='输出文件(.sdf/.pdb/.xyz)')
     parser_smiles2sdf.set_defaults(func=smiles2sdf)
-
 
     args = parser.parse_args()
     args.func(args)  # 调用对应的函数

@@ -8,6 +8,26 @@ from neomd.builder.ligand import ligands_from_config
 from openmm import app, unit
 import xml.etree.ElementTree as ET
 
+def generate_template_from_existing_xml(args):
+    from neomd.io.system_loader import load_complex
+    config = Box.from_yaml(filename=args.config)
+    residue = ligands_from_config(config.get("residue"))[0]
+    residue = load_
+
+    if protein_config.get("custom_res_bonds"):
+        custom_bonds(
+            protein.topology, protein.positions, protein_config["custom_res_bonds"]
+        )
+    modeller = app.Modeller(protein.topology, protein.positions)
+    forcefield = ComplexForceField(**config.get('ff_setting',None))
+    # gaff_generator = forcefield.init_gaff_generator()
+    # gaff_generator.debug_ffxml_filename = config.get("output_xml")
+    _res=[res for res in modeller.topology.residues()][0]
+    _res.name=ligand.molecule.name
+    # forcefield.add_molecule(
+    #                         ligand.molecule,
+    #                         gaff_generator,
+    #                         )
 def generate_template(args):
     config = Box.from_yaml(filename=args.config)
     ligand = ligands_from_config(config.get("ligands"))[0]

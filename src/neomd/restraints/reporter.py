@@ -6,7 +6,30 @@ from openmm.app import PDBFile, PDBxFile
 
 from neomd.utils import idstr2list
 
+def calculate_dihedral(p1, p2, p3, p4):
+    p1 = np.array(p1, dtype=np.float64)
+    p2 = np.array(p2, dtype=np.float64)
+    p3 = np.array(p3, dtype=np.float64)
+    p4 = np.array(p4, dtype=np.float64)
 
+    b1 = p2 - p1  
+    b2 = p3 - p2  
+    b3 = p4 - p3  
+
+    n1 = np.cross(b1, b2)
+    n2 = np.cross(b2, b3)
+
+    n1 /= np.linalg.norm(n1)
+    n2 /= np.linalg.norm(n2)
+
+    m1 = np.cross(n1, b2 / np.linalg.norm(b2))
+    x = np.dot(n1, n2)
+    y = np.dot(m1, n2)
+
+    dihedral_rad = -np.arctan2(y, x)
+    dihedral_deg = np.degrees(dihedral_rad)
+    
+    return dihedral_deg
 def calculate_com(mass_list, positions, idxlist):
     total_mass = 0.0
     com1 = np.array([0, 0, 0])
@@ -131,6 +154,14 @@ class RestraintReporter(object):
                 for key, value in output_energy.items():
                     tmpline += ",fgroup={},{}".format(key, value)
                 line += tmpline + "."
+            elif rest_config["type"] == "dihedral":
+                output_energy, dih = self.get_restraint_dihedral(
+                    simulation=simulation, restraint_config=rest_config
+                )
+                tmpline += "{}:dihedral={:.1f}".format(rest_name, dih)
+                for key, value in output_energy.items():
+                    tmpline += ",fgroup={},{}".format(key, value)
+                line += tmpline + "."
             elif rest_config["type"] == "ref_file":
                 output_energy, dist = self.get_restraint_ref_file(
                     simulation=simulation, restraint_config=rest_config
@@ -171,6 +202,12 @@ class RestraintReporter(object):
                 )
                 for key, value in output_energy.items():
                     line += "{}:fgroup={},{}.".format(rest_name, key, value)
+            elif rest_config['type'] == 'rmsd':
+                output_energy = self.get_energy_only(
+                    simulation=simulation, restraint_config=rest_config)
+                for key, value in output_energy.items():
+                    line += '{}:fgroup={},{}.'.format(
+                        rest_name, key, value)
             else:
                 raise ValueError(
                     "Unknown restraint type: {}".format(rest_config["type"])
@@ -302,6 +339,29 @@ class RestraintReporter(object):
             output_energy[_fgroup] = state.getPotentialEnergy()
         return output_energy, angle
 
+
+    def get_restraint_dihedral(self, simulation, restraint_config):
+        state = simulation.context.getState(getPositions=True)
+        pos = state.getPositions(asNumpy=True)
+        com1 = calculate_com(
+            self.mass_list, pos.value_in_unit(unit.nanometers), restraint_config.grp1
+        )
+        com2 = calculate_com(
+            self.mass_list, pos.value_in_unit(unit.nanometers), restraint_config.grp2
+        )
+        com3 = calculate_com(
+            self.mass_list, pos.value_in_unit(unit.nanometers), restraint_config.grp3
+        )
+        com4 = calculate_com(
+            self.mass_list, pos.value_in_unit(unit.nanometers), restraint_config.grp4
+        )
+        dihedral = calculate_dihedral(com1, com2, com3, com4)
+        output_energy = {}
+        for _fgroup in restraint_config["fgroup"]:
+            state = simulation.context.getState(getEnergy=True, groups={_fgroup})
+            output_energy[_fgroup] = state.getPotentialEnergy()
+        return output_energy, dihedral
+    
     def get_restraint_distance(self, simulation, restraint_config):
         state = simulation.context.getState(getPositions=True)
         pos = state.getPositions(asNumpy=True)
@@ -343,5 +403,13 @@ class RestraintReporter(object):
         output_energy = {}
         for _fgroup in restraint_config["fgroup"]:
             state = simulation.context.getState(getEnergy=True, groups={_fgroup})
+            output_energy[_fgroup] = state.getPotentialEnergy()
+        return output_energy
+
+    def get_energy_only(self, simulation=None, restraint_config=None):
+        output_energy = {}
+        for _fgroup in restraint_config["fgroup"]:
+            state = simulation.context.getState(getEnergy=True,
+                                                groups={_fgroup})
             output_energy[_fgroup] = state.getPotentialEnergy()
         return output_energy

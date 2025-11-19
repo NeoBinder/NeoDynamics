@@ -3,7 +3,7 @@ from openmm.openmm import CustomCentroidBondForce
 from neomd.utils import floatstr2list, idstr2list
 
 
-def generate_restraint(restraint_config, system=None):
+def generate_restraint(restraint_config):
     if restraint_config["type"] == "funnel":
         restraint = generate_restraint_funnel(restraint_config)
     elif restraint_config["type"] == "distance":
@@ -12,10 +12,10 @@ def generate_restraint(restraint_config, system=None):
         restraint = generate_restraint_angle(restraint_config)
     elif restraint_config["type"] == "dihedral":
         restraint = generate_restraint_dihedral(restraint_config)
-    # elif restraint_config["type"] == "ref_file":
-    #     restraint = generate_restraint_ref_file(restraint_config, system=system)
     elif restraint_config["type"] == "dist_ref_position":
         restraint = generate_dist_ref_position(restraint_config)
+    elif restraint_config['type'] == 'rmsd':
+        restraint = generate_restraint_rmsd(restraint_config)
     elif restraint_config["type"] == "xyz_box":
         restraint = generate_xyz_box(restraint_config)
     elif restraint_config["type"] == "vec_restraint":
@@ -267,7 +267,10 @@ def generate_restraint_dihedral(restraint_config):
     restraint_config.max_degree = fix_max_angle(
         restraint_config.min_degree, restraint_config.max_degree
     )
-
+    restraint_config.grp1=idstr2list(restraint_config.grp1)
+    restraint_config.grp2=idstr2list(restraint_config.grp2)
+    restraint_config.grp3=idstr2list(restraint_config.grp3)
+    restraint_config.grp4=idstr2list(restraint_config.grp4)
     arctan_x = f"atan(tan((dihedral(g1,g2,g3,g4)-(min_dih{_name}+max_dih{_name})/2)/2))"
     arctan_half_diff = f"atan(tan((max_dih{_name} - min_dih{_name})/4))"
     energy_min = f"abs(min({arctan_x} - (-({arctan_half_diff})), 0))"
@@ -279,7 +282,7 @@ def generate_restraint_dihedral(restraint_config):
             restraint_config.grp3,
             restraint_config.grp4,
         ],
-        "func": f"k*({energy_min}+{energy_max})^order{_name}",
+        "func": f"k{_name}*({energy_min}+{energy_max})^order{_name}",
         "params": {
             f"k{_name}": restraint_config.restr_k * unit.kilojoules_per_mole,
             f"min_dih{_name}": restraint_config.min_degree * unit.degree,
@@ -456,3 +459,27 @@ def generate_dist_ref_position(restraint_config):
         return_ls.append(generate_ref_position_max_restraint(restraint_config))
 
     return return_ls
+
+def generate_restraint_rmsd(restraint_config):
+    import openmm
+    from openmm.app import PDBxFile, PDBFile
+    
+    if restraint_config.ref_pos_file.endswith('.pdbx'):
+        pos=PDBxFile(restraint_config.ref_pos_file).positions
+    elif restraint_config.ref_pos_file.endswith('.pdb'):
+        pos=PDBFile(restraint_config.ref_pos_file).positions
+    else:
+        raise ValueError(f'ref_pos_file should be pdb or pdbx, {restraint_config.ref_pos_file} is not either')
+
+    rmsd_cv = openmm.RMSDForce(pos,
+                               idstr2list(restraint_config.restr_grp))
+
+    _name=restraint_config.name
+    maxRMSD = restraint_config.maxRMSD_nm * unit.nanometer
+    k_r = restraint_config.restr_k * unit.kilojoules_per_mole
+    energy_expression = "(k{0}/2)*max(0, RMSD-maxRMSD{0})^2".format(_name)
+    restraint_force = openmm.CustomCVForce(energy_expression)
+    restraint_force.addCollectiveVariable('RMSD', rmsd_cv)
+    restraint_force.addGlobalParameter('maxRMSD{0}'.format(_name), maxRMSD)
+    restraint_force.addGlobalParameter("k{0}".format(_name), k_r)
+    return restraint_force
