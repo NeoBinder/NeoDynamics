@@ -1,7 +1,6 @@
 import os
 
 import openmm
-from openmm import app
 
 
 def get_platform(method="cuda", cuda_index="0"):
@@ -31,9 +30,11 @@ def get_platform(method="cuda", cuda_index="0"):
     config = {}
     if method.lower() == "cuda":
         platform = openmm.Platform.getPlatformByName("CUDA")
+        visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
+        device_index = visible_devices.split(",")[0] if visible_devices else cuda_index
         platform_properties = {
             "CudaPrecision": "single",
-            "DeviceIndex": os.environ.get("CUDA_VISIBLE_DEVICE", cuda_index),
+            "DeviceIndex": device_index,
         }
         config["platform"] = platform
         config["platformProperties"] = platform_properties
@@ -41,23 +42,11 @@ def get_platform(method="cuda", cuda_index="0"):
         platform = openmm.Platform.getPlatformByName("CPU")
         config["platform"] = platform
     else:
-        raise NotImplementedError("please use cuda")
+        raise NotImplementedError(
+            'platform method "{}" is not supported, use "cuda" or "cpu"'.format(method)
+        )
 
     return config
-
-
-def load_pdb_positions_and_box_vectors(pdb_coords_filename):
-    import parmed
-    pdbf = app.PDBFile(pdb_coords_filename)
-    pdb_parmed = parmed.load_file(pdb_coords_filename)
-    assert pdb_parmed.box_vectors is not None, (
-        "No box vectors "
-        "found in {}. ".format(pdb_coords_filename)
-        + "Box vectors for an anchor must be defined with a CRYST "
-        "line within the PDB file."
-    )
-
-    return pdbf, pdb_parmed.box_vectors
 
 
 def idstr2list(idstr):
@@ -117,67 +106,5 @@ def check_config(config):
     }
     for k in config.keys():
         if k not in allow_set:
-            raise Exception('config with key "{}" is not allow'.format(k))
+            raise ValueError('config with key "{}" is not allow'.format(k))
 
-
-def system_from_amber(prmtop, incprd):
-    """
-    Read topology and coordinate information from Amber format files.
-
-    Parameters
-    ----------
-    prmtop : str
-        The path of the Amber format topology file.
-    incprd : str
-        The path of the Amber format coordinate file.
-
-    Returns
-    -------
-    topology : openmm.app.Topology
-        The read topology.
-    positions : list
-        The read coordinate information.
-    box_vectors : list
-        The read box vector information.
-
-    Exceptions
-    ------
-    ValueError
-        If the coordinate file format is incorrect (neither PDB format nor Amber format).
-    """
-    prmtop = app.AmberPrmtopFile(prmtop)
-    if incprd.endswith(".pdb"):
-        inpcrd = app.PDBFile(incprd)
-    else:
-        inpcrd = app.AmberInpcrdFile(incprd)
-    return prmtop.topology, inpcrd.getPositions(), inpcrd.getBoxVectors()
-
-
-def system_from_gromacs(top_path, gro_path, include_dir):
-    """
-    Read topology and coordinate information from Gromacs format files.
-
-    Parameters
-    ----------
-    top_path : str
-        The path of the Gromacs format topology file.
-    gro_path : str
-        The path of the Gromacs format coordinate file.
-    include_dir : str
-        The directory path containing the files.
-
-    Returns
-    -------
-    topology : openmm.app.Topology
-        The read topology.
-    positions : list
-        The read coordinate information.
-    box_vectors : list
-        The read box vector information.
-
-    """
-    gro = app.GromacsGroFile(gro_path)
-    top = app.GromacsTopFile(
-        top_path, periodicBoxVectors=gro.getPeriodicBoxVectors(), includeDir=include_dir
-    )
-    return top.topology, gro.positions, gro.getPeriodicBoxVectors()

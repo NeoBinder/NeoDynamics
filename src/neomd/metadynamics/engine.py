@@ -5,9 +5,9 @@ from functools import reduce
 
 import numpy as np
 import openmm as mm
-from openmm import app, unit
+from openmm import unit
 
-from neomd.generic.engine import OpenmmEngine, get_integrator
+from neomd.generic.engine import OpenmmEngine, _create_simulation
 from neomd.logger import get_logger
 from neomd.metadynamics.colvar import generate_colvar
 
@@ -61,8 +61,6 @@ class MetadynamicsEngine(OpenmmEngine):
         )
 
         self.frequency = config.meta_set.frequency
-        self.saveFrequency = config.output.report_interval
-        self.reportInterval = config.output.report_interval
         self.steps = config.steps
 
         variables = [
@@ -71,26 +69,7 @@ class MetadynamicsEngine(OpenmmEngine):
         ]
         self.prepare_metadynamics_bias(neosystem.system, variables)
         # prepare metadynamics
-        checkpoint = config.input_files.get("checkpoint")
-        state = config.input_files.get("state")
-        self.simulation = app.Simulation(
-            neosystem.topology,
-            neosystem.system,
-            get_integrator(config),
-            state=state,
-            **platform_config,
-        )
-        # please double check the box vectors is correct
-        self.simulation.context.setPeriodicBoxVectors(
-            *neosystem.get_default_periodicbox_vectors()
-        )
-        if checkpoint:
-            self.simulation.loadCheckpoint(checkpoint)
-        if state is None and checkpoint is None:
-            self.simulation.context.setPositions(neosystem.positions)
-        # please make sure temperature has been set
-        # otherwise particle will be nan
-        self.simulation.context.setVelocitiesToTemperature(config.temperature)
+        self.simulation = _create_simulation(neosystem, config, platform_config)
 
         if config.continue_md:
             self.continue_metadynamics(config.output.output_dir)
@@ -105,8 +84,8 @@ class MetadynamicsEngine(OpenmmEngine):
         variables: list of BiasVariables
             the collective variables to sample
         """
-        assert self.biasFactor > 1.0  # biasFactor should > 1
-        assert self.saveFrequency is not None
+        if self.biasFactor <= 1.0:
+            raise ValueError("biasFactor should be > 1.0")
         self.variables = variables
         self._saveIndex = 0
         # self._selfBias = np.zeros(tuple(v.gridWidth for v in reversed(variables)))
@@ -154,11 +133,8 @@ class MetadynamicsEngine(OpenmmEngine):
     def continue_metadynamics(self, input_dir):
         colvar_file = os.path.join(input_dir, "COLVAR.npy")
         bias_file = os.path.join(input_dir, "bias_last.npy")
-        if os.path.isfile(colvar_file):
-            self.colvar_array = np.load(colvar_file)
-            logger.info("Load COLVAR FILE:{}".format(colvar_file))
-        else:
-            raise IOError("Missing COLVAR file: {}".format(colvar_file))
+        self.colvar_array = np.load(colvar_file).tolist()
+        logger.info("Load COLVAR FILE:{}".format(colvar_file))
         self._totalBias += np.load(bias_file)
         if len(self.variables) == 1:
             self._table.setFunctionParameters(self._totalBias.flatten(), *self._limits)
@@ -179,7 +155,7 @@ class MetadynamicsEngine(OpenmmEngine):
 
     @property
     def steps_per_cycle(self):
-        return math.ceil(self.steps / self.total_cycles)
+        return self.frequency
 
     def update_context_check(self):
         # if update_context_frequency is None, update context every step
@@ -281,9 +257,8 @@ class MetadynamicsEngine(OpenmmEngine):
             ]
         )
         if not hasattr(self, "colvar_array"):
-            self.colvar_array = np.array([current_cv])
-        else:
-            self.colvar_array = np.append(self.colvar_array, [current_cv], axis=0)
+            self.colvar_array = []
+        self.colvar_array.append(current_cv)
 
     def save_colvar(self, output_dir):
         # Write the initial collective variable record.
@@ -291,7 +266,7 @@ class MetadynamicsEngine(OpenmmEngine):
         bias_file = os.path.join(output_dir, "bias_last.npy")
         colvar_file = os.path.join(output_dir, "COLVAR.npy")
         np.save(bias_file, self._totalBias)
-        np.save(colvar_file, self.colvar_array)
+        np.save(colvar_file, np.asarray(self.colvar_array))
 
     def run_md(self, output_dir):
         """Run the metadynamics simulation."""

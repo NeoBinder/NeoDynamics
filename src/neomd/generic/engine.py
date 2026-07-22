@@ -1,5 +1,4 @@
 import os
-from turtle import pos
 
 import numpy as np
 import openmm
@@ -33,7 +32,6 @@ def get_energy_gradients_with_constraints(positions, engine, constraints_k):
     energy, forces = engine.get_energy_forces()
     energy = energy.value_in_unit(unit.kilojoule_per_mole)
     gradients = -1 * forces.value_in_unit(unit.kilojoule / unit.nanometer / unit.mole)
-    # gradient = force.value_in_unit(unit.kilojoule / unit.nanometer / unit.mole)
 
     i_indices, j_indices, constraints = engine.constraints
     # delta in x,y,z form
@@ -52,6 +50,30 @@ def get_energy_gradients_with_constraints(positions, engine, constraints_k):
     return energy, gradients
 
 
+def _create_simulation(neosystem, config, platform_config):
+    checkpoint = config.input_files.get("checkpoint")
+    state = config.input_files.get("state")
+    simulation = app.Simulation(
+        neosystem.topology,
+        neosystem.system,
+        get_integrator(config),
+        **platform_config,
+    )
+    # please double check the box vectors is correct
+    simulation.context.setPeriodicBoxVectors(
+        *neosystem.system.getDefaultPeriodicBoxVectors())
+    if checkpoint:
+        simulation.loadCheckpoint(checkpoint)
+    elif state:
+        simulation.loadState(state)
+    else:
+        simulation.context.setPositions(neosystem.positions)
+        # please make sure temperature has been set
+        # otherwise particle will be nan
+        simulation.context.setVelocitiesToTemperature(config.temperature)
+    return simulation
+
+
 class OpenmmEngine(BaseEngine):
 
     def __init__(self, simulation, *args, **kwargs):
@@ -60,26 +82,7 @@ class OpenmmEngine(BaseEngine):
 
     @classmethod
     def from_config(cls, neosystem, config, platform_config, *args, **kwargs):
-        checkpoint = config.input_files.get("checkpoint")
-        state = config.input_files.get("state")
-        simulation = app.Simulation(
-            neosystem.topology,
-            neosystem.system,
-            get_integrator(config),
-            **platform_config,
-        )
-        # please double check the box vectors is correct
-        simulation.context.setPeriodicBoxVectors(
-            *neosystem.system.getDefaultPeriodicBoxVectors())
-        if checkpoint:
-            simulation.loadCheckpoint(checkpoint)
-        elif state: 
-            simulation.loadState(state)
-        else:
-            simulation.context.setPositions(neosystem.positions)
-            # please make sure temperature has been set
-            # otherwise particle will be nan
-            simulation.context.setVelocitiesToTemperature(config.temperature)
+        simulation = _create_simulation(neosystem, config, platform_config)
         return cls(simulation)
 
     @property
@@ -143,19 +146,6 @@ class OpenmmEngine(BaseEngine):
             positions = unit.Quantity(positions) * unit.nanometer
         self.simulation.context.setPositions(positions)
 
-    @staticmethod
-    def set_force_groups(system):
-        [force.setForceGroup(0) for force in system.getForces()]
-        freeGroups = set(range(32)) - set(
-            force.getForceGroup() for force in system.getForces()
-        )
-        for force in system.getForces():
-            current_id = max(freeGroups)
-            force.setForceGroup(current_id)
-            freeGroups.remove(current_id)
-        set_groups = set(force.getForceGroup() for force in system.getForces())
-        return set_groups
-
     def step(self, *args, **kwargs):
         return self.simulation.step(*args, **kwargs)
 
@@ -204,12 +194,13 @@ class OpenmmEngine(BaseEngine):
     def save_last(self, output_dir):
         # quick save
         positions = self.get_positions()
-        app.PDBxFile.writeFile(
-            self.simulation.topology,
-            positions,
-            open(os.path.join(output_dir, "last.pdbx"), "w"),
-            keepIds=True,
-        )
+        with open(os.path.join(output_dir, "last.pdbx"), "w") as f:
+            app.PDBxFile.writeFile(
+                self.simulation.topology,
+                positions,
+                f,
+                keepIds=True,
+            )
 
         with open(os.path.join(output_dir, "last_system.xml"), "w") as f:
             f.write(openmm.XmlSerializer.serialize(self.simulation.system))

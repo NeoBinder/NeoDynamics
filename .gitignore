@@ -180,3 +180,4 @@ idea/
 # pixi environments
 .pixi
 *.egg-info
+.codegraph

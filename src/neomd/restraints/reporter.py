@@ -1,10 +1,6 @@
 __all__ = ["RestraintReporter"]
 import numpy as np
-import openmm
 from openmm import unit
-from openmm.app import PDBFile, PDBxFile
-
-from neomd.utils import idstr2list
 
 def calculate_dihedral(p1, p2, p3, p4):
     p1 = np.array(p1, dtype=np.float64)
@@ -51,10 +47,7 @@ def angle_3points_rad(A, B, C):
 
 
 class RestraintReporter(object):
-    """DCDReporter outputs a series of frames from a Simulation to a DCD file.
-
-    To use it, create a DCDReporter, then add it to the Simulation's list of reporters.
-    """
+    """Report restraint energies and geometric quantities during a simulation."""
 
     def __init__(
         self,
@@ -64,28 +57,12 @@ class RestraintReporter(object):
         reportInterval,
         enforcePeriodicBox=None,
     ):
-        """Create a DCDReporter.
-
-        Parameters
-        ----------
-        file : string
-            The file to write to
-        reportInterval : int
-            The interval (in time steps) at which to write frames
-        append : bool=False
-            If True, open an existing DCD file to append to.  If False, create a new file.
-        enforcePeriodicBox: bool
-            Specifies whether particle positions should be translated so the center of every molecule
-            lies in the same periodic box.  If None (the default), it will automatically decide whether
-            to translate molecules based on whether the system being simulated uses periodic boundary
-            conditions.
-        """
+        """Create a RestraintReporter."""
         # restraint_config: {{},{}}
         self.mass_list = mass_list
         self._reportInterval = reportInterval
         self._enforcePeriodicBox = enforcePeriodicBox
         self.filehandler = filehandler
-        self._restraint = None
         self.restraint_config = restraint_config
 
     def describeNextReport(self, simulation):
@@ -122,15 +99,7 @@ class RestraintReporter(object):
         line = "{},".format(out_time)
         for rest_name, rest_config in self.restraint_config.items():
             tmpline = ""
-            if rest_config["type"] == "sphere":
-                output_energy, dist = self.get_restraint_sphere(
-                    simulation=simulation, restraint_config=rest_config
-                )
-                for key, value in output_energy.items():
-                    line += "{}:dist={},fgroup={},{}.".format(
-                        rest_name, dist, key, value
-                    )
-            elif rest_config["type"] == "funnel":
+            if rest_config["type"] == "funnel":
                 output_energy, dist, angle = self.get_restraint_funnel(
                     simulation=simulation, restraint_config=rest_config
                 )
@@ -162,16 +131,6 @@ class RestraintReporter(object):
                 for key, value in output_energy.items():
                     tmpline += ",fgroup={},{}".format(key, value)
                 line += tmpline + "."
-            elif rest_config["type"] == "ref_file":
-                output_energy, dist = self.get_restraint_ref_file(
-                    simulation=simulation, restraint_config=rest_config
-                )
-                tmpline += "{}:dist={:.3f}".format(rest_name, dist)
-                for key, value in dist.items():
-                    tmpline += ",dis[{}]={:.3f}".format(key, value)
-                for key, value in output_energy.items():
-                    tmpline += ",fgroup={},{}.".format(key, value)
-                line += tmpline + "."
             elif rest_config["type"] == "xyz_box":
                 output_energy, xyz = self.get_restraint_xyz_box(
                     simulation=simulation, restraint_config=rest_config
@@ -196,14 +155,8 @@ class RestraintReporter(object):
                     line += "{}:vec_dist={},fgroup={},{}.".format(
                         rest_name, dist, key, value
                     )
-            elif rest_config["type"] == "test":
-                output_energy = self.get_restraint_test(
-                    simulation=simulation, restraint_config=rest_config
-                )
-                for key, value in output_energy.items():
-                    line += "{}:fgroup={},{}.".format(rest_name, key, value)
             elif rest_config['type'] == 'rmsd':
-                output_energy = self.get_energy_only(
+                output_energy = self._energy_by_fgroup(
                     simulation=simulation, restraint_config=rest_config)
                 for key, value in output_energy.items():
                     line += '{}:fgroup={},{}.'.format(
@@ -219,54 +172,40 @@ class RestraintReporter(object):
     def __del__(self):
         self.filehandler.close()
 
-    def get_restraint_sphere(self, simulation, restraint_config):
+    def _positions_nm(self, simulation):
         state = simulation.context.getState(getPositions=True)
         pos = state.getPositions(asNumpy=True)
-        com1 = calculate_com(
-            self.mass_list,
-            pos.value_in_unit(unit.nanometers),
-            restraint_config.cent_grp,
-        )
-        com2 = calculate_com(
-            self.mass_list,
-            pos.value_in_unit(unit.nanometers),
-            restraint_config.restr_grp,
-        )
-        dist = np.linalg.norm(com1 - com2)
-        output_energy = {}
-        state = simulation.context.getState(
-            getEnergy=True, groups={restraint_config["fgroup"]}
-        )
-        output_energy[restraint_config["fgroup"]] = state.getPotentialEnergy()
-        return output_energy, dist
+        return pos.value_in_unit(unit.nanometers)
 
-    def get_restraint_dist_ref_position(self, simulation, restraint_config):
-        state = simulation.context.getState(getPositions=True)
-        pos = state.getPositions(asNumpy=True)
-        com = calculate_com(
-            self.mass_list,
-            pos.value_in_unit(unit.nanometers),
-            restraint_config.restr_grp,
-        )
-        ref = restraint_config.ref_position_nm.value_in_unit(unit.nanometer)
-        dist = np.linalg.norm(com - ref)
+    def _energy_by_fgroup(self, simulation, restraint_config):
         output_energy = {}
         for _fgroup in restraint_config["fgroup"]:
             state = simulation.context.getState(getEnergy=True, groups={_fgroup})
             output_energy[_fgroup] = state.getPotentialEnergy()
+        return output_energy
+
+    def get_restraint_dist_ref_position(self, simulation, restraint_config):
+        pos = self._positions_nm(simulation)
+        com = calculate_com(
+            self.mass_list,
+            pos,
+            restraint_config.restr_grp,
+        )
+        ref = restraint_config.ref_position_nm.value_in_unit(unit.nanometer)
+        dist = np.linalg.norm(com - ref)
+        output_energy = self._energy_by_fgroup(simulation, restraint_config)
         return output_energy, dist
 
     def get_vec_restraint(self, simulation, restraint_config):
-        state = simulation.context.getState(getPositions=True)
-        pos = state.getPositions(asNumpy=True)
+        pos = self._positions_nm(simulation)
         com1 = calculate_com(
             self.mass_list,
-            pos.value_in_unit(unit.nanometers),
+            pos,
             restraint_config.vec_grp1,
         )
         com2 = calculate_com(
             self.mass_list,
-            pos.value_in_unit(unit.nanometers),
+            pos,
             restraint_config.vec_grp2,
         )
         ref1 = restraint_config.pos_ref1_nm.value_in_unit(unit.nanometer)
@@ -274,142 +213,65 @@ class RestraintReporter(object):
         _vec = np.array(com1 - com2)
         ref_vec = np.array(ref1) - np.array(ref2)
         dist = np.linalg.norm(_vec - ref_vec)
-        output_energy = {}
-        for _fgroup in restraint_config["fgroup"]:
-            state = simulation.context.getState(getEnergy=True, groups={_fgroup})
-            output_energy[_fgroup] = state.getPotentialEnergy()
+        output_energy = self._energy_by_fgroup(simulation, restraint_config)
         return output_energy, dist
 
     def get_restraint_xyz_box(self, simulation, restraint_config):
-        state = simulation.context.getState(getPositions=True)
-        pos = state.getPositions(asNumpy=True)
+        pos = self._positions_nm(simulation)
         com = calculate_com(
             self.mass_list,
-            pos.value_in_unit(unit.nanometers),
+            pos,
             restraint_config.restr_grp,
         )
-        output_energy = {}
-        for _fgroup in restraint_config["fgroup"]:
-            state = simulation.context.getState(getEnergy=True, groups={_fgroup})
-            output_energy[_fgroup] = state.getPotentialEnergy()
+        output_energy = self._energy_by_fgroup(simulation, restraint_config)
         return output_energy, com
 
     def get_restraint_funnel(self, simulation, restraint_config):
-        state = simulation.context.getState(getPositions=True)
-        pos = state.getPositions(asNumpy=True)
+        pos = self._positions_nm(simulation)
         com1 = calculate_com(
             self.mass_list,
-            pos.value_in_unit(unit.nanometers),
+            pos,
             restraint_config.restr_grp,
         )
         com2 = calculate_com(
             self.mass_list,
-            pos.value_in_unit(unit.nanometers),
+            pos,
             restraint_config.gate_grp,
         )
         com3 = calculate_com(
             self.mass_list,
-            pos.value_in_unit(unit.nanometers),
+            pos,
             restraint_config.pocket_grp,
         )
         dist = np.linalg.norm(com1 - com2)
         angle = 180 * angle_3points_rad(com1, com2, com3) / np.pi
-        output_energy = {}
-        for _fgroup in restraint_config["fgroup"]:
-            state = simulation.context.getState(getEnergy=True, groups={_fgroup})
-            output_energy[_fgroup] = state.getPotentialEnergy()
+        output_energy = self._energy_by_fgroup(simulation, restraint_config)
         return output_energy, dist, angle
 
     def get_restraint_angle(self, simulation, restraint_config):
-        state = simulation.context.getState(getPositions=True)
-        pos = state.getPositions(asNumpy=True)
-        com1 = calculate_com(
-            self.mass_list, pos.value_in_unit(unit.nanometers), restraint_config.grp1
-        )
-        com2 = calculate_com(
-            self.mass_list, pos.value_in_unit(unit.nanometers), restraint_config.grp2
-        )
-        com3 = calculate_com(
-            self.mass_list, pos.value_in_unit(unit.nanometers), restraint_config.grp3
-        )
+        pos = self._positions_nm(simulation)
+        com1 = calculate_com(self.mass_list, pos, restraint_config.grp1)
+        com2 = calculate_com(self.mass_list, pos, restraint_config.grp2)
+        com3 = calculate_com(self.mass_list, pos, restraint_config.grp3)
         angle = 180 * angle_3points_rad(com1, com2, com3) / np.pi
-        output_energy = {}
-        for _fgroup in restraint_config["fgroup"]:
-            state = simulation.context.getState(getEnergy=True, groups={_fgroup})
-            output_energy[_fgroup] = state.getPotentialEnergy()
+        output_energy = self._energy_by_fgroup(simulation, restraint_config)
         return output_energy, angle
 
 
     def get_restraint_dihedral(self, simulation, restraint_config):
-        state = simulation.context.getState(getPositions=True)
-        pos = state.getPositions(asNumpy=True)
-        com1 = calculate_com(
-            self.mass_list, pos.value_in_unit(unit.nanometers), restraint_config.grp1
-        )
-        com2 = calculate_com(
-            self.mass_list, pos.value_in_unit(unit.nanometers), restraint_config.grp2
-        )
-        com3 = calculate_com(
-            self.mass_list, pos.value_in_unit(unit.nanometers), restraint_config.grp3
-        )
-        com4 = calculate_com(
-            self.mass_list, pos.value_in_unit(unit.nanometers), restraint_config.grp4
-        )
+        pos = self._positions_nm(simulation)
+        com1 = calculate_com(self.mass_list, pos, restraint_config.grp1)
+        com2 = calculate_com(self.mass_list, pos, restraint_config.grp2)
+        com3 = calculate_com(self.mass_list, pos, restraint_config.grp3)
+        com4 = calculate_com(self.mass_list, pos, restraint_config.grp4)
         dihedral = calculate_dihedral(com1, com2, com3, com4)
-        output_energy = {}
-        for _fgroup in restraint_config["fgroup"]:
-            state = simulation.context.getState(getEnergy=True, groups={_fgroup})
-            output_energy[_fgroup] = state.getPotentialEnergy()
+        output_energy = self._energy_by_fgroup(simulation, restraint_config)
         return output_energy, dihedral
-    
+
     def get_restraint_distance(self, simulation, restraint_config):
-        state = simulation.context.getState(getPositions=True)
-        pos = state.getPositions(asNumpy=True)
-        com1 = calculate_com(
-            self.mass_list, pos.value_in_unit(unit.nanometers), restraint_config.grp1
-        )
-        com2 = calculate_com(
-            self.mass_list, pos.value_in_unit(unit.nanometers), restraint_config.grp2
-        )
+        pos = self._positions_nm(simulation)
+        com1 = calculate_com(self.mass_list, pos, restraint_config.grp1)
+        com2 = calculate_com(self.mass_list, pos, restraint_config.grp2)
         dist = np.linalg.norm(com1 - com2)
-        output_energy = {}
-        for _fgroup in restraint_config["fgroup"]:
-            state = simulation.context.getState(getEnergy=True, groups={_fgroup})
-            output_energy[_fgroup] = state.getPotentialEnergy()
+        output_energy = self._energy_by_fgroup(simulation, restraint_config)
         return output_energy, dist
-
-    def get_restraint_ref_file(self, simulation, restraint_config):
-        state = simulation.context.getState(getPositions=True)
-        pos = state.getPositions(asNumpy=True)
-        atomsToRestrain = idstr2list(restraint_config.restr_grp)
-        if restraint_config.ref_file.endswith(".pdb"):
-            ref_position = PDBFile(restraint_config.ref_file).positions
-        elif restraint_config.ref_file.endswith(".pdbx"):
-            ref_position = PDBxFile(restraint_config.ref_file).positions
-        else:
-            raise NotImplementedError(
-                "unrecognised file: {}\n".format(restraint_config.ref_file)
-            )
-        dist_dic = {}
-        for idx in atomsToRestrain:
-            dist_dic[idx] = np.linalg.norm(pos[idx] - ref_position[idx])
-        output_energy = {}
-        for _fgroup in restraint_config["fgroup"]:
-            state = simulation.context.getState(getEnergy=True, groups={_fgroup})
-            output_energy[_fgroup] = state.getPotentialEnergy()
-        return output_energy, dist_dic
-
-    def get_restraint_test(self, simulation, restraint_config):
-        output_energy = {}
-        for _fgroup in restraint_config["fgroup"]:
-            state = simulation.context.getState(getEnergy=True, groups={_fgroup})
-            output_energy[_fgroup] = state.getPotentialEnergy()
-        return output_energy
-
-    def get_energy_only(self, simulation=None, restraint_config=None):
-        output_energy = {}
-        for _fgroup in restraint_config["fgroup"]:
-            state = simulation.context.getState(getEnergy=True,
-                                                groups={_fgroup})
-            output_energy[_fgroup] = state.getPotentialEnergy()
-        return output_energy

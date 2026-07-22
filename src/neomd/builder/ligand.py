@@ -3,7 +3,6 @@ import os
 import networkx as nx
 import numpy as np
 from openff.toolkit.topology import Molecule as openff_Molecule
-from openff.toolkit.topology import Topology as openff_Topology
 from rdkit import Chem
 from openmm import unit
 
@@ -103,12 +102,6 @@ class Ligand:
             self.molecule._normalize_partial_charges()
 
     @classmethod
-    def from_topology(cls, topology):
-        top = openff_Topology.from_openmm(topology)
-        mol = openff_Molecule.from_topology(top)
-        return mol
-
-    @classmethod
     def from_path(cls, ligand_path):
         rdkitmolh = load_rdmol(ligand_path)
         #  rdkitmolh = Chem.AddHs(rdkitmol, addCoords=True)
@@ -117,10 +110,6 @@ class Ligand:
         ligand_mol = openff_Molecule.from_rdkit(rdkitmolh,
                             hydrogens_are_explicit = True)
         return Ligand(ligand_mol)
-
-    @classmethod
-    def from_smiles(cls, smiles):
-        return openff_Molecule.from_smiles(smiles, hydrogens_are_explicit=True)
 
     def generate_unique_atom_names(self):
         self.molecule.generate_unique_atom_names(suffix='')

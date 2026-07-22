@@ -44,7 +44,6 @@ def add_chirals_constraint(chirals,match_ls,ff,degree_tolerance=5):
 def get_chiral_dihedrals(mol,chiral_id,match_ls,confid=0):
     neighbors_id = [n.GetIdx() for n in mol.GetAtomWithIdx(chiral_id).GetNeighbors()]
     assert len(neighbors_id) == 4
-    at1,at2,at3,at4 = neighbors_id
     conf = mol.GetConformer(confid)
     dihs={}
     for at1 in neighbors_id:
@@ -257,8 +256,6 @@ def conformer_generation(mol,N_CONF=100):
         while converged != 0:
             ITER_NUM += 50
             converged = Chem.AllChem.MMFFOptimizeMolecule(mol,confId=conf,maxIters=ITER_NUM)
-        if converged != 0:
-            print(f'rotamer{conf} not converged after {ITER_NUM} iteration')
         mp = Chem.AllChem.MMFFGetMoleculeProperties(mol)
         cenergy.append(Chem.AllChem.MMFFGetMoleculeForceField(mol,mp,confId=conf).CalcEnergy())
     

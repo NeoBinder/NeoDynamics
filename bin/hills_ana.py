@@ -10,14 +10,6 @@ from ttk.calculator import get_center_of_mass
 from ttk.io import topology_parser
 
 
-def w_or_a(filename):
-    if os.path.exists(filename):
-        append_write = "a"  # append if already exists
-    else:
-        append_write = "w"  # make a new file if not
-    return append_write
-
-
 def df_from_hills(hill_path):
     f = open(hill_path, "r")
     hills = f.readlines()
@@ -31,22 +23,12 @@ def df_from_hills(hill_path):
 
 def time_from_cvs(hill_path, cv_values, cv_names, cv_buffer=0.1):
     df = df_from_hills(hill_path)
-    if len(cv_names) == 3:
-        df_sele = df[
-            (df[cv_names[0]] > cv_values[0] - cv_buffer)
-            & (df[cv_names[0]] < cv_values[0] + cv_buffer)
-            & (df[cv_names[1]] > cv_values[1] - cv_buffer)
-            & (df[cv_names[1]] < cv_values[1] + cv_buffer)
-            & (df[cv_names[2]] > cv_values[2] - cv_buffer)
-            & (df[cv_names[2]] < cv_values[2] + cv_buffer)
-        ]
-    elif len(cv_names) == 2:
-        df_sele = df[
-            (df[cv_names[0]] > cv_values[0] - cv_buffer)
-            & (df[cv_names[0]] < cv_values[0] + cv_buffer)
-            & (df[cv_names[1]] > cv_values[1] - cv_buffer)
-            & (df[cv_names[1]] < cv_values[1] + cv_buffer)
-        ]
+    mask = pd.Series(True, index=df.index)
+    for cv_name, cv_value in zip(cv_names, cv_values):
+        mask &= (df[cv_name] > cv_value - cv_buffer) & (
+            df[cv_name] < cv_value + cv_buffer
+        )
+    df_sele = df[mask]
     return df_sele[["time"]]
 
 
@@ -87,13 +69,13 @@ def pdb_from_dcd_cvs(
     if not out_top_f is None:
         out_top = PDBFile(out_top_f).getTopology()
     else:
-        out_top = PDBFile(top_f).getTopology()
-    if top_f.endswith(".pdb"):
-        ttk_top = topology_parser.topology_from_pdb(top_f)
-    elif top_f.endswith(".pdbx"):
+        out_top = PDBFile(in_top_f).getTopology()
+    if in_top_f.endswith(".pdb"):
+        ttk_top = topology_parser.topology_from_pdb(in_top_f)
+    elif in_top_f.endswith(".pdbx"):
         from openmm.app.pdbxfile import PDBxFile
 
-        opmm_top = PDBxFile(top_f).getTopology()
+        opmm_top = PDBxFile(in_top_f).getTopology()
         ttk_top = topology_parser.topology_from_openmmm(opmm_top)
     frames = []
     first_sele = 0
@@ -188,10 +170,10 @@ def calc_com_trj(trj, idx):
 
 
 def calc_dist_com_trj(pdb_f, idx1, idx2, top=None):
-    if trj_f.endswith(".pdb"):
-        trj = mdtraj.load_pdb(trj_f)
-    elif trj_f.endswith(".dcd"):
-        trj = mdtraj.load_dcd(trj_f, top=top)
+    if pdb_f.endswith(".pdb"):
+        trj = mdtraj.load_pdb(pdb_f)
+    elif pdb_f.endswith(".dcd"):
+        trj = mdtraj.load_dcd(pdb_f, top=top)
     cent1 = calc_com_trj(trj, idx1)
     cent2 = calc_com_trj(trj, idx2)
 

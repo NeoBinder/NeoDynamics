@@ -1,9 +1,12 @@
-from ast import Dict
 import os
 
 from openmm import unit
 
 from abc import ABC, abstractmethod
+
+from neomd.builder import NeoSystem
+from neomd.logger import get_logger
+from neomd.utils import check_config, get_platform
 
 
 class BasePipeline(ABC):
@@ -35,7 +38,6 @@ class BasePipeline(ABC):
 
     """
 
-    @abstractmethod
     def __init__(self, config, platform="cuda", cuda_index="0"):
         """
         Initialize the BasePipeline object by modify_config.
@@ -46,8 +48,25 @@ class BasePipeline(ABC):
             cuda_index (str): The index of the CUDA device to use, default is "0".
 
         """
-        self.config = config
-        raise NotImplementedError("BaesPipeline")
+        check_config(config)
+        self.config = self.modify_config(config)
+        self.platform_config = get_platform(method=platform, cuda_index=cuda_index)
+        os.makedirs(self.basedir, exist_ok=True)
+        self.logger = get_logger(
+            type(self).__module__, os.path.join(self.basedir, "logger.log")
+        )
+        self.neosystem = NeoSystem.from_config(config)
+        # temporarily set engine defalut to openmm
+        self.prepare_engine()
+        if self.config.get("restraint") and self.config.output.get(
+            "report_restraint", False
+        ):
+            self.config.output.restraint_interval = self.config.output.report_interval
+        else:
+            self.config.output.restraint_interval = 0
+
+    def prepare_engine(self):
+        raise NotImplementedError("prepare_engine")
 
     @property
     def basedir(self):
@@ -70,9 +89,42 @@ class BasePipeline(ABC):
         return self.config.output
 
     @staticmethod
-    @abstractmethod
     def modify_config(config):
-        pass
+        config.seed = config.get("seed", 0)
+        if config.input_files.get("templates"):
+            config.input_files.templates = config.input_files.templates.split(",")
+        else:
+            config.input_files.templates = None
+
+        if config.get("md"):
+            config.steps = int(config.steps)
+
+        if config.get("temperature") is None:
+            config.temperature = 298
+
+        config['continue_md'] = config.get("continue_md", False)
+        if config.continue_md:
+            if config.input_files.get("checkpoint") and config.input_files.get("state"):
+                raise ValueError('checkpoint and state can not be both specified')
+            elif not config.input_files.get("state"):
+                config.input_files['checkpoint'] = config.input_files.get('checkpoint',
+                                                                        os.path.join(config.output.output_dir, "output.ckpt"))
+                config.input_files['state'] = None
+            else:
+                config.input_files['checkpoint'] = None
+        else:
+            config.input_files['state'] = None
+            config.input_files['checkpoint'] = None
+
+        config.output["trajectory_interval"] = config.output.get(
+            "trajectory_interval", 0
+        )
+        config.output["state_interval"] = config.output.get("state_interval", 0)
+        config.output["checkpoint_interval"] = config.output.get(
+            "checkpoint_interval", 0
+        )
+        config.output["restraint_interval"] = config.output.get("restraint_interval", 0)
+        return config
 
     @abstractmethod
     def run_minimization(self, output_dir=None):

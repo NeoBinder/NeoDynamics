@@ -224,7 +224,7 @@ def make_system(
 
 
 def prepare_system(config):
-    config = Box.from_yaml(filename=args.config)
+    config = Box.from_yaml(filename=config)
     if config.get("from_gromacs"):
         gro = app.GromacsGroFile(config["from_gromacs"].get("gro"))
         _top = app.GromacsTopFile(

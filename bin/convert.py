@@ -1,9 +1,6 @@
 import argparse
 
-import numpy as np
 from openmm.app import PDBFile, PDBxFile
-from ttk.calculator import get_center_of_mass
-from ttk.io import PDBFile, topology_parser
 
 
 def load_file(fname):
@@ -62,36 +59,9 @@ def convert_to_amber_pdb(in_pdb, args):
             if if_keep:
                 f.write(line)
 
-    def pdb_period_fix(in_pdbfor, fname):
-        top = topology_parser.topology_from_pdb(in_pdb)
-        fchain = top.chains[0]
-        fc_com = get_center_of_mass(fchain.atoms)
-        print("first chain with com: {}".format(fc_com))
-        periodic_box_xyz = top.periodic_box.to_vector()
-        for chain in top.chains[1:]:
-            chain_com = get_center_of_mass(chain.atoms)
-            print("origin topology with chain {} and com:{}".format(chain, chain_com))
-            com_diff = chain_com - fc_com
-            print(com_diff)
-            for idx, value in enumerate(com_diff):
-                shift_array = np.array([0, 0, 0])
-                if value > periodic_box_xyz[idx] / 2:
-                    shift_array[idx] -= periodic_box_xyz[idx]
-                if value < -(periodic_box_xyz[idx] / 2):
-                    shift_array[idx] = periodic_box_xyz[idx]
-                chain.positions += shift_array
-        for chain in top.chains[1:]:
-            print(
-                "result topology with chain {} and com:{}".format(
-                    chain, get_center_of_mass(chain.atoms)
-                )
-            )
-        PDBFile().write_file(top, open(fname, "w"))
-
 
 if __name__ == "__main__":
     import os
-    import sys
 
     parser = argparse.ArgumentParser(description="pdb file convert setting")
     parser.add_argument("pdbx_file", type=str, help="input .pdbx file")

@@ -6,6 +6,18 @@ from openmm.app.metadynamics import BiasVariable
 from neomd.utils import idstr2list
 
 
+def _make_bias_variable(force, config, cv_unit, default_periodic):
+    suffix = "nm" if cv_unit is nanometer else "degree"
+    return BiasVariable(
+        force,
+        getattr(config, "min_cv_" + suffix) * cv_unit,
+        getattr(config, "max_cv_" + suffix) * cv_unit,
+        getattr(config, "biasWidth_" + suffix) * cv_unit,
+        config.get("is_period", default_periodic),
+        gridWidth=config.bins,
+    )
+
+
 def generate_colvar_distance(config):
     cv_dis = CustomCentroidBondForce(2, "distance(g1,g2)")
 
@@ -15,15 +27,7 @@ def generate_colvar_distance(config):
     cv_dis.addGroup(grp2_idx)
     cv_dis.addBond([0, 1])
     cv_dis.setUsesPeriodicBoundaryConditions(True)
-    cv = BiasVariable(
-        cv_dis,
-        config.min_cv_nm * nanometer,
-        config.max_cv_nm * nanometer,
-        config.biasWidth_nm * nanometer,
-        config.get("is_period", False),
-        gridWidth=config.bins,
-    )
-    return cv
+    return _make_bias_variable(cv_dis, config, nanometer, False)
 
 
 def generate_colvar_distance_ref(config):
@@ -42,15 +46,7 @@ def generate_colvar_distance_ref(config):
     config.ref_pos = [float(x) for x in config.ref_pos.split(",")]
     cv_dis.addBond([0], config.ref_pos * nanometer)
     cv_dis.setUsesPeriodicBoundaryConditions(True)
-    cv = BiasVariable(
-        cv_dis,
-        config.min_cv_nm * nanometer,
-        config.max_cv_nm * nanometer,
-        config.biasWidth_nm * nanometer,
-        config.get("is_period", False),
-        gridWidth=config.bins,
-    )
-    return cv
+    return _make_bias_variable(cv_dis, config, nanometer, False)
 
 
 def generate_colvar_min_distances(config):
@@ -60,15 +56,7 @@ def generate_colvar_min_distances(config):
     cv_dis.addGroup(idstr2list(config.min_idx2))
     cv_dis.addBond([0, 1, 2])
     cv_dis.setUsesPeriodicBoundaryConditions(True)
-    cv = BiasVariable(
-        cv_dis,
-        config.min_cv_nm * nanometer,
-        config.max_cv_nm * nanometer,
-        config.biasWidth_nm * nanometer,
-        config.get("is_period", False),
-        gridWidth=config.bins,
-    )
-    return cv
+    return _make_bias_variable(cv_dis, config, nanometer, False)
 
 
 def generate_colvar_dihedral(config):
@@ -80,15 +68,7 @@ def generate_colvar_dihedral(config):
         idstr2list(config.grp4_idx)[0],
     )
     cv_dih.setUsesPeriodicBoundaryConditions(True)
-    cv = BiasVariable(
-        cv_dih,
-        config.min_cv_degree * unit.degree,
-        config.max_cv_degree * unit.degree,
-        config.biasWidth_degree * unit.degree,
-        config.get("is_period", True),
-        gridWidth=config.bins,
-    )
-    return cv
+    return _make_bias_variable(cv_dih, config, unit.degree, True)
 
 
 def generate_colvar_angle(config):
@@ -99,28 +79,22 @@ def generate_colvar_angle(config):
     cv_ang.addGroup(idstr2list(config.grp3_idx))
     cv_ang.addBond([0, 1, 2])
     cv_ang.setUsesPeriodicBoundaryConditions(True)
-    cv = BiasVariable(
-        cv_ang,
-        config.min_cv_degree * unit.degree,
-        config.max_cv_degree * unit.degree,
-        config.biasWidth_degree * unit.degree,
-        config.get("is_period", False),
-        gridWidth=config.bins,
-    )
-    return cv
+    return _make_bias_variable(cv_ang, config, unit.degree, False)
+
+
+_COLVAR_FUNCS = {
+    "distance": generate_colvar_distance,
+    "dihedral": generate_colvar_dihedral,
+    "angle": generate_colvar_angle,
+    "min_distances": generate_colvar_min_distances,
+    "distance_ref": generate_colvar_distance_ref,
+}
 
 
 def generate_colvar(colvar_config):
-    colvar2function_map = {
-        "distance": generate_colvar_distance,
-        "dihedral": generate_colvar_dihedral,
-        "angle": generate_colvar_angle,
-        "min_distances": generate_colvar_min_distances,
-        "distance_ref": generate_colvar_distance_ref,
-    }
-    if colvar_config["type"] not in colvar2function_map.keys():
+    if colvar_config["type"] not in _COLVAR_FUNCS:
         raise NotImplementedError(
             "colvar type:{} not defined".format(colvar_config["type"])
         )
-    colvar = colvar2function_map[colvar_config["type"]](colvar_config)
+    colvar = _COLVAR_FUNCS[colvar_config["type"]](colvar_config)
     return colvar

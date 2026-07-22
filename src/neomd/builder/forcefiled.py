@@ -2,6 +2,7 @@ import os
 from openmm import app, unit
 from openmm.app import ForceField as ForceFieldOpenmm
 from openmm.app.forcefield import _applyPatchesToMatchResidues, _findMatchErrors
+from openmm.app.internal import compiled
 
 from neomd.builder.template_generator import GAFFTemplateGenerator
 from neomd.logger import get_logger
@@ -146,14 +147,6 @@ class ComplexForceField:
         generator.add_molecules(ligand_mol)
         self.ligands.append(ligand_mol)
 
-    def registerAtomType_gaff(self):
-        gaff_generator = GAFFTemplateGenerator()
-        self.forcefield.loadFile(gaff_generator.gaff_xml_filename)
-
-    def template_from_xml(self, xml_f):
-        with open(xml_f, "r") as file:
-            self.forcefield.loadFile(file)
-
     @staticmethod
     def sys_params_from_config(sys_config):
         if sys_config is None:
@@ -175,18 +168,14 @@ class ComplexForceField:
 
     def createSystem(self, topology, **kwargs):
         if len(self.ligands):
-            from distutils.spawn import find_executable
+            import shutil
 
-            assert find_executable("antechamber") is not None
+            if shutil.which("antechamber") is None:
+                raise RuntimeError(
+                    "antechamber executable not found; it is required to "
+                    "parameterize ligands with GAFF"
+                )
         return self.forcefield.createSystem(topology, **kwargs)
-
-    def all_residues_generate_templates(
-        self, topology, residueTemplates=dict(), ignoreExternalBonds=False
-    ):
-        data = ForceField._SystemData(topology)
-        self.forcefield._matchAllResiduesToTemplates(
-            data, topology, residueTemplates, ignoreExternalBonds
-        )
 
     def create_new_residue_template(self, topology):
         template, unmatched_res = self.forcefield.generateTemplatesForUnmatchedResidues(
@@ -205,17 +194,6 @@ class ComplexForceField:
                             atom.type = atom2.type
                             atom.parameters = atom2.parameters
             else:
-                # check for either N-terminal or C-terminal or normal residue
-                if res_name == "PRO":
-                    N_termial_check = ["H2", "H3"]
-                else:
-                    N_termial_check = ["H1", "H2", "H3"]
-                C_terminal_check = ["OXT"]
-                is_N_terminal = True
-                is_C_terminal = True
-                res_name_ls = [atom.name for atom in res.atoms()]
-                for n_name in N_termial_check:
-                    is_N_terminal = is_N_terminal & n_name in N_termial_check
                 n_res_name = "N{}{}".format(
                     i, res_name
                 )  # get the name of the N-terminus form of original residue
@@ -264,15 +242,3 @@ class ComplexForceField:
         bondedToAtom = self.forcefield._buildBondedToAtomList(topology)
         for res in topology.residues():
             self.set_template_name_in_residue(res, bondedToAtom)
-
-    def get_atom_type(
-        self, topology, residueTemplates=dict(), ignoreExternalBonds=False
-    ):
-        data = ForceField._SystemData(topology)
-        self._matchAllResiduesToTemplates(
-            _matchAllResiduesToTemplates,
-            topology,
-            residueTemplates,
-            ignoreExternalBonds,
-        )
-        return data.atomType

@@ -2,8 +2,7 @@ import json
 
 import openmm
 from openff.toolkit.topology import Molecule as openff_Molecule
-from openmm import XmlSerializer, app, unit
-from openmm.app import PDBFile, PDBxFile
+from openmm import app, unit
 
 from neomd.io.system_loader import load_complex
 from neomd.builder.forcefiled import ComplexForceField
@@ -19,12 +18,14 @@ def max_force_grps_error(freeGroups):
 
 
 class NeoSystem:
-    def __init__(self, topology, positions, system, box_vectors, forcefield_kwargs={}):
+    def __init__(self, topology, positions, system, box_vectors, forcefield_kwargs=None):
         self.topology = topology
         self.positions = positions
         self.system = system
         self.box_vectors = box_vectors
         self.info = {}
+        if forcefield_kwargs is None:
+            forcefield_kwargs = {}
         self.forcefield = ComplexForceField(**forcefield_kwargs)
 
     @classmethod
@@ -50,11 +51,12 @@ class NeoSystem:
         forcefield_kwargs = {}
         if config.get("forcefield"):
             if config.forcefield.get("ff"):
-                forcefield_kwargs["forcefield"] = config.forcefield.ff
+                forcefield_kwargs["base_ff"] = config.forcefield.ff
             if config.forcefield.get("water_model"):
                 forcefield_kwargs["water_model"] = config.forcefield.water_model
 
-        system = openmm.XmlSerializer.deserialize(open(system_path, "r").read())
+        with open(system_path, "r") as f:
+            system = openmm.XmlSerializer.deserialize(f.read())
 
         neosystem = cls(
             topology,
@@ -78,12 +80,6 @@ class NeoSystem:
 
     def get_default_periodicbox_vectors(self):
         return self.box_vectors
-
-    def register_config(self, **kwargs):
-        self.info.update(kwargs)
-
-    def serialize_system(self):
-        return XmlSerializer.serialize(self.system)
 
     def add_barostat(self, config):
         if config.get("barostat"):
@@ -124,8 +120,6 @@ class NeoSystem:
                     max_force_grps_error(freeGroups)
                     self.system.addForce(restraint)
                 config.restraint[restraint_name]["fgroup"] = fgroup
-            if not config.output.get("report_restraint"):
-                config.output["report_restraint"] = False
 
     def add_constraints(self, constraints):
         for _i, _j, dist in constraints:
@@ -149,24 +143,3 @@ class NeoSystem:
         else:
             system = self.forcefield.createSystem(topology, **sys_args)
         return system
-
-
-#########################################################
-# loadSystem
-#########################################################
-
-
-def create_NeoSystem(
-    topology, positions, box_vectors, system_path, ligands=None, forcefield_kwargs=None
-):
-    system = openmm.XmlSerializer.deserialize(open(system_path, "r").read())
-
-    neosystem = NeoSystem(
-        topology, positions, system, box_vectors, forcefield_kwargs=forcefield_kwargs
-    )
-
-    if ligands:
-        for ligand_mol in ligands:
-            neosystem.forcefield.ligands.append(ligand_mol)
-
-    return neosystem

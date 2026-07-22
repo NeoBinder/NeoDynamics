@@ -1,15 +1,10 @@
 import os
-import datetime
-import neomd
 from neomd.generic import Pipeline
 
 from box import Box
 from neomd.metadynamics.pipeline import MetadynamicsPipeline
 
-package_dir = neomd.__file__
-for i in range(3):
-    package_dir = os.path.dirname(package_dir)
-
+package_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 output_dir = os.path.join(package_dir, "tests/data/_test")
 os.makedirs(output_dir, exist_ok=True)
 
@@ -107,17 +102,13 @@ meta_config = {
 def test_min():
     config = Box(min_config)
     pp = Pipeline(config, platform="cpu", cuda_index="0")
-    pp.logger.info("Starting simulation at time {}".format(datetime.datetime.now()))
     pp.run_minimization()
-    pp.logger.info("Ending simulation at time {}".format(datetime.datetime.now()))
 
 
 def test_eq():
     config = Box(eq_config)
     pp = Pipeline(config, platform="cpu", cuda_index="0")
-    pp.logger.info("Starting simulation at time {}".format(datetime.datetime.now()))
     pp.run_md()
-    pp.logger.info("Ending simulation at time {}".format(datetime.datetime.now()))
 
 
 def test_meta():
@@ -125,9 +116,5 @@ def test_meta():
     pp = MetadynamicsPipeline(
       config, platform="cpu", cuda_index="0"
     )
-    pp.logger.info("Starting simulation at time {}".format(datetime.datetime.now()))
     pp.run_md()
-
-    pp.logger.info("Ending simulation at time {}".format(datetime.datetime.now()))
-    pass
 

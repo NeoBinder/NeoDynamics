@@ -6,8 +6,8 @@ import shutil
 
 class RESP:
     def __init__(self, input_file, charge=0, multiplicity=1, solvent='Water', delta=0.5,
-                 orca_path='/export/hanxinhao/bin/orca/orca',
-                 orca_2mkl_path='/export/hanxinhao/bin/orca/orca_2mkl',
+                 orca_path='orca',
+                 orca_2mkl_path='orca_2mkl',
                  nprocs=8, maxcore=1000,
                  keyword='! B3LYP/G D3 def2-TZVP def2/J RIJCOSX',
                     output_file='resp2.chg',
@@ -179,10 +179,10 @@ Rn 26
             bool: 计算是否成功
         """
         print(f"正在运行ORCA计算: {input_file}")
-        orca_cmd = f"{self.orca_path} {input_file}"
+        orca_cmd = [self.orca_path, input_file]
         
         with open(output_file, 'w') as f:
-            return_code = subprocess.call(orca_cmd, shell=True, stdout=f, stderr=subprocess.STDOUT)
+            return_code = subprocess.call(orca_cmd, stdout=f, stderr=subprocess.STDOUT)
         
         # 检查是否正常结束
         if os.path.exists(output_file):
@@ -276,25 +276,25 @@ Rn 26
             print(f"Multiwfn计算出错: {e}")
             return False
     
+    @staticmethod
+    def _read_chg(path):
+        """
+        读取.chg电荷文件,返回每行拆分后的列表
+        """
+        charges = []
+        with open(path, 'r') as f:
+            for line in f:
+                if line.strip():
+                    charges.append(line.strip().split())
+        return charges
+
     def calculate_resp2_charges(self):
         """
         计算RESP2电荷
         """
         # 读取气相和溶剂相电荷
-        gas_charges = []
-        solv_charges = []
-        
-        with open(self.gas_chg_file, 'r') as f:
-            for line in f:
-                if line.strip():
-                    parts = line.strip().split()
-                    gas_charges.append(parts)
-        
-        with open(self.solv_chg_file, 'r') as f:
-            for line in f:
-                if line.strip():
-                    parts = line.strip().split()
-                    solv_charges.append(parts)
+        gas_charges = self._read_chg(self.gas_chg_file)
+        solv_charges = self._read_chg(self.solv_chg_file)
         
         # 计算RESP2电荷
         with open(self.output_file, 'w') as f:
@@ -333,7 +333,7 @@ Rn 26
                         shutil.rmtree(file)
                     else:
                         os.remove(file)
-                except:
+                except OSError:
                     pass
     
     def generate_equivcon_file(self):
@@ -432,8 +432,8 @@ def main():
     parser.add_argument('-s', '--solvent', default='Water', help='溶剂名称 (默认: Water)')
     parser.add_argument('-o', '--output', default='resp2.chg', help='resp2电荷输出文件 (默认: resp2.chg)')
     parser.add_argument('-d', '--delta', type=float, default=0.5, help='RESP2液相charge权重系数 (默认: 0.5)')
-    parser.add_argument('--orca', default='/export/hanxinhao/bin/orca/orca', help='ORCA程序路径')
-    parser.add_argument('--orca_2mkl', default='/export/hanxinhao/bin/orca/orca_2mkl', help='orca_2mkl工具路径')
+    parser.add_argument('--orca', default='orca', help='ORCA程序路径')
+    parser.add_argument('--orca_2mkl', default='orca_2mkl', help='orca_2mkl工具路径')
     parser.add_argument('--nprocs', type=int, default=8, help='CPU核心数 (默认: 8)')
     parser.add_argument('--maxcore', type=int, default=1000, help='每个核心内存(MB) (默认: 1000)')
     parser.add_argument('--keyword', default='! B3LYP/G D3 def2-TZVP def2/J RIJCOSX', help='ORCA计算关键词')

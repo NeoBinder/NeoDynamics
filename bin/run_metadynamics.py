@@ -1,28 +1,8 @@
-import os
 import datetime
 import argparse
 from neomd.metadynamics import MetadynamicsPipeline
 
 from box import Box
-
-
-def save_ene_grad(output_dir, out_dict):
-    import os
-
-    ene_str = ""
-    forces_str = ""
-    for force_id, force_v in out_dict.items():
-        ene_str += "force_id: {}\n".format(force_id)
-        ene_str += "force_name: {}\n".format(force_v["name"])
-        ene_str += "energy: {}\n".format(force_v["energy"])
-        forces_str += "force_id: {}\n".format(force_id)
-        forces_str += "force_name: {}\n".format(force_v["name"])
-        forces_str += "force:\n"
-        for _f in force_v["force"]:
-            forces_str += "{}\n".format(_f)
-    with open(os.path.join(output_dir, "energy_forces.txt"), "w") as f:
-        f.write(ene_str + "\n")
-        f.write(forces_str)
 
 
 def main_meta(args):

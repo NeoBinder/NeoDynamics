@@ -1,10 +1,25 @@
-import logging
+import os
 
 from openmmforcefields.generators import (
     GAFFTemplateGenerator as openffGAFFTemplateGenerator,
 )
 
-_logger = logging.getLogger("neomd.template_generators")
+from neomd.logger import get_logger
+
+_logger = get_logger("neomd.template_generators")
+
+
+def _load_ffxml_into_forcefield(forcefield, ffxml_contents, debug_ffxml_filename):
+    from io import StringIO
+
+    # Write to debug file if requested
+    if debug_ffxml_filename is not None:
+        with open(debug_ffxml_filename, "w") as outfile:
+            _logger.debug(f"writing ffxml to {debug_ffxml_filename}")
+            outfile.write(ffxml_contents)
+
+    # Add parameters and residue template for this residue
+    forcefield.loadFile(StringIO(ffxml_contents))
 
 
 class GAFFTemplateGenerator(openffGAFFTemplateGenerator):
@@ -32,8 +47,6 @@ class GAFFTemplateGenerator(openffGAFFTemplateGenerator):
                 "SmallMoleculeTemplateGenerator is an abstract base class and cannot be used directly."
             )
 
-        from io import StringIO
-
         # TODO: Refactor to reduce code duplication
 
         _logger.info(f"Requested to generate parameters for residue {residue}")
@@ -57,16 +70,9 @@ class GAFFTemplateGenerator(openffGAFFTemplateGenerator):
                     if self._match_residue(residue, molecule_template):
                         ffxml_contents = entry["ffxml"]
 
-                        # Write to debug file if requested
-                        if self.debug_ffxml_filename is not None:
-                            with open(self.debug_ffxml_filename, "w") as outfile:
-                                _logger.debug(
-                                    f"writing ffxml to {self.debug_ffxml_filename}"
-                                )
-                                outfile.write(ffxml_contents)
-
-                        # Add parameters and residue template for this residue
-                        forcefield.loadFile(StringIO(ffxml_contents))
+                        _load_ffxml_into_forcefield(
+                            forcefield, ffxml_contents, self.debug_ffxml_filename
+                        )
                         # Signal success
                         return True
 
@@ -79,14 +85,10 @@ class GAFFTemplateGenerator(openffGAFFTemplateGenerator):
                     molecule, original_residue=residue
                 )
 
-                # Write to debug file if requested
-                if self.debug_ffxml_filename is not None:
-                    with open(self.debug_ffxml_filename, "w") as outfile:
-                        _logger.debug(f"writing ffxml to {self.debug_ffxml_filename}")
-                        outfile.write(ffxml_contents)
-
                 # Add the parameters and residue definition
-                forcefield.loadFile(StringIO(ffxml_contents))
+                _load_ffxml_into_forcefield(
+                    forcefield, ffxml_contents, self.debug_ffxml_filename
+                )
                 # If a cache is specified, add this molecule
                 if self._cache is not None:
                     with self._open_db() as db:
@@ -98,8 +100,8 @@ class GAFFTemplateGenerator(openffGAFFTemplateGenerator):
                         # Add the IUPAC name for convenience if we can
                         try:
                             record["iupac"] = molecule.to_iupac()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            _logger.debug(f"Could not determine IUPAC name: {e}")
                         # Store the record
                         table.insert(record)
                         self._smiles_added_to_db.add(smiles)
@@ -181,17 +183,14 @@ class GAFFTemplateGenerator(openffGAFFTemplateGenerator):
             frcmod_filename = "molecule.frcmod"
 
         # Build absolute paths for input and output files
-        import os
-
         molecule_filename = os.path.abspath(molecule_filename)
         gaff_mol2_filename = os.path.abspath(gaff_mol2_filename)
         frcmod_filename = os.path.abspath(frcmod_filename)
 
+        from pathlib import Path
+
         def read_file_contents(filename):
-            infile = open(filename)
-            contents = infile.read()
-            infile.close()
-            return contents
+            return Path(filename).read_text()
 
         # Use temporary directory context to do this to avoid issues with spaces in filenames, etc.
         import subprocess
@@ -232,7 +231,6 @@ class GAFFTemplateGenerator(openffGAFFTemplateGenerator):
 
             _logger.debug(cmd)
             output = subprocess.getoutput(cmd)
-            import os
 
             if not os.path.exists("out.mol2"):
                 msg = "antechamber failed to produce output mol2 file\n"
@@ -341,148 +339,148 @@ class GAFFTemplateGenerator(openffGAFFTemplateGenerator):
         import os
         import tempfile
 
-        tmpdir = tempfile.mkdtemp()
-        prefix = "molecule"
-        input_sdf_filename = os.path.join(tmpdir, prefix + ".sdf")
-        gaff_mol2_filename = os.path.join(tmpdir, prefix + ".gaff.mol2")
-        frcmod_filename = os.path.join(tmpdir, prefix + ".frcmod")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            prefix = "molecule"
+            input_sdf_filename = os.path.join(tmpdir, prefix + ".sdf")
+            gaff_mol2_filename = os.path.join(tmpdir, prefix + ".gaff.mol2")
+            frcmod_filename = os.path.join(tmpdir, prefix + ".frcmod")
 
-        # Write MDL SDF file for input into antechamber
-        molecule.to_file(input_sdf_filename, file_format="sdf")
+            # Write MDL SDF file for input into antechamber
+            molecule.to_file(input_sdf_filename, file_format="sdf")
 
-        # Parameterize the molecule with antechamber (without charging)
-        _logger.debug(f"Running antechamber...")
-        self._run_antechamber(
-            molecule_filename=input_sdf_filename,
-            input_format="mdl",
-            gaff_mol2_filename=gaff_mol2_filename,
-            frcmod_filename=frcmod_filename,
-            net_charge = net_charge
-        )
-
-        # Read the resulting GAFF mol2 file atom types
-        _logger.debug(f"Reading GAFF atom types...")
-        self._read_gaff_atom_types_from_mol2(gaff_mol2_filename, molecule)
-
-        # If residue_atoms = None, add all atoms to the residues
-        if residue_atoms == None:
-            residue_atoms = [atom for atom in molecule.atoms]
-
-        # Modify partial charges so that charge on residue atoms is integral
-        # TODO: This may require some modification to correctly handle API changes
-        #       when OpenFF toolkit makes charge quantities consistently unit-bearing
-        #       or pure numbers.
-        _logger.debug(f"Fixing partial charges...")
-        _logger.debug(f"{molecule.partial_charges}")
-
-        import pint
-
-        if not isinstance(net_charge, pint.Quantity):
-            net_charge = float(net_charge) * pint.Unit('elementary_charge')
-        _logger.debug(f"Total charge is {net_charge}")
-        # Compute partial charges if required
-        if self._molecule_has_user_charges(molecule):
-            _logger.debug(
-                f"Using user-provided charges because partial charges are nonzero..."
+            # Parameterize the molecule with antechamber (without charging)
+            _logger.debug(f"Running antechamber...")
+            self._run_antechamber(
+                molecule_filename=input_sdf_filename,
+                input_format="mdl",
+                gaff_mol2_filename=gaff_mol2_filename,
+                frcmod_filename=frcmod_filename,
+                net_charge = net_charge
             )
-        else:
-            _logger.debug(f"Computing AM1-BCC charges...")
-            # NOTE: generate_conformers seems to be required for some molecules
-            # https://github.com/openforcefield/openff-toolkit/issues/492
-            molecule.partial_charges = self.get_charges_from_mol2(gaff_mol2_filename)
 
-        total_charge = sum(molecule.partial_charges)
-        sum_of_absolute_charge = sum(abs(molecule.partial_charges))
-        charge_deficit = net_charge - total_charge
-        # if each atom is zero charged,like H2, then "abs(molecule.partial_charges) / sum_of_absolute_charge" would be error
+            # Read the resulting GAFF mol2 file atom types
+            _logger.debug(f"Reading GAFF atom types...")
+            self._read_gaff_atom_types_from_mol2(gaff_mol2_filename, molecule)
 
-        if sum_of_absolute_charge.magnitude > 0.0:
-            # Redistribute excess charge proportionally to absolute charge
-            molecule.partial_charges = (
-                molecule.partial_charges + charge_deficit * abs(molecule.partial_charges) / sum_of_absolute_charge
-            )
-        _logger.debug(f"{molecule.partial_charges}")
+            # If residue_atoms = None, add all atoms to the residues
+            if residue_atoms == None:
+                residue_atoms = [atom for atom in molecule.atoms]
 
-        # Generate additional parameters if needed
-        # TODO: Do we have to make sure that we don't duplicate existing parameters already loaded in the forcefield?
-        _logger.debug(f"Creating ffxml contents for additional parameters...")
-        from inspect import (
-            signature,
-        )  # use introspection to support multiple parmed versions
-        from io import StringIO
+            # Modify partial charges so that charge on residue atoms is integral
+            # TODO: This may require some modification to correctly handle API changes
+            #       when OpenFF toolkit makes charge quantities consistently unit-bearing
+            #       or pure numbers.
+            _logger.debug(f"Fixing partial charges...")
+            _logger.debug(f"{molecule.partial_charges}")
 
-        leaprc = StringIO("parm = loadamberparams %s" % frcmod_filename)
-        import parmed
+            import pint
 
-        params = parmed.amber.AmberParameterSet.from_leaprc(leaprc)
-        kwargs = {}
-        if (
-            "remediate_residues"
-            in signature(parmed.openmm.OpenMMParameterSet.from_parameterset).parameters
-        ):
-            kwargs["remediate_residues"] = False
-        params = parmed.openmm.OpenMMParameterSet.from_parameterset(params, **kwargs)
-        ffxml = StringIO()
-        kwargs = {}
-        if "write_unused" in signature(params.write).parameters:
-            kwargs["write_unused"] = True
-        params.write(ffxml, **kwargs)
-        ffxml_contents = ffxml.getvalue()
+            if not isinstance(net_charge, pint.Quantity):
+                net_charge = float(net_charge) * pint.Unit('elementary_charge')
+            _logger.debug(f"Total charge is {net_charge}")
+            # Compute partial charges if required
+            if self._molecule_has_user_charges(molecule):
+                _logger.debug(
+                    f"Using user-provided charges because partial charges are nonzero..."
+                )
+            else:
+                _logger.debug(f"Computing AM1-BCC charges...")
+                # NOTE: generate_conformers seems to be required for some molecules
+                # https://github.com/openforcefield/openff-toolkit/issues/492
+                molecule.partial_charges = self.get_charges_from_mol2(gaff_mol2_filename)
 
-        # Create the residue template
-        _logger.debug(f"Creating residue template...")
-        from lxml import etree
+            total_charge = sum(molecule.partial_charges)
+            sum_of_absolute_charge = sum(abs(molecule.partial_charges))
+            charge_deficit = net_charge - total_charge
+            # if each atom is zero charged,like H2, then "abs(molecule.partial_charges) / sum_of_absolute_charge" would be error
 
-        root = etree.fromstring(ffxml_contents)
-        # Create residue definitions
-        residues = etree.SubElement(root, "Residues")
-        residue = etree.SubElement(residues, "Residue", name=original_residue.name)
-        for atom in molecule.atoms:
-            atom = etree.SubElement(
-                residue,
-                "Atom",
-                name=atom.name,
-                type=atom.gaff_type,
-                charge=str(atom.partial_charge.magnitude),
-            )
-        for bond in molecule.bonds:
-            if (bond.atom1 in residue_atoms) and (bond.atom2 in residue_atoms):
-                bond = etree.SubElement(
+            if sum_of_absolute_charge.magnitude > 0.0:
+                # Redistribute excess charge proportionally to absolute charge
+                molecule.partial_charges = (
+                    molecule.partial_charges + charge_deficit * abs(molecule.partial_charges) / sum_of_absolute_charge
+                )
+            _logger.debug(f"{molecule.partial_charges}")
+
+            # Generate additional parameters if needed
+            # TODO: Do we have to make sure that we don't duplicate existing parameters already loaded in the forcefield?
+            _logger.debug(f"Creating ffxml contents for additional parameters...")
+            from inspect import (
+                signature,
+            )  # use introspection to support multiple parmed versions
+            from io import StringIO
+
+            leaprc = StringIO("parm = loadamberparams %s" % frcmod_filename)
+            import parmed
+
+            params = parmed.amber.AmberParameterSet.from_leaprc(leaprc)
+            kwargs = {}
+            if (
+                "remediate_residues"
+                in signature(parmed.openmm.OpenMMParameterSet.from_parameterset).parameters
+            ):
+                kwargs["remediate_residues"] = False
+            params = parmed.openmm.OpenMMParameterSet.from_parameterset(params, **kwargs)
+            ffxml = StringIO()
+            kwargs = {}
+            if "write_unused" in signature(params.write).parameters:
+                kwargs["write_unused"] = True
+            params.write(ffxml, **kwargs)
+            ffxml_contents = ffxml.getvalue()
+
+            # Create the residue template
+            _logger.debug(f"Creating residue template...")
+            from lxml import etree
+
+            root = etree.fromstring(ffxml_contents)
+            # Create residue definitions
+            residues = etree.SubElement(root, "Residues")
+            residue = etree.SubElement(residues, "Residue", name=original_residue.name)
+            for atom in molecule.atoms:
+                atom = etree.SubElement(
                     residue,
-                    "Bond",
-                    atomName1=bond.atom1.name,
-                    atomName2=bond.atom2.name,
+                    "Atom",
+                    name=atom.name,
+                    type=atom.gaff_type,
+                    charge=str(atom.partial_charge.magnitude),
                 )
-            elif (bond.atom1 in residue_atoms) and (bond.atom2 not in residue_atoms):
-                bond = etree.SubElement(
-                    residue, "ExternalBond", atomName=bond.atom1.name
-                )
-            elif (bond.atom1 not in residue_atoms) and (bond.atom2 in residue_atoms):
-                bond = etree.SubElement(
-                    residue, "ExternalBond", atomName=bond.atom2.name
-                )
-        # Render XML into string and append to parameters
+            for bond in molecule.bonds:
+                if (bond.atom1 in residue_atoms) and (bond.atom2 in residue_atoms):
+                    bond = etree.SubElement(
+                        residue,
+                        "Bond",
+                        atomName1=bond.atom1.name,
+                        atomName2=bond.atom2.name,
+                    )
+                elif (bond.atom1 in residue_atoms) and (bond.atom2 not in residue_atoms):
+                    bond = etree.SubElement(
+                        residue, "ExternalBond", atomName=bond.atom1.name
+                    )
+                elif (bond.atom1 not in residue_atoms) and (bond.atom2 in residue_atoms):
+                    bond = etree.SubElement(
+                        residue, "ExternalBond", atomName=bond.atom2.name
+                    )
+            # Render XML into string and append to parameters
 
-        def strip_all_element_text_tail(element):
-            if element.text is not None:
-                original = element.text
-                stripped = original.strip()
-                if stripped:
-                    element.text = stripped
-                else:
-                    element.text = None
-            if element.tail is not None:
-                original = element.tail
-                stripped = original.strip()
-                if stripped:
-                    element.tail = stripped
-                else:
-                    element.tail = None
-            for child in element.getchildren():
-                strip_all_element_text_tail(child)
+            def strip_all_element_text_tail(element):
+                if element.text is not None:
+                    original = element.text
+                    stripped = original.strip()
+                    if stripped:
+                        element.text = stripped
+                    else:
+                        element.text = None
+                if element.tail is not None:
+                    original = element.tail
+                    stripped = original.strip()
+                    if stripped:
+                        element.tail = stripped
+                    else:
+                        element.tail = None
+                for child in element:
+                    strip_all_element_text_tail(child)
 
-        strip_all_element_text_tail(root)
-        ffxml_contents = etree.tostring(root, pretty_print=True, encoding="unicode")
-        _logger.debug(f"ffxml creation complete.")
+            strip_all_element_text_tail(root)
+            ffxml_contents = etree.tostring(root, pretty_print=True, encoding="unicode")
+            _logger.debug(f"ffxml creation complete.")
 
         return ffxml_contents

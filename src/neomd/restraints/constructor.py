@@ -42,6 +42,24 @@ def generate_CustomCentroidBondForce(bond_info):
     return _bond
 
 
+def _one_sided_restraint(
+    restraint_config, grps, func, bound_params, default_periodic=True
+):
+    # one-sided restraint: penalizes only when the restrained quantity
+    # crosses the bound; the func is parametrized by the restraint name
+    _name = restraint_config.name
+    params = {f"k{_name}": restraint_config.restr_k}
+    params.update(bound_params)
+    params[f"order{_name}"] = restraint_config.get("order", 2)
+    info = {
+        "grps": grps,
+        "func": func.format(_name),
+        "params": params,
+        "is_periodic": restraint_config.get("is_periodic", default_periodic),
+    }
+    return generate_CustomCentroidBondForce(info)
+
+
 def generate_vec_restraint(restraint_config):
     # restraint 2 groups of atoms to a defined vector
     # restraint both direction and length of the vector
@@ -153,46 +171,31 @@ def generate_restraint_distance(restraint_config):
     # restraint the distance between two groups of atoms
     # if min_nm is defined, add a restraint when distance is smaller than min_nm
     # if max_nm is defined, add a restraint when distance is larger than max_nm
-    def generate_dist_min(restraint_config):
-        info_min = {
-            "grps": [restraint_config.grp1, restraint_config.grp2],
-            "func": "(k{0}/2)*(max(dis1{0} - distance(g1,g2), 0)^order{0})".format(
-                _name
-            ),
-            "params": {
-                f"k{_name}": restraint_config.restr_k,
-                f"dis1{_name}": restraint_config.min_nm * unit.nanometer,
-                f"order{_name}": restraint_config.get("order", 2),
-            },
-            "is_periodic": restraint_config.get("is_periodic", True),
-        }
-        return generate_CustomCentroidBondForce(info_min)
-
-    def generate_dist_max(restraint_config):
-        info_max = {
-            "grps": [restraint_config.grp1, restraint_config.grp2],
-            "func": "(k{0}/2)*(max(distance(g1,g2) - dis2{0}, 0)^order{0})".format(
-                _name
-            ),
-            "params": {
-                f"k{_name}": restraint_config.restr_k,
-                f"dis2{_name}": restraint_config.max_nm * unit.nanometer,
-                f"order{_name}": restraint_config.get("order", 2),
-            },
-            "is_periodic": restraint_config.get("is_periodic", True),
-        }
-        return generate_CustomCentroidBondForce(info_max)
-
     restraint_config.grp1 = idstr2list(restraint_config.grp1)
     restraint_config.grp2 = idstr2list(restraint_config.grp2)
     restraint_config.restr_k = restraint_config.restr_k * unit.kilojoules_per_mole
 
     return_ls = []
     _name = restraint_config.name
+    grps = [restraint_config.grp1, restraint_config.grp2]
     if restraint_config.get("min_nm"):
-        return_ls.append(generate_dist_min(restraint_config))
+        return_ls.append(
+            _one_sided_restraint(
+                restraint_config,
+                grps,
+                "(k{0}/2)*(max(dis1{0} - distance(g1,g2), 0)^order{0})",
+                {f"dis1{_name}": restraint_config.min_nm * unit.nanometer},
+            )
+        )
     if restraint_config.get("max_nm"):
-        return_ls.append(generate_dist_max(restraint_config))
+        return_ls.append(
+            _one_sided_restraint(
+                restraint_config,
+                grps,
+                "(k{0}/2)*(max(distance(g1,g2) - dis2{0}, 0)^order{0})",
+                {f"dis2{_name}": restraint_config.max_nm * unit.nanometer},
+            )
+        )
     return return_ls
 
 
@@ -200,56 +203,32 @@ def generate_restraint_angle(restraint_config):
     # restraint the angle between three groups of atoms
     # if min_degree is defined, add a restraint when angle is smaller than min_degree
     # if max_degree is defined, add a restraint when angle is larger than max_degree
-    def generate_angle_min(restraint_config):
-        _name = restraint_config.name
-        info = {
-            "grps": [
-                restraint_config.grp1,
-                restraint_config.grp2,
-                restraint_config.grp3,
-            ],
-            "func": "(k{0}/2)*(max(ang1{0} - angle(g1, g2, g3), 0)^order{0})".format(
-                _name
-            ),
-            "params": {
-                f"k{_name}": restraint_config.restr_k,
-                f"ang1{_name}": restraint_config.min_degree * unit.degree,
-                f"order{_name}": restraint_config.get("order", 2),
-            },
-            "is_periodic": restraint_config.get("is_periodic", True),
-        }
-        return generate_CustomCentroidBondForce(info)
-
-    def generate_angle_max(restraint_config):
-        _name = restraint_config.name
-        info = {
-            "grps": [
-                restraint_config.grp1,
-                restraint_config.grp2,
-                restraint_config.grp3,
-            ],
-            "func": "(k{0}/2)*(max(angle(g1, g2, g3) - ang2{0}, 0)^order{0})".format(
-                _name
-            ),
-            "params": {
-                f"k{_name}": restraint_config.restr_k,
-                f"ang2{_name}": restraint_config.max_degree * unit.degree,
-                f"order{_name}": restraint_config.get("order", 2),
-            },
-            "is_periodic": restraint_config.get("is_periodic", True),
-        }
-        return generate_CustomCentroidBondForce(info)
-
     restraint_config.grp1 = idstr2list(restraint_config.grp1)
     restraint_config.grp2 = idstr2list(restraint_config.grp2)
     restraint_config.grp3 = idstr2list(restraint_config.grp3)
     restraint_config.restr_k = restraint_config.restr_k * unit.kilojoules_per_mole
 
     return_ls = []
+    _name = restraint_config.name
+    grps = [restraint_config.grp1, restraint_config.grp2, restraint_config.grp3]
     if restraint_config.get("min_degree"):
-        return_ls.append(generate_angle_min(restraint_config))
+        return_ls.append(
+            _one_sided_restraint(
+                restraint_config,
+                grps,
+                "(k{0}/2)*(max(ang1{0} - angle(g1, g2, g3), 0)^order{0})",
+                {f"ang1{_name}": restraint_config.min_degree * unit.degree},
+            )
+        )
     if restraint_config.get("max_degree"):
-        return_ls.append(generate_angle_max(restraint_config))
+        return_ls.append(
+            _one_sided_restraint(
+                restraint_config,
+                grps,
+                "(k{0}/2)*(max(angle(g1, g2, g3) - ang2{0}, 0)^order{0})",
+                {f"ang2{_name}": restraint_config.max_degree * unit.degree},
+            )
+        )
     return return_ls
 
 
@@ -297,146 +276,79 @@ def generate_restraint_dihedral(restraint_config):
 def generate_xyz_box(restraint_config):
     # restraint the position of a group of atoms in a box defined by x, y, z range
     # not all of x, y, z are always needed, so we check the config for each direction
-    def generate_min_x_restraint(restraint_config):
-        info = {
-            "grps": [restraint_config.restr_grp],
-            "func": "(k{0}/2)*(min(x1-min_x{0}, 0)^order{0})".format(_name),
-            "params": {
-                f"k{_name}": restraint_config.restr_k,
-                f"min_x{_name}": restraint_config.min_x_nm * unit.nanometer,
-                f"order{_name}": restraint_config.get("order", 2),
-            },
-            "is_periodic": restraint_config.get(
-                "is_periodic", False
-            ),  # 坐标约束通常不需要周期边界
-        }
-        return generate_CustomCentroidBondForce(info)
-
-    def generate_max_x_restraint(restraint_config):
-        info = {
-            "grps": [restraint_config.restr_grp],
-            "func": "(k{0}/2)*(max(x1-max_x{0}, 0)^order{0})".format(_name),
-            "params": {
-                f"k{_name}": restraint_config.restr_k,
-                f"max_x{_name}": restraint_config.max_x_nm * unit.nanometer,
-                f"order{_name}": restraint_config.get("order", 2),
-            },
-            "is_periodic": restraint_config.get("is_periodic", False),
-        }
-        return generate_CustomCentroidBondForce(info)
-
-    def generate_min_y_restraint(restraint_config):
-        info = {
-            "grps": [restraint_config.restr_grp],
-            "func": "(k{0}/2)*(min(y1-min_y{0}, 0)^2)".format(_name),
-            "params": {
-                f"k{_name}": restraint_config.restr_k,
-                f"min_y{_name}": restraint_config.min_y_nm * unit.nanometer,
-                f"order{_name}": restraint_config.get("order", 2),
-            },
-            "is_periodic": restraint_config.get("is_periodic", False),
-        }
-        return generate_CustomCentroidBondForce(info)
-
-    def generate_max_y_restraint(restraint_config):
-        info = {
-            "grps": [restraint_config.restr_grp],
-            "func": "(k{0}/2)*(max(y1-max_y{0}, 0)^2)".format(_name),
-            "params": {
-                f"k{_name}": restraint_config.restr_k,
-                f"max_y{_name}": restraint_config.max_y_nm * unit.nanometer,
-                f"order{_name}": restraint_config.get("order", 2),
-            },
-            "is_periodic": restraint_config.get("is_periodic", False),
-        }
-        return generate_CustomCentroidBondForce(info)
-
-    def generate_min_z_restraint(restraint_config):
-        info = {
-            "grps": [restraint_config.restr_grp],
-            "func": "(k{0}/2)*(min(z1-min_z{0}, 0)^2)".format(_name),
-            "params": {
-                f"k{_name}": restraint_config.restr_k,
-                f"min_z{_name}": restraint_config.min_z_nm * unit.nanometer,
-                f"order{_name}": restraint_config.get("order", 2),
-            },
-            "is_periodic": restraint_config.get("is_periodic", False),
-        }
-        return generate_CustomCentroidBondForce(info)
-
-    def generate_max_z_restraint(restraint_config):
-        info = {
-            "grps": [restraint_config.restr_grp],
-            "func": "(k{0}/2)*(max(z1-max_z{0}, 0)^2)".format(_name),
-            "params": {
-                f"k{_name}": restraint_config.restr_k,
-                f"max_z{_name}": restraint_config.max_z_nm * unit.nanometer,
-                f"order{_name}": restraint_config.get("order", 2),
-            },
-            "is_periodic": restraint_config.get("is_periodic", False),
-        }
-        return generate_CustomCentroidBondForce(info)
-
     restraint_config.restr_grp = idstr2list(restraint_config.restr_grp)
     _name = restraint_config.name
     restraint_config.restr_k = restraint_config.restr_k * unit.kilojoules_per_mole
+    grps = [restraint_config.restr_grp]
+    # position restraints usually do not need periodic boundary conditions
     return_ls = []
     if restraint_config.get("min_x_nm"):
-        return_ls.append(generate_min_x_restraint(restraint_config))
+        return_ls.append(
+            _one_sided_restraint(
+                restraint_config,
+                grps,
+                "(k{0}/2)*(min(x1-min_x{0}, 0)^order{0})",
+                {f"min_x{_name}": restraint_config.min_x_nm * unit.nanometer},
+                default_periodic=False,
+            )
+        )
     if restraint_config.get("max_x_nm"):
-        return_ls.append(generate_max_x_restraint(restraint_config))
+        return_ls.append(
+            _one_sided_restraint(
+                restraint_config,
+                grps,
+                "(k{0}/2)*(max(x1-max_x{0}, 0)^order{0})",
+                {f"max_x{_name}": restraint_config.max_x_nm * unit.nanometer},
+                default_periodic=False,
+            )
+        )
     if restraint_config.get("min_y_nm"):
-        return_ls.append(generate_min_y_restraint(restraint_config))
+        return_ls.append(
+            _one_sided_restraint(
+                restraint_config,
+                grps,
+                "(k{0}/2)*(min(y1-min_y{0}, 0)^order{0})",
+                {f"min_y{_name}": restraint_config.min_y_nm * unit.nanometer},
+                default_periodic=False,
+            )
+        )
     if restraint_config.get("max_y_nm"):
-        return_ls.append(generate_max_y_restraint(restraint_config))
+        return_ls.append(
+            _one_sided_restraint(
+                restraint_config,
+                grps,
+                "(k{0}/2)*(max(y1-max_y{0}, 0)^order{0})",
+                {f"max_y{_name}": restraint_config.max_y_nm * unit.nanometer},
+                default_periodic=False,
+            )
+        )
     if restraint_config.get("min_z_nm"):
-        return_ls.append(generate_min_z_restraint(restraint_config))
+        return_ls.append(
+            _one_sided_restraint(
+                restraint_config,
+                grps,
+                "(k{0}/2)*(min(z1-min_z{0}, 0)^order{0})",
+                {f"min_z{_name}": restraint_config.min_z_nm * unit.nanometer},
+                default_periodic=False,
+            )
+        )
     if restraint_config.get("max_z_nm"):
-        return_ls.append(generate_max_z_restraint(restraint_config))
+        return_ls.append(
+            _one_sided_restraint(
+                restraint_config,
+                grps,
+                "(k{0}/2)*(max(z1-max_z{0}, 0)^order{0})",
+                {f"max_z{_name}": restraint_config.max_z_nm * unit.nanometer},
+                default_periodic=False,
+            )
+        )
     return return_ls
 
 
-# need system when add virtual particle
 def generate_dist_ref_position(restraint_config):
     # restraint the distance between a group of atoms and a reference position
     # if min_nm is defined, add a restraint when distance is smaller than min_nm
     # if max_nm is defined, add a restraint when distance is larger than max_nm
-    def generate_ref_position_min_restraint(restraint_config):
-        info = {
-            "grps": [restraint_config.restr_grp],
-            "func": "0.5*k{0}*min(((x1-x0{0})^2+(y1-y0{0})^2+(z1-z0{0})^2)^0.5-min_dis{0},0)^order{0}".format(
-                _name
-            ),
-            "params": {
-                f"k{_name}": restraint_config.restr_k,
-                f"x0{_name}": ref_pos[0],
-                f"y0{_name}": ref_pos[1],
-                f"z0{_name}": ref_pos[2],
-                f"min_dis{_name}": restraint_config.min_nm * unit.nanometer,
-                f"order{_name}": restraint_config.get("order", 2),
-            },
-            "is_periodic": restraint_config.get("is_periodic", False),
-        }
-        return generate_CustomCentroidBondForce(info)
-
-    def generate_ref_position_max_restraint(restraint_config):
-        info = {
-            "grps": [restraint_config.restr_grp],
-            "func": "0.5*k{0}*max(((x1-x0{0})^2+(y1-y0{0})^2+(z1-z0{0})^2)^0.5-max_dis{0},0)^order{0}".format(
-                _name
-            ),
-            "params": {
-                f"k{_name}": restraint_config.restr_k,
-                f"x0{_name}": ref_pos[0],
-                f"y0{_name}": ref_pos[1],
-                f"z0{_name}": ref_pos[2],
-                f"max_dis{_name}": restraint_config.max_nm * unit.nanometer,
-                f"order{_name}": restraint_config.get("order", 2),
-            },
-            "is_periodic": restraint_config.get("is_periodic", False),
-        }
-        return generate_CustomCentroidBondForce(info)
-
     restraint_config.restr_grp = idstr2list(restraint_config.restr_grp)
     restraint_config.ref_position_nm = (
         floatstr2list(restraint_config.ref_position_nm) * unit.nanometer
@@ -452,11 +364,37 @@ def generate_dist_ref_position(restraint_config):
 
     _name = restraint_config.name
     ref_pos = restraint_config.ref_position_nm
+    ref_params = {
+        f"x0{_name}": ref_pos[0],
+        f"y0{_name}": ref_pos[1],
+        f"z0{_name}": ref_pos[2],
+    }
+    grps = [restraint_config.restr_grp]
     return_ls = []
     if restraint_config.get("min_nm"):
-        return_ls.append(generate_ref_position_min_restraint(restraint_config))
+        bound_params = dict(ref_params)
+        bound_params[f"min_dis{_name}"] = restraint_config.min_nm * unit.nanometer
+        return_ls.append(
+            _one_sided_restraint(
+                restraint_config,
+                grps,
+                "0.5*k{0}*min(((x1-x0{0})^2+(y1-y0{0})^2+(z1-z0{0})^2)^0.5-min_dis{0},0)^order{0}",
+                bound_params,
+                default_periodic=False,
+            )
+        )
     if restraint_config.get("max_nm"):
-        return_ls.append(generate_ref_position_max_restraint(restraint_config))
+        bound_params = dict(ref_params)
+        bound_params[f"max_dis{_name}"] = restraint_config.max_nm * unit.nanometer
+        return_ls.append(
+            _one_sided_restraint(
+                restraint_config,
+                grps,
+                "0.5*k{0}*max(((x1-x0{0})^2+(y1-y0{0})^2+(z1-z0{0})^2)^0.5-max_dis{0},0)^order{0}",
+                bound_params,
+                default_periodic=False,
+            )
+        )
 
     return return_ls
 
