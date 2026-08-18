@@ -117,7 +117,6 @@ def make_system(
             for ligand in ligands
         ]
 
-
     forcefield = ComplexForceField(**forcefield_kwargs)
     if ligands:
         gaff_generator = forcefield.init_gaff_generator()
@@ -167,6 +166,7 @@ def make_system(
         "add_hydrogens": True,
         "add_solv_ions": True,
         "ion_Strength": 0.1,
+        "center_model": True,
         **additional_config,
     }
 
@@ -208,10 +208,13 @@ def make_system(
                 )
             )
             res.name = resvariant[index]
-    box_center_vec = 0.5 * box_vectors[0] + 0.5 * box_vectors[1] + 0.5 * box_vectors[2]
-    move_vec = box_center_vec - modeller.positions.mean()
-    for i in range(len(modeller.positions)):
-        modeller.positions[i] += move_vec
+    if additional_config["center_model"]:
+        box_center_vec = (
+            0.5 * box_vectors[0] + 0.5 * box_vectors[1] + 0.5 * box_vectors[2]
+        )
+        move_vec = box_center_vec - modeller.positions.mean()
+        for i in range(len(modeller.positions)):
+            modeller.positions[i] += move_vec
     if additional_config.get("add_solv_ions"):
         modeller.addSolvent(
             forcefield,

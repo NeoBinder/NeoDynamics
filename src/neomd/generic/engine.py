@@ -1,5 +1,4 @@
 import os
-from turtle import pos
 
 import numpy as np
 import openmm
@@ -7,7 +6,7 @@ from openmm import LangevinIntegrator, app, unit
 from scipy.optimize import minimize as scipy_minimize
 from neomd.logger import get_logger
 from neomd.base import BaseEngine
-from neomd.restraints import RestraintReporter
+from neomd.restraints import RestraintReporter,SMDReporter
 
 logger = get_logger("neomd.generic.engine")
 
@@ -269,7 +268,7 @@ class OpenmmEngine(BaseEngine):
                 app.CheckpointReporter(ckpt_f, config.output.checkpoint_interval)
             )
         if config.output.restraint_interval > 0:
-            restraint_f = os.path.join(output_dir, "restraint.dat")
+            restraint_f = os.path.join(output_dir, "restraint.csv")
             restraint_handler = open(restraint_f, "a" if config.continue_md else "w")
             mass_list = [
                 simulation.system.getParticleMass(i)
@@ -283,3 +282,19 @@ class OpenmmEngine(BaseEngine):
                     config.output.restraint_interval,
                 )
             )
+    def config_reporter_smd(self, output_dir, config):
+        self.config_reporter(output_dir, config)
+        smd_f = os.path.join(output_dir, "smd.csv")
+        smd_handler = open(smd_f, "a" if config.continue_md else "w")
+        mass_list = [
+            self.simulation.system.getParticleMass(i)
+            for i in range(self.simulation.system.getNumParticles())
+        ]
+        self.simulation.reporters.append(
+            SMDReporter(
+                config.smd,
+                mass_list,
+                smd_handler,
+                config.output.restraint_interval,
+            )
+        )        

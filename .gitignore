@@ -176,6 +176,7 @@ idea/
 *_dev.yaml
 *_bak
 *_test
+.zcode/
 
 # pixi environments
 .pixi

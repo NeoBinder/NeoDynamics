@@ -3,11 +3,10 @@ import json
 import openmm
 from openff.toolkit.topology import Molecule as openff_Molecule
 from openmm import XmlSerializer, app, unit
-from openmm.app import PDBFile, PDBxFile
 
 from neomd.io.system_loader import load_complex
 from neomd.builder.forcefiled import ComplexForceField
-from neomd.restraints import generate_restraint
+from neomd.restraints import generate_restraint,generate_SMDforce
 
 
 def max_force_grps_error(freeGroups):
@@ -73,6 +72,15 @@ class NeoSystem:
             for index, info in config["system_modification"].items():
                 if "mass" in info:
                     neosystem.system.setParticleMass(index, info["mass"])
+                elif "dummy_atom_Nonbond_Exception" in info:
+                    nonbonded_ls = [
+                        f
+                        for f in neosystem.system.getForces()
+                        if f.getName() == "NonbondedForce"
+                    ]
+                    assert len(nonbonded_ls) == 1
+                    for i in info["dummy_atom_Nonbond_Exception"]:
+                        nonbonded_ls[0].addException(index, i, 0, 1, 0)
         neosystem.add_barostat(config)
         return neosystem
 
@@ -96,14 +104,14 @@ class NeoSystem:
             self.system.addForce(barostat)
 
     def system_add_restraints(self, config):
-        restraint_config = config.get("restraint", None)
         freeGroups = set(range(32)) - set(
             force.getForceGroup() for force in self.system.getForces()
         )
         max_force_grps_error(freeGroups)
 
-        if restraint_config:
-            for restraint_name, restraint_config in restraint_config.items():
+        restraints_config = config.get("restraint", None)
+        if restraints_config:
+            for restraint_name, restraint_config in restraints_config.items():
                 restraint_config.name = restraint_name
                 restraint = generate_restraint(restraint_config)
                 current_id = max(freeGroups)
@@ -126,6 +134,32 @@ class NeoSystem:
                 config.restraint[restraint_name]["fgroup"] = fgroup
             if not config.output.get("report_restraint"):
                 config.output["report_restraint"] = False
+
+        smd_config = config.get("smd", None)
+        if smd_config:
+            assert config.method == 'smd'
+            for smd_name, smd_force_config in smd_config.items():
+                smd_force_config.name = smd_name
+                smdforce,update_params = generate_SMDforce(smd_force_config)
+                config.smd[smd_name]["update_params"] = update_params
+                current_id = max(freeGroups)
+
+                if isinstance(smdforce, list):
+                    fgroup = []
+                    for _smdforce in smdforce:
+                        _smdforce.setForceGroup(current_id)
+                        fgroup.append(current_id)
+                        freeGroups.remove(current_id)
+                        max_force_grps_error(freeGroups)
+                        current_id = max(freeGroups)
+                        self.system.addForce(_smdforce)
+                else:
+                    smdforce.setForceGroup(current_id)
+                    fgroup = [current_id]
+                    freeGroups.remove(current_id)
+                    max_force_grps_error(freeGroups)
+                    self.system.addForce(smdforce)
+                config.smd[smd_name]["fgroup"] = fgroup
 
     def add_constraints(self, constraints):
         for _i, _j, dist in constraints:

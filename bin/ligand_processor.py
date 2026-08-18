@@ -39,7 +39,7 @@ def add_chirals_constraint(chirals,match_ls,ff,degree_tolerance=5):
                                         False,
                                         dih_deg-degree_tolerance,
                                         dih_deg+degree_tolerance,
-                                        1.e4)
+                                        1.e3)
 
 def get_chiral_dihedrals(mol,chiral_id,match_ls,confid=0):
     neighbors_id = [n.GetIdx() for n in mol.GetAtomWithIdx(chiral_id).GetNeighbors()]
@@ -69,7 +69,67 @@ def get_chirals(mol,match_ls):
                 }
     return chiral_centers
 
+def kabsch_align(mobile_coords, target_coords):
+    """
+    经典Kabsch算法：计算最优旋转矩阵+平移向量，实现刚体叠合（无畸变）
+    :param mobile_coords: 分子1(待对齐)的匹配原子坐标 N×3 numpy数组
+    :param target_coords: 分子2(参考)的匹配原子坐标 N×3 numpy数组
+    :return: 平移向量t, 旋转矩阵R
+    """
+    # 步骤1：计算两个匹配原子集的几何中心（质心）
+    centroid_mobile = np.mean(mobile_coords, axis=0)
+    centroid_target = np.mean(target_coords, axis=0)
+    
+    # 步骤2：平移到原点（消除平移差异）
+    mobile_centered = mobile_coords - centroid_mobile
+    target_centered = target_coords - centroid_target
+
+    # 步骤3：计算协方差矩阵，SVD分解求最优旋转矩阵（核心）
+    H = np.dot(mobile_centered.T, target_centered)
+    U, S, Vt = np.linalg.svd(H)
+    R = np.dot(Vt.T, U.T)
+
+    # 修正旋转矩阵的手性（避免镜像翻转）
+    if np.linalg.det(R) < 0:
+        Vt[-1,:] *= -1
+        R = np.dot(Vt.T, U.T)
+    
+    # 平移向量 = 参考分子质心 - 旋转后的移动分子质心
+    t = centroid_target - np.dot(centroid_mobile, R)
+    return R, t
+
+def get_sliced_mol_pos(mol,ids):
+    pos=[]
+    for i in ids:
+        pos.append(mol.GetConformer(0).GetAtomPosition(i))
+    return pos
+
+def align_mol_pos(mol_pos,mol_top,
+                  match_pos,match_top,
+                 ):
+    mol_pos_match_coords = get_sliced_mol_pos(mol_pos, match_pos)
+    mol_top_match_coords = get_sliced_mol_pos(mol_top, match_top)
+    mol_top_coords = get_sliced_mol_pos(
+        mol_top, list(range(mol_top.GetNumAtoms()))
+    )
+    R, t = kabsch_align(mol_top_match_coords, mol_pos_match_coords)
+    mol_top_aligned_coords = np.dot(mol_top_coords, R) + t
+    return mol_top_aligned_coords
+
+def optimize_with_constraints(mol,constraints_ids,
+                              chirals=None):
+    mp = AllChem.MMFFGetMoleculeProperties(mol)
+    ff = AllChem.MMFFGetMoleculeForceField(mol, mp)
+    for i in constraints_ids:
+        ff.MMFFAddPositionConstraint(i, 0, 1.e4)
+    if chirals is not None:
+        add_chirals_constraint(chirals,constraints_ids,ff)    
+    ff.Minimize(maxIts=1000000,
+                    energyTol=1e-6)
+    return mol
 def mol_smiles_to_pos_mol(mol_pos,smiles,
+                          ignore_pos_ids=[],
+                          ignore_top_ids=[],
                           atom_compare=rdFMCS.AtomCompare.CompareElements,
                          bond_compare=rdFMCS.BondCompare.CompareAny,
                          ):
@@ -80,23 +140,66 @@ def mol_smiles_to_pos_mol(mol_pos,smiles,
     params.AtomTyper = atom_compare
     params.BondTyper = bond_compare
     mcs = rdFMCS.FindMCS(mols, params)
-    
+
     match_pos = mol_pos.GetSubstructMatch(mcs.queryMol)
     match_top = mol_top.GetSubstructMatch(mcs.queryMol)
+    match_pos, match_top = zip(
+        *[
+            (x, y)
+            for x, y in zip(match_pos, match_top)
+            if x not in ignore_pos_ids and y not in ignore_top_ids
+        ]
+    )
 
     AllChem.EmbedMolecule(mol_top)
     original_chirals = get_chirals(mol_top,match_top)
     conf = mol_top.GetConformer(0)
-    for id1,id2 in zip(match_pos,match_top):
-        _pos = mol_pos.GetConformer(0).GetAtomPosition(id1)
-        conf.SetAtomPosition(id2, _pos)    
 
-    mp = AllChem.MMFFGetMoleculeProperties(mol_top)
-    ff = AllChem.MMFFGetMoleculeForceField(mol_top, mp)
-    for i in match_top:
-        ff.MMFFAddPositionConstraint(i, 0, 1.e4)
-    add_chirals_constraint(original_chirals,match_top,ff)    
-    ff.Minimize(maxIts=1000000)
+    Chem.AllChem.AlignMol(
+        mol_top,
+        mol_pos,
+        atomMap=list(zip(match_top, match_pos)),
+    )
+
+    mol_copy = Chem.Mol(mol_top)
+    max_iter=100
+    for iter in range(max_iter):
+        Chem.AllChem.AlignMol(
+            mol_top,
+            mol_pos,
+            atomMap=list(
+                zip(match_top,match_pos)
+            ),
+        )
+        for id1,id2 in zip(match_pos,match_top):
+            _pos = mol_pos.GetConformer(0).GetAtomPosition(id1)
+            conf.SetAtomPosition(id2, _pos)    
+
+        mol_top = optimize_with_constraints(mol_top,
+                                  match_top,
+                                  chirals=original_chirals)
+
+        mol_top = fix_CH_angle(mol_top)
+        mol_top = optimize_with_constraints(
+            mol_top, [at.GetIdx() for at in mol_top.GetAtoms() if at.GetSymbol() != "H"]
+        )
+
+        rms = Chem.AllChem.AlignMol(
+            mol_copy,
+            mol_top,
+            atomMap=list(
+                zip(
+                    list(range(mol_top.GetNumAtoms())),
+                    list(range(mol_top.GetNumAtoms())),
+                )
+            ),
+        )
+        if rms < 0.001:
+            print(f'converge after {iter+1} iterations with rms: {rms}')
+            break
+        mol_copy = Chem.Mol(mol_top)
+
+    print(f'pose change in the final iter: {rms}')
     return mol_top
 
 def calculate_angle(pos_h, pos_c, pos_a):
@@ -151,15 +254,7 @@ def fix_CH_angle(mol):
                         new_y = 2 * c_pos.y - h_pos.y
                         new_z = 2 * c_pos.z - h_pos.z
                         conf.SetAtomPosition(h_idx, [new_x, new_y, new_z])
-    
-    # 创建力场并固定非氢原子
-    ff = AllChem.UFFGetMoleculeForceField(mol)
-    for atom in mol.GetAtoms():
-        if atom.GetSymbol() != 'H':
-            ff.AddFixedPoint(atom.GetIdx())
-    
-    # 执行优化（最多200次迭代）
-    ff.Minimize(maxIts=1000)
+
     return mol
 
 def pdb_to_mol_custom_threshold(pdb_file, max_bond_length=1.8, sanitize=True):
@@ -209,16 +304,14 @@ def pos_smiles2sdf(args):
         struct = Chem.MolFromMolFile(args.input)
     else:
         raise ValueError("输入文件格式不支持, 仅支持.pdb或.sdf文件")
-    
+
     mol = mol_smiles_to_pos_mol(
-        struct, 
+        struct,
         args.smiles,
-        bond_compare=rdFMCS.BondCompare.CompareAny
+        ignore_pos_ids=[int(x) - 1 for x in args.ignore_pos_ids.split(",") if x != ""],
+        bond_compare=rdFMCS.BondCompare.CompareAny,
     )
-    
-    if args.fix_CH:
-        mol = fix_CH_angle(mol)
-    
+
     if args.output.endswith('.sdf'):
         Chem.MolToMolFile(mol, args.output)
     elif args.output.endswith('.pdb'):
@@ -341,8 +434,10 @@ def main():
                              help='PDB处理方式')
     parser_smiles.add_argument('--max_bond', type=float, default=2,
                              help='距离成键阈值(Å)')
-    parser_smiles.add_argument('--fix_CH', action='store_true', default=False,
-                             help='修复CH键角问题')
+    # parser_smiles.add_argument('--fix_CH', action='store_true', default=False,
+    #                          help='修复CH键角问题')
+    parser_smiles.add_argument('--ignore_pos_ids',default='',
+                             help='pos文件中不用于匹配的atom id列表, 逗号分隔, 从1开始计数')
     parser_smiles.set_defaults(func=pos_smiles2sdf)
 
     parser_convert = subparsers.add_parser('convert', 

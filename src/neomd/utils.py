@@ -114,6 +114,7 @@ def check_config(config):
         "min_params",
         "debug",
         "system_modification",
+        "smd",
     }
     for k in config.keys():
         if k not in allow_set:

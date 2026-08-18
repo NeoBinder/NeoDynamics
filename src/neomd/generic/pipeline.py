@@ -110,8 +110,14 @@ class Pipeline(BasePipeline):
                 raise ValueError('checkpoint and state can not be both specified')
             elif not config.input_files.get("state"):
                 config.input_files['checkpoint'] = config.input_files.get('checkpoint',
-                                                                        os.path.join(config.output.output_dir, "output.ckpt"))
-                config.input_files['state'] = None
+                                                                        # os.path.join(config.output.output_dir, "output.ckpt")
+                                                                        )
+                if not os.path.isfile(config.input_files['checkpoint']):
+                    raise Exception(
+                        f"cannot found checkpoint file: {config.input_files['checkpoint']}, "+
+                        "please provide correct file path with key word: \"input_files - checkpoint\""
+                    )
+                config.input_files["state"] = None
             else:
                 config.input_files['checkpoint'] = None
         else:
@@ -142,9 +148,34 @@ class Pipeline(BasePipeline):
         self.engine.save_last(output_dir)
         positions = self.engine.get_positions()
         return positions
+    @staticmethod
+    def print_simulation_info(finished_steps,steps_per_sec,remaining_steps,current_time,start_time,dt):
+        import datetime
+
+        progress = finished_steps / remaining_steps
+        elapsed_sec = current_time - start_time
+        elapsed_str = str(datetime.timedelta(seconds=int(elapsed_sec)))
+
+        steps_per_hour = 3600 * steps_per_sec
+        steps_per_day = 24 * steps_per_hour
+
+        remaining_sec = (remaining_steps - finished_steps) / steps_per_sec
+        end_time = start_time + elapsed_sec + remaining_sec
+        end_time_str = datetime.datetime.fromtimestamp(end_time).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+
+        print(
+            f"已运行: {elapsed_str} | "
+            + f"已完成: {progress * 100:.2f}% | "
+            + f"速率: {steps_per_day*dt:.1f} ns/day ({steps_per_hour*dt:.1f} ns/hour) | "
+            + f"预计结束: {end_time_str}",
+            end="\r",
+        )
+        return current_time               
 
     def run_md(self, output_dir=None):
-        import time,datetime
+        import time
 
         if output_dir is None:
             output_dir = self.basedir
@@ -166,31 +197,74 @@ class Pipeline(BasePipeline):
             _steps = min(remaining_steps - interval * _turn, interval)
             if not _steps: break
             self.engine.run_md(_steps)
+
             current_time = time.time()
-
             finished_steps = _turn * interval + _steps
-            progress = finished_steps / remaining_steps
-            elapsed_sec = current_time - start_time
-            elapsed_str = str(datetime.timedelta(seconds=int(elapsed_sec)))
-
             steps_per_sec = _steps / (current_time - _current_time)
-            steps_per_hour = 3600 * steps_per_sec
-            steps_per_day = 24 * steps_per_hour
+            _current_time = self.print_simulation_info(finished_steps,steps_per_sec,remaining_steps,current_time,start_time,dt)
+        self.engine.save_last(output_dir)
+        positions = self.engine.get_positions()
+        return positions
 
-            remaining_sec = (remaining_steps - finished_steps) / steps_per_sec
-            end_time = start_time + elapsed_sec + remaining_sec
-            end_time_str = datetime.datetime.fromtimestamp(end_time).strftime(
-                "%Y-%m-%d %H:%M:%S"
-            )
+    def run_smd(self, output_dir=None):
+        def get_current_parameter(values_list): 
+            num_segments = len(values_list) - 1
+            steps_per_segment= int(self.config.steps / num_segments)
+            key_steps = [0]
+            for i in range(num_segments):
+                key_steps.append((i + 1) * steps_per_segment)
+            key_steps[-1] = self.config.steps
 
-            print(
-                f"已运行: {elapsed_str} | "
-                + f"已完成: {progress * 100:.2f}% | "
-                + f"速率: {steps_per_day*dt:.1f} ns/day ({steps_per_hour*dt:.1f} ns/hour) | "
-                + f"预计结束: {end_time_str}",
-                end="\r",
+            segment_index = int(self.simulation.currentStep / steps_per_segment) 
+            step_start, step_end = key_steps[segment_index], key_steps[segment_index + 1]
+            param_start, param_end = values_list[segment_index], values_list[segment_index + 1]
+
+            current_param = param_start + (
+                self.simulation.currentStep - step_start
+            ) / (step_end - step_start) * (param_end - param_start)
+            return current_param
+        def update_parameters():
+            for force_name,force_info in self.config.smd.items():
+                for parameter,values in force_info['update_params'].items():
+                    current_param = get_current_parameter(values)                    
+                    self.simulation.context.setParameter(f'{parameter}{force_name}',
+                                                         current_param)
+
+        import time
+
+        if output_dir is None:
+            output_dir = self.basedir
+        os.makedirs(output_dir, exist_ok=True)
+
+        self.engine.config_reporter_smd(output_dir, self.config)
+        remaining_steps = self.config.steps - self.simulation.currentStep
+        logger.info(
+            "current steps:{} remaining steps:{}".format(
+                self.simulation.currentStep, remaining_steps
             )
-            _current_time = current_time
+        )
+        # run simulatoin
+        start_time = time.time()
+        _current_time = start_time
+        interval = 5000
+        dt = self.engine.simulation.integrator.getStepSize() / unit.nanoseconds
+        for _turn in range(int(remaining_steps / interval) + 1):
+            _steps = min(remaining_steps - interval * _turn, interval)
+            if not _steps: break
+            update_parameters()
+            self.engine.run_md(_steps)
+
+            current_time = time.time()
+            finished_steps = _turn * interval + _steps
+            steps_per_sec = _steps / (current_time - _current_time)
+            _current_time = self.print_simulation_info(
+                finished_steps,
+                steps_per_sec,
+                remaining_steps,
+                current_time,
+                start_time,
+                dt,
+            )
         self.engine.save_last(output_dir)
         positions = self.engine.get_positions()
         return positions

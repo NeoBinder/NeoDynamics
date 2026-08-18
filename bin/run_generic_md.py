@@ -31,6 +31,8 @@ def main(args):
         pp.run_minimization()
     elif config.method in ["equilibration", "md", "eq"]:
         pp.run_md()
+    elif config.method in ["smd"]:
+        pp.run_smd()
     pp.logger.info("Ending simulation at time {}".format(datetime.datetime.now()))
 
 
