@@ -10,13 +10,32 @@ numpy = "*"
 
 [environments]
 default = { solve-group = "default" }
+test = { features = ["test"], solve-group = "default" }
+dev = { features = ["dev"], solve-group = "dev" }
 
 [tasks]
+test = "pytest tests/ -m 'not golden'"
+test-golden = "pytest tests/ -m golden"
 
 [pypi-options]
 index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 
 [dependencies]
-python = "3.11.*"
-openmmforcefields = ">=0.14.1,<0.15"
-openff-toolkit = ">=0.16.9,<0.17"
+python = "3.12.*"
+openmm = "8.6.*"
+openmmforcefields = ">=0.16,<0.17"
+openff-toolkit = ">=0.19,<0.20"
+pytest = "*"
+
+[feature.test.dependencies]
+pytest = "*"
+pdbfixer = "*"
+
+# dev: extra environment for bin/hills_ana.py (mdtraj + MDAnalysis + local NeoTopology/ttk)
+[feature.dev.dependencies]
+mdtraj = "*"
+pandas = "*"
+mdanalysis = "*"
+
+[feature.dev.pypi-dependencies]
+NeoTopology = { path = "../NeoTopology", editable = true }

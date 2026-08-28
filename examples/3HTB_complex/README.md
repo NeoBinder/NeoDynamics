@@ -313,3 +313,74 @@ output:
   checkpoint_interval: 1000
 ```
 If `report_restraint: true` is set, a `restraint.dat` file will be generated in the output path, documenting the restraint information.
+
+## Running under v2 (neomd2)
+
+The same workflow runs under the v2 package (`neomd2`) through its public API —
+`prepare_system` for the system preparation, the one-shot `migrate_v1.translate`
+for the v1 run-config YAMLs, and `md_run`/`compile` for the legs. The executable
+form of this section is [`run_v2.py`](./run_v2.py) in this directory.
+
+### Quick start
+
+From the repository root, inside any pixi environment that ships AmberTools
+(`antechamber` is required for the GAFF ligand parameters; the locked
+`default`, `test` and `dev` environments all do, because openff-toolkit
+depends on ambertools):
+
+```bash
+# example-sized run (min maxiter 10000, eq 5000 steps — takes hours on CPU)
+pixi run -e test python examples/3HTB_complex/run_v2.py --workdir /tmp/3htb_v2
+
+# CI-sized smoke (min 200 iterations, eq 250 steps, probes every 50 steps,
+# plus one budget-capped full-tolerance minimization attempt)
+pixi run -e test python examples/3HTB_complex/run_v2.py --workdir /tmp/3htb_v2 --smoke
+```
+
+Each stage is skipped when its outputs already exist, so the script can be
+re-run to resume a partial workflow (`--force-prep` re-prepares).
+
+### What it does
+
+| v1 step | v2 spelling in `run_v2.py` |
+|---|---|
+| `prepare.yaml` | a prepare-config dict for `neomd2.system.prepare_system` (the DEFAULT gaff factory parameterizes the ligand through real antechamber); writes `sys_prep/3htb/{solv.pdbx,system.xml,ligand.json}` |
+| `min.yaml` | `neomd2.migrate_v1.translate` → `neomd2.compile(plan).run()`; writes `min/{output.ckpt,last.ckpt,last.pdbx,manifest.json}` |
+| `eq_restraints.yaml` | `translate` → `neomd2.md_run(plan)` (L2 dict); writes `eq_restraints/{output.state,output.dcd,output.ckpt,last.ckpt,last.pdbx,restraint.tsv,manifest.json}` |
+
+A machine-readable summary of every stage (timings, final energies, restraint
+force groups, the full-tolerance attempt outcome) lands in
+`<workdir>/run_v2_report.json`.
+
+### Differences to know about
+
+* **`last.pdbx` per leg.** the v2 driver writes the v1 `save_last` pair after
+  every phase — `last.ckpt` (a restorable snapshot) and `last.pdbx` (the
+  final positions) — so the eq leg starts the same file chain v1 used,
+  straight from `min/last.pdbx`.
+* **The eq leg must start from minimized coordinates.** The initial protein
+  carries an ASN163/LEU164 clash; the Maxwell velocity draw the openmm kernel
+  performs at Context creation is a constrained-velocity projection, and on
+  the clashed raw positions (openmm 8.6.0.dev, CPU platform) it produces
+  ~100-sigma velocities at the clash — the first dynamics steps then go NaN.
+  Drawing the velocities at the minimized geometry is stable, which is exactly
+  what feeding the eq leg `min/last.pdbx` achieves.
+* **Smoke reductions.** `--smoke` shrinks `min_params.maxiter`
+  (10000 → 200), eq steps (5000 → 250) and the probe intervals (1000 → 50 so
+  probes actually fire); the full-tolerance minimization
+  (tolerance 10, maxiter 10000) runs as a separate budget-capped attempt and
+  is reported as `skipped` when it does not converge within the budget (on
+  CPU, |F|max plateaus near 2.4e3 kJ/mol/nm, far above tolerance 10).
+* **Threads.** The script pins `OPENMM_CPU_THREADS` (default 4) before any
+  openmm Context exists: 31.6k particles single-threaded cost ~1.6 s per
+  L-BFGS iteration on the dev machine.
+
+### CI
+
+The `smoke-3htb` job in `.github/workflows/ci.yml` runs
+`pixi run -e test pytest tests/v2/test_3htb_e2e.py -v` — the module drives
+`run_v2.py --smoke` in a subprocess and asserts the artifacts, the restraint
+installation (`dist_ref_position`, force group assignment), finite energies
+and the honest full-tolerance report. No extra CI dependencies are needed:
+`antechamber` ships in every locked pixi environment via openff-toolkit's
+ambertools dependency; environments lacking it skip with an explicit reason.

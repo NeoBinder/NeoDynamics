@@ -2,8 +2,8 @@ name: neomd
 channels:
   - conda-forge
 dependencies:
-  - python=3.11
-  - openmm=8.2.0
-  - openmmforcefields=0.14.*
+  - python=3.12
+  - openmm=8.6.*
+  - openmmforcefields=0.16.*
   - openff-forcefields
-  - openff-toolkit=0.16.*
+  - openff-toolkit=0.19.*

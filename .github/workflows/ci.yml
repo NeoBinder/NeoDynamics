@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # CPU-only, single-threaded for reproducible golden-sample comparisons
+      OPENMM_CPU_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      # `environments: default` + `locked: true`: only install the default
+      # environment from the committed pixi.lock. Never solve/install the
+      # `dev` environment here — its pypi deps include a path dependency on
+      # ../NeoTopology which does not exist in a CI checkout.
+      - uses: pixi-project/setup-pixi-action@v0
+        with:
+          pixi-version: v0.77.1
+          environments: default
+          locked: true
+          cache: true
+
+      - name: Run tests (excluding golden)
+        run: pixi run test
+
+      - name: Run golden-sample tests
+        run: pixi run test-golden
+
+  # 3HTB end-to-end smoke under neomd2 (migration plan §5 item 3.2).
+  #
+  # antechamber/parmchk2 are REQUIRED for the GAFF ligand leg. They are NOT a
+  # separate install: openff-toolkit depends on ambertools, so every locked
+  # pixi environment (default/test/dev) already ships ambertools 26.0 from
+  # conda-forge — no extra feature, no fresh solve, `locked: true` covers it.
+  # The module also carries a skipif(shutil.which("antechamber")) guard for
+  # hand-rolled environments without it.
+  #
+  # The `test` environment (not `default`) is installed because the module
+  # lives next to pdbfixer-dependent siblings; like `default` it is part of
+  # the committed lock's default solve-group, so this stays a locked install.
+  smoke-3htb:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      # consistent with the test job; the smoke's MD legs pin their own fixed
+      # thread count inside their subprocess (see tests/v2/test_3htb_e2e.py)
+      OPENMM_CPU_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pixi-project/setup-pixi-action@v0
+        with:
+          pixi-version: v0.77.1
+          environments: test
+          locked: true
+          cache: true
+
+      - name: Run the 3HTB end-to-end smoke
+        run: pixi run -e test pytest tests/v2/test_3htb_e2e.py -v -m 'not golden'

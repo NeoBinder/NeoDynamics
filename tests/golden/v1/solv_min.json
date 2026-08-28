@@ -1,0 +1,1 @@
+{"scenario":"solv_min","schema":1,"env":{"python":"3.12.14","openmm":"8.6.0.dev-c6173db"},"platform":"cpu","energies":["51832.432083","-55082.338049"],"coord_hashes":["c7c9e91e8b0334c001bca11e173f2862384007011d3e46224b86ea3ffe4c43bf","912dbe0c39b6867f58f5544d2a8a9ad843e2ac17011bdab3cf0b3bf00961664e"],"colvar_stats":null,"restraint_stats":null}

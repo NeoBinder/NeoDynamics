@@ -10,7 +10,7 @@ authors = [
 ]
 dynamic = ["version"]
 readme = "README.md"
-requires-python = "==3.11.*"
+requires-python = ">=3.12"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -29,3 +29,8 @@ where = ["src"]
 [project.urls]
 Homepage = "https://github.com/NeoBinder/NeoDynamics"
 Issues = "https://github.com/NeoBinder/NeoDynamics/issues"
+
+[tool.pytest.ini_options]
+markers = [
+  "golden: golden-sample parity tests against v1 tapes (run via `pixi run test-golden`)",
+]

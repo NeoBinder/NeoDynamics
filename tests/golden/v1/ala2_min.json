@@ -1,0 +1,1 @@
+{"scenario":"ala2_min","schema":1,"env":{"python":"3.12.14","openmm":"8.6.0.dev-c6173db"},"platform":"cpu","energies":["-86.927937","-86.937867"],"coord_hashes":["4662b5753dfc137c33253013492d329c796c05cbadfbb04ecea25455feff0141","40647426eb5ba61a1ed0e71fad92dc2c94057e78ff0a051226923f0b92a47cb6"],"colvar_stats":null,"restraint_stats":null}
