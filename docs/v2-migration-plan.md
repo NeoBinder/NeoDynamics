@@ -152,12 +152,12 @@ src/
 
 ### Phase 4 — Flip Day
 
-- [ ] 4.1 examples / README all switch to the `md_run` spelling
-- [ ] 4.2 `[project.scripts]`: register `neomd = neomd.cli:main` during the strangler period; at flip, the entry point follows the package rename and becomes `neomd`
-- [ ] 4.3 bin/ scripts degrade into thin wrappers calling the new CLI (one compatibility release)
-- [ ] 4.4 tag `v1-final`; `src/neomd/` → `src/neomd_legacy/`; deleted after a one-release deprecation window
-- [ ] 4.5 `src/neomd/` → `src/neomd/` rename; release v0.2.0 (pre-1.0, breaking changes honestly labeled)
-- [ ] 4.6 After the switch, CI goes from running v1/v2 side by side to a single replay-tape run (v1 no longer exists)
+- [x] 4.1 examples / README all switch to the `md_run` spelling
+- [x] 4.2 `[project.scripts]`: register `neomd = neomd.cli:main` during the strangler period; at flip, the entry point follows the package rename and becomes `neomd`
+- [x] 4.3 bin/ scripts degrade into thin wrappers calling the new CLI (one compatibility release)
+- [x] 4.4 tag `v1-final`; `src/neomd/` → `src/neomd_legacy/`; deleted after a one-release deprecation window
+- [x] 4.5 `src/neomd/` → `src/neomd/` rename; release v0.2.0 (pre-1.0, breaking changes honestly labeled)
+- [x] 4.6 After the switch, CI goes from running v1/v2 side by side to a single replay-tape run (v1 no longer exists)
 
 ## 6. Parity Checklist (flip criterion)
 
