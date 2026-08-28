@@ -1,68 +1,15 @@
-# neomd Execution DAG
+# neomd Execution DAG — FINAL (migration executed 2026-08-27)
 
-Execution board for [v2-migration-plan.md](v2-migration-plan.md).
-Waves respect the phase gates: Phase 2 starts only after Phase 1 gate; Phase 3 after Phase 2; Phase 4 (flip) after Phase 3.
+Execution board for [v2-migration-plan.md](v2-migration-plan.md). All waves complete; the flip happened. Tags: `v1-final` (v1 frozen state, Phases 0-3) → `v0.2.0` (flip commit).
 
-Legend: `[~] queued · [>] in flight · [x] done · [!] blocked/failed`
-
-## Wave 0 — Phase 0: Foundation of Trust (guard v1 first)
-
-| Task | Plan items | Files owned | Agent | Status |
-|---|---|---|---|---|
-| A0-infra | 0.1, 0.2, 0.3, 0.6 | `pixi.toml`, `.github/workflows/ci.yml`, `bin/hills_ana.py` (unchanged, smoke only) | subagent | [~] |
-| A0-golden | 0.4, 0.5 | `tests/golden/**`, `tests/data/ala2/**`, `tests/test_golden.py`, `pyproject.toml` (pytest marker) | subagent | [~] |
-
-Gate 0: `pixi run test` green (v1 e2e on CPU); `pixi run test-golden` green (v1 golden bit-stable); `pixi run -e dev python bin/hills_ana.py` smoke OK.
-
-## Wave 1 — Phase 1: The Spine (minimal end-to-end path)
-
-Layer 0 (parallel, disjoint files):
-
-| Task | Plan items | Files owned | Agent | Status |
-|---|---|---|---|---|
-| A1-plan | 1.1, 1.7 | `src/neomd/{__init__,errors,plan,manifest}.py`, `tests/v2/test_plan.py` | subagent | [~] |
-| A1-kernel | 1.2 | `src/neomd/kernel/{__init__,port,fake,openmm}.py`, `tests/v2/test_kernel.py` | subagent | [~] |
-| A1-vocab | 1.4, 1.5 | `src/neomd/{colvars,registry,restraints,probes,sinks}.py`, `tests/v2/test_vocab.py` | subagent | [~] |
-
-Layer 1 (integration):
-
-| Task | Plan items | Files owned | Agent | Status |
-|---|---|---|---|---|
-| A1-driver | 1.3 | `src/neomd/driver.py`, `tests/v2/test_driver.py` | subagent | [~] |
-| A1-run | 1.6 | `src/neomd/run.py`, `tests/v2/test_run_roundtrip.py`, golden parity for spine | main agent | [~] |
-
-Gate 1: `md_run` runs generic MD + distance restraint (openmm CPU + fake kernel); round-trip law test green; spine parity vs golden tape green.
-
-## Wave 2 — Phase 2: Asset Porting (verbatim physics)
-
-| Task | Plan items | Files owned | Depends on | Status |
-|---|---|---|---|---|
-| A2-restraints | 2.1 | `src/neomd/restraints/*.py` (remaining 6 triples) | A1-vocab | [~] |
-| A2-meta | 2.2 | `src/neomd/methods/metadynamics.py` | A1 all | [~] |
-| A2-system | 2.3 | `src/neomd/system.py`, `src/neomd/io*.py` | A1-plan | [~] |
-| A2-tools | 2.4, 2.5 | `src/neomd/tools/*.py` | A2-system (interfaces) | [~] |
-| A2-scripts | 2.6, 2.7, 2.8 | `src/neomd/tools/{ligand,convert,fix_protein}.py`, `src/neomd/migrate_v1.py` | A1-plan, A2-tools | [~] |
-| A2-gamd | 2.9 | `examples/gamd_drill/**` (standalone mini package) | A1-vocab registry | [~] |
-
-Gate 2: parity checklist §6 every row addressed (ported + test).
-
-## Wave 3 — Phase 3: Parity Acceptance
-
-| Task | Plan items | Status |
+| Wave | Agents | Outcome |
 |---|---|---|
-| A3-parity | 3.1, 3.3 (parity suite, translator round-trip) | [~] |
-| A3-3htb | 3.2 (3HTB e2e smoke in CI) | [~] |
-| A3-stats | 3.4 (statistical tier; GPU if available) | [~] |
+| 0 — Foundation of trust | A0-infra, A0-golden | pixi tasks + CI workflow + dev env (hills_ana alive); golden-tape harness (9 scenarios, bit-reproducible), two-tier comparison |
+| 1 — Spine (L0: A1-plan, A1-kernel, A1-vocab, A1-io · L1: A1-driver, A1-run) | 6 | Plan/KernelPort/driver/vocab/probes/sinks + `md_run` facade; round-trip law; 5/5 spine scenarios bit-exact vs v1 tapes (incl. the restraint `reinitialize` fix via lazy Context creation) |
+| 2 — Asset porting (A: A2-restraints, A2-meta, A2-system, A2-tools · B: A2-orca, A2-ligand, A2-scripts, A2-migrate, A2-gamd, A2-template) | 10 | 8 restraint triples (expressions byte-verbatim), metadynamics (bit-exact tempering after the Quantity-sequence port), system loading + prepare (fgroup write-back dead), tools suite (antechamber/orca/ligand/convert/fix_protein/template_xml), migrate_v1 translator, GAMD plugin drill |
+| 3 — Parity acceptance | A3-parity, A3-3htb, A3-fix | 23 golden tests (generic MD, resume, restraints + reporting, metadynamics + resume — all bit-exact), 3HTB e2e (31,612 particles, real GAFF) + CI smoke job, translator round-trip, four integration fixes (GAFF factory, last.pdbx, RestraintProbe, 1-ulp tempering) |
+| 4 — Flip day | main agent | `v1-final` tag; `src/neomd` → `src/neomd_legacy`; `src/neomd2` → `src/neomd`; `[project.scripts] neomd` (+ `neomd2` alias); bin/ thin wrappers; CI replay-tape mode (`legacy` marker); `kernel/replay.py` adapter; README/examples on the `md_run` spelling; `v0.2.0` tag |
 
-Gate 3: parity suite green; 3HTB smoke green.
+Post-flip verification: `pixi run test` 443 passed / 5 skipped (CI tier); `pixi run test-golden` 13 passed (parity tier); `tests/v2/` 460 passed / 1 skipped; `pixi run test-legacy` collects 13 (v1 live tests, opt-in during the deprecation window); `neomd run|migrate|prepare|version` CLI smoke green.
 
-## Wave 4 — Phase 4: Flip Day
-
-| Task | Plan items | Status |
-|---|---|---|
-| A4-flip | 4.1–4.6 (docs/entry points/wrappers/tag/rename/CI switch) | [~] |
-
-## Notes / deviations
-
-- Plan says "pin openmm 8.2.0" in CI; the repo (user's uncommitted changes) already moved to openmm 8.6.* pinned via `pixi.lock` — the lockfile pin achieves the same bit-stability goal. CI uses the lockfile as-is.
-- Full artifacts stay untracked via the existing `*_test` gitignore pattern; only trimmed tapes are committed.
+Known follow-ups (post-window / 2.x): delete `neomd_legacy` + the `neomd2` script alias + `migrate_v1` at the end of the deprecation window; extract the golden scenario configs from `tests/golden/scenarios.py` (it imports `neomd_legacy`) before that deletion; RESP2 real-tool verification when ORCA/Multiwfn are available; CUDA statistical tier when a GPU is present; plugin plan-schema namespace (the GAMD drill documented `meta_set` as the ride-along carrier).
