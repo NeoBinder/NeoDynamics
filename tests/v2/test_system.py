@@ -1,4 +1,4 @@
-"""Public-interface tests for neomd2.system (v2 migration plan §5 item 2.3).
+"""Public-interface tests for neomd.system (v2 migration plan §5 item 2.3).
 
 Discipline §8 #5: tests only cross public interfaces — SystemBundle.from_plan /
 describe, prepare_system, the ForceFieldBuilder protocol, the ffxml knowledge
@@ -41,12 +41,12 @@ from openmm import XmlSerializer
 from openmm import app, unit
 from openmm.app import ForceField
 
-import neomd2.system as nsys
-from neomd2.errors import ConfigValueError
-from neomd2.kernel import KernelFactory, KernelSpec
-from neomd2.kernel._bootstrap import ensure_adapters
-from neomd2.plan import Plan
-from neomd2.system import (
+import neomd.system as nsys
+from neomd.errors import ConfigValueError
+from neomd.kernel import KernelFactory, KernelSpec
+from neomd.kernel._bootstrap import ensure_adapters
+from neomd.plan import Plan
+from neomd.system import (
     ForceFieldBuilder,
     PlainForceFieldBuilder,
     SystemBundle,
@@ -69,7 +69,7 @@ ALA2_ATOMS = 22  # capped alanine dipeptide, hydrogens included
 def _minimal_plan(complex_path, system_path, **extra):
     plan = {
         "input_files": {"complex": str(complex_path), "system": str(system_path)},
-        "output": {"output_dir": "/tmp/neomd2-test-output"},
+        "output": {"output_dir": "/tmp/neomd-test-output"},
     }
     plan.update(extra)
     return plan
@@ -595,7 +595,7 @@ class TestForceFieldBuilderSeam:
         # fail with the GAFF-seam message, not a stack trace
         import sys
 
-        monkeypatch.setitem(sys.modules, "neomd2.tools.antechamber", None)
+        monkeypatch.setitem(sys.modules, "neomd.tools.antechamber", None)
         openff_molecule = pytest.importorskip(
             "openff.toolkit.topology").Molecule
         builder = PlainForceFieldBuilder()

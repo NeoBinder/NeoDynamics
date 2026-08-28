@@ -1,9 +1,9 @@
-# NeoDynamics v2 Migration Plan (neomd2)
+# NeoDynamics v2 Migration Plan (neomd)
 
-- Status: **Executing** (Phase 0 complete 2026-08-27; Phase 1 in flight)
+- Status: **Flipped** (Phase 4 executed 2026-08-27: src/neomd -> src/neomd_legacy, src/neomd2 -> src/neomd, tags v1-final + v0.2.0)
 - Date: 2026-08-27
 - Decision process: four grilling rounds (16 decisions), see the decision table in §1
-- Related docs: [ADR-0001 Same-Repository Strangler Migration](adr/0001-neomd2-strangler-migration.md)
+- Related docs: [ADR-0001 Same-Repository Strangler Migration](adr/0001-neomd-strangler-migration.md)
 
 ---
 
@@ -12,12 +12,12 @@
 | # | Decision Point | Conclusion |
 |---|--------|------|
 | Q1 | Plan form | This document + ADR-0001, git-tracked, checked off phase by phase |
-| Q2 | Package naming strategy | Directory name `src/neomd2/` during the strangler period; reclaim `neomd` at flip time; v1 first moves to `neomd_legacy`, then gets deleted |
+| Q2 | Package naming strategy | Directory name `src/neomd/` during the strangler period; reclaim `neomd` at flip time; v1 first moves to `neomd_legacy`, then gets deleted |
 | Q3 | Window discipline | **Elastic window**: parity acceptance is the flip criterion, no time-boxed deadline |
 | Q4 | Golden sample tolerance | Two tiers: bit-exact comparison in the same CI environment + statistical tolerance across environments |
 | Q5 | v1 YAML | One-shot translator `migrate_v1.py`, never part of the v2 runtime |
 | Q6 | Launch scope | **Flip only after full feature parity with v1's usable feature surface** |
-| R2-Q1 | CI infrastructure | pixi task + minimal GitHub Actions; **guard v1 first**, then touch neomd2 |
+| R2-Q1 | CI infrastructure | pixi task + minimal GitHub Actions; **guard v1 first**, then touch neomd |
 | R2-Q2 | hills_ana | Kept alive: dev environment adds MDAnalysis + a local ttk (`../NeoTopology`) path dependency |
 | R2-Q3 | Golden sample carrier | Trimmed small files checked into `tests/golden/` (< 100KB); no v1/v2 cross-comparison |
 | R2-Q4 | examples | Migration only guarantees `3HTB_complex` end-to-end; other examples audited separately |
@@ -57,8 +57,8 @@
 | **knowledge triple** | The complete knowledge of one restraint/CV/method: schema + forces + observables, living in a single module |
 | **golden tape** | Trimmed expectation files (energy samples / coordinate-frame hashes / statistical summaries), checked into `tests/golden/` |
 | **parity** | Behavioral equivalence of v2 with v1's usable feature surface; the sole flip criterion |
-| **strangler window** | The period when v1 (frozen) and neomd2 coexist, ending on flip day |
-| **flip day** | The commit point where neomd2 renames itself to reclaim `neomd` and v1 moves into `neomd_legacy` |
+| **strangler window** | The period when v1 (frozen) and neomd coexist, ending on flip day |
+| **flip day** | The commit point where neomd renames itself to reclaim `neomd` and v1 moves into `neomd_legacy` |
 | **epoch chain** | The fingerprinted sequence of Plans appended when bias is adjusted mid-run; the manifest records the lineage |
 
 ## 4. Target Package Structure
@@ -66,7 +66,7 @@
 ```
 src/
 ├── neomd/                 # v1 · hard-frozen: bug fixes only, no new features
-└── neomd2/                # v2 · the new spine
+└── neomd/                # v2 · the new spine
     ├── __init__.py        # public surface: md_run, load_plan, compile, register, __version__
     ├── run.py             # md_run facade (L0/L1)
     ├── plan.py            # Plan: validate · derive · freeze · fingerprint; .with() structural sharing
@@ -97,7 +97,7 @@ src/
 
 ### Phase 0 — Foundation of Trust (CI + golden samples)
 
-> Iron rule of ordering: guard v1 first, then touch neomd2. v1's 3 e2e tests currently run unprotected; the credibility of parity assertions presupposes that v1's behavior is automatically locked down.
+> Iron rule of ordering: guard v1 first, then touch neomd. v1's 3 e2e tests currently run unprotected; the credibility of parity assertions presupposes that v1's behavior is automatically locked down.
 
 - [x] 0.1 pixi tasks: `test` (pytest), `test-golden` (golden-sample comparison)
 - [x] 0.2 Minimal `.github/workflows/ci.yml` (setup-pixi, linux-64, CPU, pin openmm 8.2.0)
@@ -153,10 +153,10 @@ src/
 ### Phase 4 — Flip Day
 
 - [ ] 4.1 examples / README all switch to the `md_run` spelling
-- [ ] 4.2 `[project.scripts]`: register `neomd2 = neomd2.cli:main` during the strangler period; at flip, the entry point follows the package rename and becomes `neomd`
+- [ ] 4.2 `[project.scripts]`: register `neomd = neomd.cli:main` during the strangler period; at flip, the entry point follows the package rename and becomes `neomd`
 - [ ] 4.3 bin/ scripts degrade into thin wrappers calling the new CLI (one compatibility release)
 - [ ] 4.4 tag `v1-final`; `src/neomd/` → `src/neomd_legacy/`; deleted after a one-release deprecation window
-- [ ] 4.5 `src/neomd2/` → `src/neomd/` rename; release v0.2.0 (pre-1.0, breaking changes honestly labeled)
+- [ ] 4.5 `src/neomd/` → `src/neomd/` rename; release v0.2.0 (pre-1.0, breaking changes honestly labeled)
 - [ ] 4.6 After the switch, CI goes from running v1/v2 side by side to a single replay-tape run (v1 no longer exists)
 
 ## 6. Parity Checklist (flip criterion)
@@ -173,7 +173,7 @@ src/
 | Ligand processing | bin/ligand_processor | tools/ + system.py | output mol2/json hashes |
 | RESP2 workflow | bin/resp2_orca | tools/orca.py | charge output statistical tolerance (external tools) |
 | Template XML processing | bin/template_xml_processor | tools/antechamber.py | ffxml hash |
-| convert / fix_protein | bin/convert, fix_protein | neomd2.tools | output file hashes |
+| convert / fix_protein | bin/convert, fix_protein | neomd.tools | output file hashes |
 | reporters (state/dcd/ckpt) | generic/engine.config_reporter | probes.py + sinks.py | artifact filename/format assertions |
 | ~~qmmm~~ | qmmm/* (broken) | **excluded** → 2.x plugin | — |
 | ~~gethill / hills_ana reading old formats~~ | bin/ | **breakage acknowledged** → rewritten for 2.x against the new format | — |
@@ -200,9 +200,20 @@ src/
 1. **v1 hard freeze**: bug fixes only, no new features
 2. **Spine first**: Phase 2 does not start before Phase 1 passes its Gate
 3. **Verbatim asset porting**: no clever "drive-by optimization" of physics expressions/units/defaults
-4. **Deletion test**: once per release, ask of each neomd2 module "if I deleted it, where would the complexity go?"
+4. **Deletion test**: once per release, ask of each neomd module "if I deleted it, where would the complexity go?"
 5. **The interface is the test surface**: tests for new code may only cross public interfaces; probing internals is forbidden
 
 ---
 
 *How to confirm: read this document through; if any decision should change, point out the item directly; if you accept everything, reply with confirmation, and work then starts at Phase 0.*
+
+---
+
+## 9. Flip Day Record (2026-08-27)
+
+- `v1-final` tagged on the pre-flip commit (v1 frozen state, Phases 0-3 complete).
+- `src/neomd/` -> `src/neomd_legacy/` (kept one release; `pixi run test-legacy` exercises it).
+- `src/neomd2/` -> `src/neomd/`; `[project.scripts]` `neomd` (+ `neomd2` alias for the window).
+- `bin/` run scripts are thin wrappers over the new CLI; gethill/hills_ana untouched (old-format breakage acknowledged).
+- CI: `test` = `-m "not golden and not legacy"`, `test-golden` = `-m "golden and not legacy"` (the replay-tape parity tier); v1 live tests are `legacy`-marked.
+- `kernel/replay.py` added as the third adapter (golden-tape playback) — the post-v1 parity workhorse.

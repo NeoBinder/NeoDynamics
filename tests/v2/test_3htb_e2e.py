@@ -1,12 +1,12 @@
-"""3HTB end-to-end smoke under neomd2 (v2 migration plan §5 items 3.2/3.3).
+"""3HTB end-to-end smoke under neomd (v2 migration plan §5 items 3.2/3.3).
 
 The one example migration guarantees (plan §1 R2-Q4: only 3HTB_complex is
 kept) runs its whole workflow through the PUBLIC v2 surface:
 
-    prepare.yaml  -> neomd2.system.prepare_system (config-dict form, real
+    prepare.yaml  -> neomd.system.prepare_system (config-dict form, real
                      GAFF through antechamber via the DEFAULT gaff factory)
-    min.yaml      -> neomd2.migrate_v1.translate + neomd2.compile().run()
-    eq_restraints.yaml -> translate + neomd2.md_run (the L2 dict form)
+    min.yaml      -> neomd.migrate_v1.translate + neomd.compile().run()
+    eq_restraints.yaml -> translate + neomd.md_run (the L2 dict form)
 
 The min/eq legs are executed by ``examples/3HTB_complex/run_v2.py`` — the
 documented v2 runbook — in a SUBPROCESS, for two measured reasons:
@@ -116,7 +116,7 @@ def prep(tmp_path_factory):
     No ``gaff=`` hook: the default GAFF route must carry the ligand (the
     regression for the class-vs-instance factory bug lives here too).
     """
-    from neomd2.system import prepare_system
+    from neomd.system import prepare_system
 
     workdir = tmp_path_factory.mktemp("3htb_prep")
     out_dir = os.path.join(str(workdir), "sys_prep", "3htb")
@@ -198,8 +198,8 @@ def test_prepare_writes_the_artifact_trio(prep):
 def test_system_xml_builds_a_kernel_with_a_plausible_particle_count(prep):
     from openmm import XmlSerializer
 
-    from neomd2.kernel import KernelFactory, KernelSpec
-    from neomd2.kernel._bootstrap import ensure_adapters
+    from neomd.kernel import KernelFactory, KernelSpec
+    from neomd.kernel._bootstrap import ensure_adapters
 
     ensure_adapters()
     with open(prep["system"], "r", encoding="utf-8") as handle:
@@ -369,9 +369,9 @@ def example_id(path):
 def test_every_example_yaml_translates(path):
     """Prepare-configs refuse with the documented error; run-configs become
     valid Plans (validate -> derive -> freeze -> fingerprint)."""
-    from neomd2.errors import ConfigKeyError
-    from neomd2.migrate_v1 import is_v1_prepare_config, translate
-    from neomd2.plan import Plan
+    from neomd.errors import ConfigKeyError
+    from neomd.migrate_v1 import is_v1_prepare_config, translate
+    from neomd.plan import Plan
 
     with open(path, "r", encoding="utf-8") as handle:
         config = yaml.safe_load(handle)
@@ -389,7 +389,7 @@ def test_every_example_yaml_translates(path):
 def test_the_prepare_configs_are_exactly_the_two_known_ones():
     """Coverage honesty: the prepare-config branch of the round-trip is fed
     by exactly these two files (3HTB prepare.yaml, ala_meta prep_system.yaml)."""
-    from neomd2.migrate_v1 import is_v1_prepare_config
+    from neomd.migrate_v1 import is_v1_prepare_config
 
     prepare_configs, run_configs = [], []
     for path in example_yaml_files():
@@ -413,8 +413,8 @@ def test_3htb_run_configs_compile(prep, yaml_name):
     run-configs, pointed at the prepared outputs, survive compile() (a
     kernel is constructible from their input files).  Light by design —
     no dynamics here; the legs above already ran them."""
-    from neomd2 import compile as compile_run
-    from neomd2.migrate_v1 import translate
+    from neomd import compile as compile_run
+    from neomd.migrate_v1 import translate
 
     source = os.path.join(EXAMPLE, yaml_name)
     with open(source, "r", encoding="utf-8") as handle:

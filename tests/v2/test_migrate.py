@@ -1,8 +1,8 @@
-"""Tests for neomd2.migrate_v1 — the ONE-SHOT v1 -> v2 config translator
+"""Tests for neomd.migrate_v1 — the ONE-SHOT v1 -> v2 config translator
 (v2 migration plan §5 item 2.8, §1 decision Q5, §7 "translator becomes a
 permanent compatibility layer" risk).
 
-Discipline §8 #5 (public interfaces only) applies to the neomd2 runtime;
+Discipline §8 #5 (public interfaces only) applies to the neomd runtime;
 this module imports the TOOL itself (that is the tool's own test — the one
 importer it is allowed to have besides its CLI).  Everything else crosses the
 public surface: ``translate()``, ``is_v1_prepare_config()``, ``main()``,
@@ -16,7 +16,7 @@ Real-world inputs exercised:
   error).
 
 The runtime-isolation law (the translator is never on the runtime import
-path) is enforced by a source scan over src/neomd2/.
+path) is enforced by a source scan over src/neomd/.
 """
 
 from __future__ import annotations
@@ -28,22 +28,22 @@ import os
 import pytest
 import yaml
 
-import neomd2
-from neomd2.errors import ConfigKeyError
-from neomd2.migrate_v1 import (
+import neomd
+from neomd.errors import ConfigKeyError
+from neomd.migrate_v1 import (
     V1MigrationWarning,
     is_v1_prepare_config,
     main,
     translate,
 )
-from neomd2.plan import Plan, load_plan
+from neomd.plan import Plan, load_plan
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 EXAMPLE_DIRS = (
     os.path.join(REPO, "examples", "3HTB_complex"),
     os.path.join(REPO, "examples", "ala_meta"),
 )
-RUNTIME_ROOT = os.path.join(REPO, "src", "neomd2")
+RUNTIME_ROOT = os.path.join(REPO, "src", "neomd")
 
 
 # ---------------------------------------------------------------------------
@@ -368,7 +368,7 @@ def test_cli_reports_errors_and_warnings_writes_nothing(tmp_path, capsys):
 
 
 def test_migrate_v1_is_never_on_the_runtime_import_path():
-    import neomd2.migrate_v1 as migrate
+    import neomd.migrate_v1 as migrate
 
     offenders = []
     for root, _dirs, files in os.walk(RUNTIME_ROOT):
@@ -382,8 +382,8 @@ def test_migrate_v1_is_never_on_the_runtime_import_path():
     assert not offenders, f"runtime modules referencing the translator: {offenders}"
     # the named entry points (__init__.py, run.py, driver.py) are covered by
     # the scan above; the public surface does not export it either
-    assert "migrate_v1" not in neomd2.__all__
-    assert "neomd2.migrate_v1" not in vars(neomd2)
+    assert "migrate_v1" not in neomd.__all__
+    assert "neomd.migrate_v1" not in vars(neomd)
     # the one-shot discipline statement must stay in the module docstring
     docstring = (migrate.__doc__ or "").lower()
     assert "one-shot" in docstring

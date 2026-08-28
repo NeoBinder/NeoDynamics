@@ -1,26 +1,26 @@
 # The GAMD plugin drill (v2 migration plan §5 item 2.9, §2 Non-Goals).
 #
-# A standalone mini package that lives OUTSIDE src/neomd2/ on purpose: its
+# A standalone mini package that lives OUTSIDE src/neomd/ on purpose: its
 # only job is to prove that a third-party distribution can register a
 # "method" knowledge triple and be discovered through the importlib.metadata
-# entry-point group "neomd2" (neomd2.registry.scan_entry_points).  The
+# entry-point group "neomd" (neomd.registry.scan_entry_points).  The
 # physics is a placeholder — this is a drill, not GAMD.
 [build-system]
 requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "neomd2-gamd-drill"
+name = "neomd-gamd-drill"
 version = "0.0.1"
-description = "GAMD plugin drill: validates the neomd2 extension rack from outside the core package"
+description = "GAMD plugin drill: validates the neomd extension rack from outside the core package"
 requires-python = ">=3.12"
-dependencies = ["neomd2"]  # the plugin host; a real install would pin a version
+dependencies = ["neomd"]  # the plugin host; a real install would pin a version
 
-# The extension-rack contract: every entry point in group "neomd2" names a
-# module whose import self-registers via neomd2.registry.register.
+# The extension-rack contract: every entry point in group "neomd" names a
+# module whose import self-registers via neomd.registry.register.
 # scan_entry_points() loads it; the driver dispatches registry.get("method", name).
-[project.entry-points."neomd2"]
-gamd_drill = "neomd2_gamd_drill"
+[project.entry-points."neomd"]
+gamd_drill = "neomd_gamd_drill"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

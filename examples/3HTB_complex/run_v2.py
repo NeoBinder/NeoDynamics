@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""The v2 (neomd2) runbook for examples/3HTB_complex (migration plan §5 3.2).
+"""The v2 (neomd) runbook for examples/3HTB_complex (migration plan §5 3.2).
 
 Executable form of the "Running under v2" section of this example's README:
 it performs the WHOLE 3HTB workflow — system preparation (real GAFF via
 antechamber), the minimization leg, and the restrained-equilibration leg —
-using only the PUBLIC neomd2 API:
+using only the PUBLIC neomd API:
 
-    neomd2.system.prepare_system     v1 prepare.yaml semantics (config dict)
-    neomd2.migrate_v1.translate      v1 run-config YAML -> v2 plan dict
-    neomd2.compile / neomd2.md_run   L2: the plan dict, executed
+    neomd.system.prepare_system     v1 prepare.yaml semantics (config dict)
+    neomd.migrate_v1.translate      v1 run-config YAML -> v2 plan dict
+    neomd.compile / neomd.md_run   L2: the plan dict, executed
 
 Usage (from the repository root, inside a pixi environment that has
 antechamber — the locked `default`/`test`/`dev` environments all do):
@@ -81,7 +81,7 @@ SMOKE_FULL_MIN_BUDGET = 150
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         prog="run_v2.py",
-        description="3HTB complex under neomd2 (v2): prepare -> min -> eq "
+        description="3HTB complex under neomd (v2): prepare -> min -> eq "
                     "with restraints, via the public API",
     )
     parser.add_argument("--workdir", required=True,
@@ -148,7 +148,7 @@ def prepare_stage(workdir, force=False):
     tools-layer generator instance, registered with the openmm ForceField
     through its bound ``.generator`` callback — real antechamber).
     """
-    from neomd2.system import prepare_system
+    from neomd.system import prepare_system
 
     files = prepared_files(workdir)
     if (not force and os.path.isfile(files["complex"])
@@ -196,7 +196,7 @@ def min_plan(workdir, maxiter):
     """
     import yaml
 
-    from neomd2.migrate_v1 import translate
+    from neomd.migrate_v1 import translate
 
     with open(MIN_YAML, "r", encoding="utf-8") as handle:
         v1_config = yaml.safe_load(handle)
@@ -221,7 +221,7 @@ def run_min_leg(workdir, maxiter):
     ``last.pdbx`` with the MINIMIZED positions) either way, and the eq leg
     consumes ``min/last.pdbx`` directly.
     """
-    from neomd2 import compile as compile_run
+    from neomd import compile as compile_run
 
     plan, out_dir = min_plan(workdir, maxiter)
     started = time.time()
@@ -252,7 +252,7 @@ def eq_plan(workdir, last_pdbx, steps, interval):
     """
     import yaml
 
-    from neomd2.migrate_v1 import translate
+    from neomd.migrate_v1 import translate
 
     with open(EQ_RESTRAINTS_YAML, "r", encoding="utf-8") as handle:
         v1_config = yaml.safe_load(handle)
@@ -278,7 +278,7 @@ def eq_plan(workdir, last_pdbx, steps, interval):
 
 def run_eq_leg(workdir, last_pdbx, steps, interval):
     """Run the eq_restraints leg through md_run (the L2 dict form)."""
-    from neomd2 import md_run
+    from neomd import md_run
 
     plan, out_dir = eq_plan(workdir, last_pdbx, steps, interval)
     started = time.time()
@@ -317,9 +317,9 @@ def restraint_observable(plan, structure_path, files):
     import openmm
     from openmm import app, unit
 
-    from neomd2 import registry
-    import neomd2.colvars  # noqa: F401  (import = cv vocabulary registration)
-    import neomd2.restraints  # noqa: F401  (import = restraint registration)
+    from neomd import registry
+    import neomd.colvars  # noqa: F401  (import = cv vocabulary registration)
+    import neomd.restraints  # noqa: F401  (import = restraint registration)
 
     restraint = plan.get("restraint") or {}
     if not restraint:
@@ -365,7 +365,7 @@ def run_full_min_attempt(workdir, budget_seconds):
     plan, out_dir = min_plan(workdir, EXAMPLE_MIN_MAXITER)
     plan["output"] = {"output_dir": os.path.join(workdir, "min_full")}
 
-    from neomd2 import compile as compile_run
+    from neomd import compile as compile_run
 
     compiled = compile_run(plan, platform="cpu")
     kernel = compiled.kernel
@@ -409,7 +409,7 @@ def main(argv=None) -> int:
     os.makedirs(workdir, exist_ok=True)
 
     report = {
-        "neomd2_workdir": workdir,
+        "neomd_workdir": workdir,
         "threads": args.threads,
         "stages": {},
     }

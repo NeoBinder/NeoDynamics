@@ -33,7 +33,7 @@ compare.py):
   in kJ/mol), which a naive kJ-space float path misses by 1 ulp for ~74%
   of bias energies (probed over 2e5 draws); the methods layer now ports
   that Quantity float sequence exactly
-  (``neomd2.methods.metadynamics._tempered_height`` — the empirical
+  (``neomd.methods.metadynamics._tempered_height`` — the empirical
   derivation is documented at the function), so the energy rows hold at
   the bit-exact tier again.
 * checkpoint resume — (a) v2-internal: ala2 1000 straight vs
@@ -61,7 +61,7 @@ CheckpointProbe writes; afterwards each captured blob is restored into the
 live kernel through the public KernelPort.restore() to hash positions /
 read CV values / evaluate restraint observables AT that step.  Restoring is
 read-only with respect to the recorded run (the run is over; the artifacts
-are already on disk) and touches no neomd2 internals.
+are already on disk) and touches no neomd internals.
 """
 
 from __future__ import annotations
@@ -91,15 +91,15 @@ import compare  # noqa: E402  (two-tier comparison helpers, reused not copied)
 import scenarios  # noqa: E402  (the v1 config dicts; also pins CPU threads)
 import trim  # noqa: E402  (the tape-side summary arithmetic, reused not copied)
 
-import neomd2.colvars  # noqa: E402,F401  (import = cv registration)
-import neomd2.restraints  # noqa: E402,F401  (import = restraint registration)
-from neomd2 import driver, md_run, registry  # noqa: E402
-from neomd2 import compile as compile_run  # noqa: E402  (facade symbol)
-from neomd2.manifest import GENESIS, MANIFEST_FILENAME, RunManifest, epoch_fingerprint  # noqa: E402
-from neomd2.methods.metadynamics import HILLS_FILENAME, LABEL as META_LABEL  # noqa: E402
-from neomd2.plan import Plan  # noqa: E402
-from neomd2.probes import CheckpointProbe  # noqa: E402
-from neomd2.sinks import LocalDirSink  # noqa: E402
+import neomd.colvars  # noqa: E402,F401  (import = cv registration)
+import neomd.restraints  # noqa: E402,F401  (import = restraint registration)
+from neomd import driver, md_run, registry  # noqa: E402
+from neomd import compile as compile_run  # noqa: E402  (facade symbol)
+from neomd.manifest import GENESIS, MANIFEST_FILENAME, RunManifest, epoch_fingerprint  # noqa: E402
+from neomd.methods.metadynamics import HILLS_FILENAME, LABEL as META_LABEL  # noqa: E402
+from neomd.plan import Plan  # noqa: E402
+from neomd.probes import CheckpointProbe  # noqa: E402
+from neomd.sinks import LocalDirSink  # noqa: E402
 
 pytestmark = pytest.mark.golden
 

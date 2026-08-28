@@ -1,4 +1,4 @@
-"""Tests for the neomd2 A-skeleton: Plan (validate/derive/freeze/fingerprint),
+"""Tests for the neomd A-skeleton: Plan (validate/derive/freeze/fingerprint),
 errors, and RunManifest provenance — through the public interface only
 (v2 migration plan §5 items 1.1 and 1.7, §8 rule 5).
 
@@ -15,15 +15,15 @@ import types
 import pytest
 import yaml
 
-from neomd2.errors import (
+from neomd.errors import (
     ConfigKeyError,
     ConfigValueError,
     NeoUserError,
     PlanFrozenError,
     PlanValidationError,
 )
-from neomd2.manifest import GENESIS, Epoch, RunManifest, epoch_fingerprint
-from neomd2.plan import Plan, load_plan
+from neomd.manifest import GENESIS, Epoch, RunManifest, epoch_fingerprint
+from neomd.plan import Plan, load_plan
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +44,7 @@ def base_config(**overrides) -> dict:
             "system": "tests/data/ala2/system.xml",
         },
         "output": {
-            "output_dir": "/tmp/neomd2-test-out",
+            "output_dir": "/tmp/neomd-test-out",
             "report_interval": 100,
             "trajectory_interval": 50,
             "checkpoint_interval": 100,
@@ -239,7 +239,7 @@ def test_continue_md_false_clears_checkpoint_and_state():
 def test_continue_md_defaults_checkpoint_from_output_dir():
     config = base_config(continue_md=True)
     plan = Plan.from_dict(config)
-    assert plan.checkpoint == os.path.join("/tmp/neomd2-test-out", "output.ckpt")
+    assert plan.checkpoint == os.path.join("/tmp/neomd-test-out", "output.ckpt")
     assert plan.state is None
 
 
@@ -271,7 +271,7 @@ def test_continue_md_checkpoint_and_state_mutually_exclusive():
 
 def test_output_intervals_default_to_zero():
     config = base_config()
-    config["output"] = {"output_dir": "/tmp/neomd2-test-out"}
+    config["output"] = {"output_dir": "/tmp/neomd-test-out"}
     plan = Plan.from_dict(config)
     assert plan.trajectory_interval == 0
     assert plan.state_interval == 0
@@ -359,7 +359,7 @@ def test_raw_is_a_frozen_deep_copy():
 def test_attribute_access_and_missing_attribute():
     plan = Plan.from_dict(restrained_config())
     assert plan.steps == 100
-    assert plan.output_dir == "/tmp/neomd2-test-out"
+    assert plan.output_dir == "/tmp/neomd-test-out"
     assert plan.dt == 0.002
     assert plan.input_files["complex"] == "tests/data/ala2/ala2.pdb"
     with pytest.raises(AttributeError) as excinfo:
@@ -410,7 +410,7 @@ def test_to_dict_returns_plain_mutable_dict():
     assert type(as_dict["output"]) is dict
     as_dict["output"]["output_dir"] = "mutated"
     as_dict["steps"] = -1
-    assert plan.output_dir == "/tmp/neomd2-test-out"  # plan unaffected
+    assert plan.output_dir == "/tmp/neomd-test-out"  # plan unaffected
     assert plan.steps == 100
 
 
@@ -439,7 +439,7 @@ def test_with_keyword_alias():
 def test_deep_derived_defaults_survive_with():
     continued = Plan.from_dict(base_config(continue_md=True))
     tweaked = continued.with_(steps=7)
-    assert tweaked.checkpoint == os.path.join("/tmp/neomd2-test-out", "output.ckpt")
+    assert tweaked.checkpoint == os.path.join("/tmp/neomd-test-out", "output.ckpt")
 
 
 # ---------------------------------------------------------------------------
@@ -449,7 +449,7 @@ def test_deep_derived_defaults_survive_with():
 
 def test_registry_unavailable_skips_restraint_type_check(monkeypatch):
     # registry.py may not exist while the parallel workstream builds it
-    monkeypatch.setitem(sys.modules, "neomd2.registry", None)
+    monkeypatch.setitem(sys.modules, "neomd.registry", None)
     config = restrained_config()
     config["restraint"]["restr_com"]["type"] = "not_a_real_type"
     plan = Plan.from_dict(config)
@@ -457,12 +457,12 @@ def test_registry_unavailable_skips_restraint_type_check(monkeypatch):
 
 
 def test_registry_available_validates_restraint_types(monkeypatch):
-    fake = types.ModuleType("neomd2.registry")
+    fake = types.ModuleType("neomd.registry")
     fake.registered = lambda kind: {"distance": object(), "dihedral": object()}
     fake.lookup_candidates = lambda kind, prefix: [
         name for name in ("distance", "dihedral") if name.startswith(prefix)
     ]
-    monkeypatch.setitem(sys.modules, "neomd2.registry", fake)
+    monkeypatch.setitem(sys.modules, "neomd.registry", fake)
     plan = Plan.from_dict(restrained_config())  # "distance" is registered
     assert plan.restraint["restr_com"]["type"] == "distance"
     config = restrained_config()
@@ -561,7 +561,7 @@ def test_manifest_start_records_plan_and_versions():
     assert manifest.plan_raw == plan.to_dict()
     assert manifest.kernel == "fake"
     assert "python" in manifest.versions
-    assert "neomd2" in manifest.versions
+    assert "neomd" in manifest.versions
     assert manifest.versions["python"] == ".".join(map(str, sys.version_info[:3]))
 
 

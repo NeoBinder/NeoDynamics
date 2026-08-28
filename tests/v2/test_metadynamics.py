@@ -23,21 +23,21 @@ import time
 import numpy as np
 import pytest
 
-from neomd2 import registry
-from neomd2.driver import drive
-from neomd2.kernel import KernelFactory, KernelSpec, SystemData
-from neomd2.kernel._bootstrap import ensure_adapters
-from neomd2.kernel.fake import FakeKernel
-from neomd2.manifest import RunManifest
-from neomd2.methods.metadynamics import (
+from neomd import registry
+from neomd.driver import drive
+from neomd.kernel import KernelFactory, KernelSpec, SystemData
+from neomd.kernel._bootstrap import ensure_adapters
+from neomd.kernel.fake import FakeKernel
+from neomd.manifest import RunManifest
+from neomd.methods.metadynamics import (
     FES_FILENAME,
     HILLS_FILENAME,
     MOLAR_GAS_CONSTANT_R_KJ,
     MethodResult,
     MetadynamicsRun,
 )
-from neomd2.plan import Plan
-from neomd2.sinks import LocalDirSink
+from neomd.plan import Plan
+from neomd.sinks import LocalDirSink
 
 ensure_adapters()
 
@@ -65,7 +65,7 @@ def meta_config(**overrides) -> dict:
         "seed": 2026,
         "integrator": {"dt": 0.002, "friction_coeff": 1.0},
         "input_files": {"complex": "unused.pdb", "system": "unused.xml"},
-        "output": out("/tmp/neomd2-meta-test"),
+        "output": out("/tmp/neomd-meta-test"),
         "colvars": {
             "dist": {
                 "type": "distance",
@@ -403,7 +403,7 @@ def openmm_meta_config(steps: int, **overrides) -> dict:
         "integrator": {"integrator_name": "LangevinIntegrator",
                        "dt": 0.002, "friction_coeff": 1.0},
         "input_files": {"complex": str(ALA2_PDB), "system": str(ALA2_SYSTEM)},
-        "output": out("/tmp/neomd2-meta-openmm"),
+        "output": out("/tmp/neomd-meta-openmm"),
         "colvars": {
             "phi": {
                 "type": "dihedral",

@@ -1,8 +1,12 @@
 import os
-from neomd.generic import Pipeline
+import pytest
+
+from neomd_legacy.generic import Pipeline
 
 from box import Box
-from neomd.metadynamics.pipeline import MetadynamicsPipeline
+from neomd_legacy.metadynamics.pipeline import MetadynamicsPipeline
+
+pytestmark = pytest.mark.legacy
 
 package_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 output_dir = os.path.join(package_dir, "tests/data/_test")

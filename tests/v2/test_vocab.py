@@ -1,4 +1,4 @@
-"""Public-interface tests for the neomd2 vocabulary: registry rack,
+"""Public-interface tests for the neomd vocabulary: registry rack,
 collective variables and restraint knowledge triples.
 
 Discipline (migration plan §8 #3/#5): expression strings are compared against
@@ -12,11 +12,11 @@ import importlib.metadata as md
 import numpy as np
 import pytest
 
-import neomd2.colvars as colvars  # noqa: F401  (import = registration)
-import neomd2.methods as methods  # noqa: F401  (import = registration)
-import neomd2.restraints as restraints  # noqa: F401  (import = registration)
-from neomd2.kernel.port import CVIR, Param
-from neomd2.registry import (
+import neomd.colvars as colvars  # noqa: F401  (import = registration)
+import neomd.methods as methods  # noqa: F401  (import = registration)
+import neomd.restraints as restraints  # noqa: F401  (import = registration)
+from neomd.kernel.port import CVIR, Param
+from neomd.registry import (
     RegistryError,
     get,
     register,
@@ -106,7 +106,7 @@ def test_duplicate_conflicting_entry_raises():
     with pytest.raises(RegistryError) as ei:
         register("restraint", "distance", impostor)
     # the error names where the incumbent came from
-    assert "neomd2.restraints" in str(ei.value)
+    assert "neomd.restraints" in str(ei.value)
     # and the rack is unchanged
     assert get("restraint", "distance").make_bias is not impostor
 
@@ -154,15 +154,15 @@ def test_get_unknown_lists_known_types():
 
 
 def test_scan_entry_points_empty_environment():
-    # this repo declares no neomd2 entry points yet
+    # this repo declares no neomd entry points yet
     assert scan_entry_points() == []
 
 
 def test_scan_entry_points_loads_and_reports(monkeypatch):
-    ep = md.EntryPoint(name="fakeplug", value="math:pi", group="neomd2")
+    ep = md.EntryPoint(name="fakeplug", value="math:pi", group="neomd")
     monkeypatch.setattr(
         md, "entry_points",
-        lambda **kw: (ep,) if kw.get("group") == "neomd2" else ())
+        lambda **kw: (ep,) if kw.get("group") == "neomd" else ())
     assert scan_entry_points() == ["fakeplug"]
 
 

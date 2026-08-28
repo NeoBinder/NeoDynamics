@@ -32,7 +32,7 @@ jobs:
       - name: Run golden-sample tests
         run: pixi run test-golden
 
-  # 3HTB end-to-end smoke under neomd2 (migration plan §5 item 3.2).
+  # 3HTB end-to-end smoke under neomd (migration plan §5 item 3.2).
   #
   # antechamber/parmchk2 are REQUIRED for the GAFF ligand leg. They are NOT a
   # separate install: openff-toolkit depends on ambertools, so every locked

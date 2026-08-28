@@ -14,8 +14,9 @@ test = { features = ["test"], solve-group = "default" }
 dev = { features = ["dev"], solve-group = "dev" }
 
 [tasks]
-test = "pytest tests/ -m 'not golden'"
-test-golden = "pytest tests/ -m golden"
+test = "pytest tests/ -m 'not golden and not legacy'"
+test-golden = "pytest tests/ -m 'golden and not legacy'"
+test-legacy = "pytest tests/ -m legacy -q"
 
 [pypi-options]
 index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"

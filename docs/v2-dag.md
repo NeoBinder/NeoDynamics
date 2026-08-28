@@ -1,4 +1,4 @@
-# neomd2 Execution DAG
+# neomd Execution DAG
 
 Execution board for [v2-migration-plan.md](v2-migration-plan.md).
 Waves respect the phase gates: Phase 2 starts only after Phase 1 gate; Phase 3 after Phase 2; Phase 4 (flip) after Phase 3.
@@ -20,16 +20,16 @@ Layer 0 (parallel, disjoint files):
 
 | Task | Plan items | Files owned | Agent | Status |
 |---|---|---|---|---|
-| A1-plan | 1.1, 1.7 | `src/neomd2/{__init__,errors,plan,manifest}.py`, `tests/v2/test_plan.py` | subagent | [~] |
-| A1-kernel | 1.2 | `src/neomd2/kernel/{__init__,port,fake,openmm}.py`, `tests/v2/test_kernel.py` | subagent | [~] |
-| A1-vocab | 1.4, 1.5 | `src/neomd2/{colvars,registry,restraints,probes,sinks}.py`, `tests/v2/test_vocab.py` | subagent | [~] |
+| A1-plan | 1.1, 1.7 | `src/neomd/{__init__,errors,plan,manifest}.py`, `tests/v2/test_plan.py` | subagent | [~] |
+| A1-kernel | 1.2 | `src/neomd/kernel/{__init__,port,fake,openmm}.py`, `tests/v2/test_kernel.py` | subagent | [~] |
+| A1-vocab | 1.4, 1.5 | `src/neomd/{colvars,registry,restraints,probes,sinks}.py`, `tests/v2/test_vocab.py` | subagent | [~] |
 
 Layer 1 (integration):
 
 | Task | Plan items | Files owned | Agent | Status |
 |---|---|---|---|---|
-| A1-driver | 1.3 | `src/neomd2/driver.py`, `tests/v2/test_driver.py` | subagent | [~] |
-| A1-run | 1.6 | `src/neomd2/run.py`, `tests/v2/test_run_roundtrip.py`, golden parity for spine | main agent | [~] |
+| A1-driver | 1.3 | `src/neomd/driver.py`, `tests/v2/test_driver.py` | subagent | [~] |
+| A1-run | 1.6 | `src/neomd/run.py`, `tests/v2/test_run_roundtrip.py`, golden parity for spine | main agent | [~] |
 
 Gate 1: `md_run` runs generic MD + distance restraint (openmm CPU + fake kernel); round-trip law test green; spine parity vs golden tape green.
 
@@ -37,11 +37,11 @@ Gate 1: `md_run` runs generic MD + distance restraint (openmm CPU + fake kernel)
 
 | Task | Plan items | Files owned | Depends on | Status |
 |---|---|---|---|---|
-| A2-restraints | 2.1 | `src/neomd2/restraints/*.py` (remaining 6 triples) | A1-vocab | [~] |
-| A2-meta | 2.2 | `src/neomd2/methods/metadynamics.py` | A1 all | [~] |
-| A2-system | 2.3 | `src/neomd2/system.py`, `src/neomd2/io*.py` | A1-plan | [~] |
-| A2-tools | 2.4, 2.5 | `src/neomd2/tools/*.py` | A2-system (interfaces) | [~] |
-| A2-scripts | 2.6, 2.7, 2.8 | `src/neomd2/tools/{ligand,convert,fix_protein}.py`, `src/neomd2/migrate_v1.py` | A1-plan, A2-tools | [~] |
+| A2-restraints | 2.1 | `src/neomd/restraints/*.py` (remaining 6 triples) | A1-vocab | [~] |
+| A2-meta | 2.2 | `src/neomd/methods/metadynamics.py` | A1 all | [~] |
+| A2-system | 2.3 | `src/neomd/system.py`, `src/neomd/io*.py` | A1-plan | [~] |
+| A2-tools | 2.4, 2.5 | `src/neomd/tools/*.py` | A2-system (interfaces) | [~] |
+| A2-scripts | 2.6, 2.7, 2.8 | `src/neomd/tools/{ligand,convert,fix_protein}.py`, `src/neomd/migrate_v1.py` | A1-plan, A2-tools | [~] |
 | A2-gamd | 2.9 | `examples/gamd_drill/**` (standalone mini package) | A1-vocab registry | [~] |
 
 Gate 2: parity checklist §6 every row addressed (ported + test).

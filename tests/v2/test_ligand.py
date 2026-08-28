@@ -1,4 +1,4 @@
-"""Public-interface tests for neomd2.tools.ligand (v2 migration plan §5 item
+"""Public-interface tests for neomd.tools.ligand (v2 migration plan §5 item
 2.6, §6 parity row "Ligand processing").
 
 Discipline §8 #5: tests only cross public interfaces — :class:`Ligand`
@@ -7,7 +7,7 @@ Discipline §8 #5: tests only cross public interfaces — :class:`Ligand`
 message string-compared verbatim, partial-charge file parsing,
 template_ffxml capture), the ligand_processor :func:`main` CLI (all four
 v1 subcommands, real files in /tmp), and the system.py delegation
-(:func:`neomd2.system.prepare_system` with a smiles/partial_charges ligand
+(:func:`neomd.system.prepare_system` with a smiles/partial_charges ligand
 config through a recording ForceFieldBuilder — the public seam).
 
 v1 fidelity pins:
@@ -32,7 +32,7 @@ from rdkit.Chem import AllChem
 openff_toolkit = pytest.importorskip("openff.toolkit.topology")
 openff_molecule = openff_toolkit.Molecule
 
-from neomd2.tools.ligand import (  # noqa: E402  (after importorskip)
+from neomd.tools.ligand import (  # noqa: E402  (after importorskip)
     Ligand,
     ligands_from_config,
     load_rdmol,
@@ -211,7 +211,7 @@ class TestSystemDelegation:
 
         from openmm import XmlSerializer
 
-        from neomd2.system import ForceFieldBuilder, prepare_system
+        from neomd.system import ForceFieldBuilder, prepare_system
 
         # protein + ligand — the shape v1's ligand workflows actually ran
         # (3HTB-style complex), with the same boxed-peptide micro-fixture

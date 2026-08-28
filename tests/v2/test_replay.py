@@ -1,4 +1,4 @@
-"""Public-interface tests for the neomd2 replay adapter (v2 plan §5 Phase 4
+"""Public-interface tests for the neomd replay adapter (v2 plan §5 Phase 4
 item 4.6 — the post-flip parity carrier).
 
 Discipline §8 #5: tests cross public interfaces only — ReplayKernel's
@@ -16,7 +16,7 @@ Import-order note (why the replay import lives inside a helper, not at
 module top): pytest imports every test module during collection, i.e.
 before ANY test runs, while tests execute in file order — test_kernel.py
 precedes this file alphabetically and its factory test still asserts that
-``kind="replay"`` is UNKNOWN.  ``neomd2.kernel.replay`` self-registers at
+``kind="replay"`` is UNKNOWN.  ``neomd.kernel.replay`` self-registers at
 import (the openmm/fake pattern), so importing it lazily here keeps that
 earlier assertion true while every replay test below resolves the adapter
 for real through the factory.
@@ -30,10 +30,10 @@ import pathlib
 import numpy as np
 import pytest
 
-from neomd2.driver import drive
-from neomd2.kernel.port import BiasIR, KernelFactory, KernelSpec, Param
-from neomd2.plan import Plan
-from neomd2.sinks import LocalDirSink
+from neomd.driver import drive
+from neomd.kernel.port import BiasIR, KernelFactory, KernelSpec, Param
+from neomd.plan import Plan
+from neomd.sinks import LocalDirSink
 
 DATA = pathlib.Path(__file__).resolve().parents[1] / "data"
 GOLDEN = pathlib.Path(__file__).resolve().parents[1] / "golden" / "v1"
@@ -48,7 +48,7 @@ ENERGIES = [float(value) for value in TAPE["energies"]]  # sampled every 10
 def make_kernel(tape=..., **spec_kwargs):
     """Public-route ReplayKernel construction (see the module docstring for
     why the registration import is inside the call)."""
-    from neomd2.kernel.replay import ReplayKernel
+    from neomd.kernel.replay import ReplayKernel
 
     kwargs = {"kind": "replay", "seed": 424242, "temperature": 298.0}
     kwargs.update(spec_kwargs)
@@ -122,7 +122,7 @@ def test_tape_sample_interval_field_is_honored():
 
 
 def test_bad_tape_sources_raise_clean_value_errors():
-    from neomd2.kernel.replay import ReplayKernel
+    from neomd.kernel.replay import ReplayKernel
 
     # no tape anywhere
     with pytest.raises(ValueError, match="requires a golden tape"):
@@ -167,7 +167,7 @@ def test_positions_are_synthetic_hash_stable_and_step_dependent():
 
 
 def test_num_particles_comes_from_system_data():
-    from neomd2.kernel.port import SystemData
+    from neomd.kernel.port import SystemData
 
     data = SystemData(positions=np.zeros((6, 3)), masses=np.full(6, 12.0),
                       box_vectors=None)
@@ -238,7 +238,7 @@ def test_drive_smoke_replay_kernel_runs_a_plan_writing_state_rows(tmp_path):
     serialized system is the golden tape, factory-injecting the replay
     adapter — no openmm anywhere, yet the driver/probe/sink/manifest
     plumbing runs end to end and the state rows carry the TAPE's energies."""
-    from neomd2.kernel.replay import ReplayKernel
+    from neomd.kernel.replay import ReplayKernel
 
     out = tmp_path / "out"
     plan = Plan.from_dict({

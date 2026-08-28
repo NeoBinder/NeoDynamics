@@ -5,7 +5,7 @@ restraint) the EXACT configs from tests/golden/scenarios.py — imported, never
 hand-copied — are run through the v2 spine:
 
     Plan.from_dict(config)
-        -> neomd2.run.compile (KernelSpec: files, raw integrator dict,
+        -> neomd.run.compile (KernelSpec: files, raw integrator dict,
            temperature, seed, platform, resume, barostat augmented with the
            plan seed, particle masses)
         -> restraint installation through the registry knowledge triples
@@ -56,7 +56,7 @@ solv_eq_restraint: xfail — step-0 observables are bit-exact (initial energy
 the ported distance force, its parameters and its force groups are verified
 identical), but the trajectory diverges by the first sampled step (energies[1]
 step 10: v1 -27532.173475 vs v2 -27532.297519, dE ~ 0.12 kJ/mol, growing).
-Diagnosis (reproduced with standalone openmm scripts, no neomd2 involved):
+Diagnosis (reproduced with standalone openmm scripts, no neomd involved):
 ``install_bias`` must add forces to a System whose Context already exists and
 goes through ``context.reinitialize(preserveState=True)`` — internally a
 checkpoint save -> new Context -> checkpoint load.  On the CPU platform that
@@ -101,10 +101,10 @@ sys.path.insert(0, str(GOLDEN_DIR))
 import compare  # noqa: E402  (two-tier comparison helpers, reused not copied)
 import scenarios  # noqa: E402  (the v1 config dicts; also pins CPU threads)
 
-import neomd2.restraints  # noqa: E402,F401  (import = restraint registration)
-from neomd2 import driver, registry  # noqa: E402
-from neomd2 import compile as compile_run  # noqa: E402  (facade symbol)
-from neomd2.plan import Plan  # noqa: E402
+import neomd.restraints  # noqa: E402,F401  (import = restraint registration)
+from neomd import driver, registry  # noqa: E402
+from neomd import compile as compile_run  # noqa: E402  (facade symbol)
+from neomd.plan import Plan  # noqa: E402
 
 pytestmark = pytest.mark.golden
 

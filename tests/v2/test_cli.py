@@ -1,4 +1,4 @@
-"""Public-interface tests for neomd2.cli — the ``[project.scripts]`` surface
+"""Public-interface tests for neomd.cli — the ``[project.scripts]`` surface
 (v2 plan §5 Phase 4 item 4.2, §1 R3-Q5).
 
 Discipline §8 #5: everything crosses the public surface only — ``main(argv)``
@@ -12,7 +12,7 @@ prepare (the tests/v2/test_system.py boxed-peptide trick, add_solv_ions=False
 
 NOTE (import order): this module deliberately never touches the replay
 adapter — it runs before test_kernel.py alphabetically, whose factory test
-still asserts ``kind="replay"`` is unknown until neomd2.kernel.replay is
+still asserts ``kind="replay"`` is unknown until neomd.kernel.replay is
 imported (see tests/v2/test_replay.py's note).
 """
 
@@ -30,9 +30,9 @@ import pathlib
 import pytest
 import yaml
 
-import neomd2
-from neomd2.cli import main
-from neomd2.plan import Plan, load_plan
+import neomd
+from neomd.cli import main
+from neomd.plan import Plan, load_plan
 
 DATA = pathlib.Path(__file__).resolve().parents[1] / "data"
 ALA2_PDB = DATA / "ala2" / "ala2.pdb"
@@ -58,7 +58,7 @@ def ala2_plan(output_dir, **top_level) -> dict:
 def write_plan_dir(tmp_path, config) -> pathlib.Path:
     plan_dir = tmp_path / "proj"
     plan_dir.mkdir()
-    (plan_dir / "neomd2.yaml").write_text(yaml.safe_dump(config))
+    (plan_dir / "neomd.yaml").write_text(yaml.safe_dump(config))
     return plan_dir
 
 
@@ -193,7 +193,7 @@ def test_prepare_missing_config_is_a_clean_error(tmp_path, capsys):
 
 def test_version_prints_the_package_version(capsys):
     assert main(["version"]) == 0
-    assert capsys.readouterr().out.strip() == neomd2.__version__
+    assert capsys.readouterr().out.strip() == neomd.__version__
 
 
 def test_run_bad_target_renders_user_error_exit_2(tmp_path, capsys):

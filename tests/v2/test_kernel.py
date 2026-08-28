@@ -1,4 +1,4 @@
-"""Public-interface tests for the neomd2 kernel adapters (v2 plan §5, 1.2).
+"""Public-interface tests for the neomd kernel adapters (v2 plan §5, 1.2).
 
 Discipline §8 #5: tests only cross public interfaces — KernelFactory.create /
 KernelSpec (the port), the 8 KernelPort operations, FakeKernel.bias_values
@@ -36,7 +36,7 @@ import pathlib
 import numpy as np
 import pytest
 
-from neomd2.kernel import (
+from neomd.kernel import (
     BiasIR,
     CVIR,
     EnergyReport,
@@ -45,9 +45,9 @@ from neomd2.kernel import (
     Param,
     SystemData,
 )
-from neomd2.kernel._bootstrap import ensure_adapters
-from neomd2.kernel.fake import FakeKernel
-from neomd2.kernel.openmm import OpenMMKernel
+from neomd.kernel._bootstrap import ensure_adapters
+from neomd.kernel.fake import FakeKernel
+from neomd.kernel.openmm import OpenMMKernel
 
 ensure_adapters()
 
@@ -427,5 +427,6 @@ def test_openmm_system_xml_accepts_file_path():
 
 
 def test_factory_rejects_unknown_kernel_kind():
-    with pytest.raises(ValueError, match="unknown kernel kind 'replay'"):
-        KernelFactory.create(KernelSpec(kind="replay"))
+    # 'replay' is a real adapter since flip day; use a genuinely unknown kind
+    with pytest.raises(ValueError, match="unknown kernel kind 'quantum'"):
+        KernelFactory.create(KernelSpec(kind="quantum"))

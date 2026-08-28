@@ -30,16 +30,16 @@ import pathlib
 import numpy as np
 import pytest
 
-import neomd2.restraints  # noqa: F401  (import = registration)
-from neomd2.kernel.port import Param
-from neomd2.registry import get, registered
+import neomd.restraints  # noqa: F401  (import = registration)
+from neomd.kernel.port import Param
+from neomd.registry import get, registered
 
 DATA = pathlib.Path(__file__).resolve().parents[1] / "data"
 ALA2_PDB = DATA / "ala2" / "ala2.pdb"
 ALA2_SYSTEM_XML = (DATA / "ala2" / "system.xml").read_text()
 ALA2_ATOMS = 22
 
-#: the 8 v1 restraint types, all registered by neomd2.restraints at import
+#: the 8 v1 restraint types, all registered by neomd.restraints at import
 ALL_EIGHT = {"distance", "dihedral", "angle", "funnel",
              "dist_ref_position", "rmsd", "xyz_box", "vec_restraint"}
 
@@ -594,8 +594,8 @@ def test_rmsd_integration_openmm_kernel(tmp_path):
     non-rigid ramp on the restrained atoms (a uniform shift would be removed
     by RMSDForce's internal superposition), so the wall is active at install.
     """
-    from neomd2.kernel import KernelFactory, KernelSpec
-    from neomd2.kernel.openmm import OpenMMKernel  # noqa: F401 (adapter import)
+    from neomd.kernel import KernelFactory, KernelSpec
+    from neomd.kernel.openmm import OpenMMKernel  # noqa: F401 (adapter import)
 
     kernel = KernelFactory.create(KernelSpec(
         kind="openmm", system_xml=ALA2_SYSTEM_XML, topology_file=str(ALA2_PDB),

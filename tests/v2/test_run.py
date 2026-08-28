@@ -1,4 +1,4 @@
-"""Public-interface tests for the neomd2 facade (run.py, plan §5 item 1.6).
+"""Public-interface tests for the neomd facade (run.py, plan §5 item 1.6).
 
 Discipline §8 #5: everything crosses public interfaces only — md_run /
 compile / CompiledRun(.plan/.kernel/.sink/.run), Plan, the error family, and
@@ -30,14 +30,14 @@ import pathlib
 import pytest
 import yaml
 
-import neomd2
-from neomd2 import compile as compile_run  # the facade symbol (not the builtin)
-from neomd2 import md_run
-from neomd2.driver import RunOutcome
-from neomd2.errors import ConfigKeyError
-from neomd2.plan import Plan
-from neomd2.run import CompiledRun
-from neomd2.sinks import LocalDirSink
+import neomd
+from neomd import compile as compile_run  # the facade symbol (not the builtin)
+from neomd import md_run
+from neomd.driver import RunOutcome
+from neomd.errors import ConfigKeyError
+from neomd.plan import Plan
+from neomd.run import CompiledRun
+from neomd.sinks import LocalDirSink
 
 DATA = pathlib.Path(__file__).resolve().parents[1] / "data"
 ALA2_COMPLEX = str(DATA / "ala2" / "ala2.pdb")
@@ -85,10 +85,10 @@ def write_sentinel_plan(directory: pathlib.Path, name: str, sentinel: str) -> pa
 
 
 def test_package_lazy_exports():
-    assert callable(neomd2.md_run)
-    assert callable(neomd2.compile)
-    assert callable(neomd2.load_plan)
-    assert callable(neomd2.register)
+    assert callable(neomd.md_run)
+    assert callable(neomd.compile)
+    assert callable(neomd.load_plan)
+    assert callable(neomd.register)
 
 
 # ---------------------------------------------------------------------------
@@ -126,13 +126,13 @@ def test_compile_fake_kernel_is_documented_not_supported(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_l0_prefers_neomd2_yaml_over_other_candidates(tmp_path):
-    write_sentinel_plan(tmp_path, "neomd2.yaml", "stpes")
+def test_l0_prefers_neomd_yaml_over_other_candidates(tmp_path):
+    write_sentinel_plan(tmp_path, "neomd.yaml", "stpes")
     write_sentinel_plan(tmp_path, "plan_b.yaml", "zonk")
     with pytest.raises(ConfigKeyError) as err:
         md_run(str(tmp_path))
-    assert err.value.key == "stpes"  # neomd2.yaml was the file loaded
-    assert err.value.source.endswith("neomd2.yaml")
+    assert err.value.key == "stpes"  # neomd.yaml was the file loaded
+    assert err.value.source.endswith("neomd.yaml")
 
 
 def test_l0_json_fallback(tmp_path):
@@ -158,7 +158,7 @@ def test_l0_empty_directory_names_the_expected_files(tmp_path):
         md_run(str(tmp_path))
     message = str(err.value)
     assert "no plan file" in message
-    assert "neomd2.yaml" in message  # did-you-mean style help
+    assert "neomd.yaml" in message  # did-you-mean style help
 
 
 def test_l0_accepts_a_plan_file_path_directly(tmp_path):
@@ -175,13 +175,13 @@ def test_l0_accepts_a_plan_file_path_directly(tmp_path):
 
 def test_round_trip_law_l0_l1_l2_identical_fingerprints(tmp_path):
     config = ala2_plan_dict(tmp_path / "out")
-    plan_file = write_plan_file(tmp_path, "neomd2.yaml", config)
+    plan_file = write_plan_file(tmp_path, "neomd.yaml", config)
 
     fp_l2 = Plan.from_dict(config).fingerprint
-    fp_l0 = neomd2.load_plan(plan_file).fingerprint
-    fp_l1_noop = neomd2.load_plan(plan_file).with_().fingerprint
+    fp_l0 = neomd.load_plan(plan_file).fingerprint
+    fp_l1_noop = neomd.load_plan(plan_file).with_().fingerprint
     # an override that does not change the value is still the same plan
-    fp_l1_same = neomd2.load_plan(plan_file).with_(steps=50).fingerprint
+    fp_l1_same = neomd.load_plan(plan_file).with_(steps=50).fingerprint
 
     assert fp_l0 == fp_l1_noop == fp_l1_same == fp_l2
 
@@ -252,7 +252,7 @@ def test_md_run_end_to_end_ala2_distance_restraint(tmp_path):
     }
     plan_dir = tmp_path / "proj"
     plan_dir.mkdir()
-    write_plan_file(plan_dir, "neomd2.yaml", config)
+    write_plan_file(plan_dir, "neomd.yaml", config)
 
     outcome = md_run(plan_dir, steps=50, platform="cpu")  # L1: dir + override
 

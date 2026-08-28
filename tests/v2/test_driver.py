@@ -1,9 +1,9 @@
-"""Public-interface tests for the neomd2 driver (v2 plan §5 item 1.3).
+"""Public-interface tests for the neomd driver (v2 plan §5 item 1.3).
 
 Discipline §8 #5: everything crosses public interfaces only — run_minimization
 / run_md / drive signatures, the result dataclasses, FakeKernel's documented
 extras (bias_values, current_step), Plan, probes/sinks/manifest constructors,
-and the "neomd2.driver" logging channel (captured with a handler, never
+and the "neomd.driver" logging channel (captured with a handler, never
 probed).  The unit tier runs on FakeKernel in milliseconds; ONE integration
 test drives openmm on the ala2 fixture (~50 steps).
 """
@@ -25,7 +25,7 @@ import time
 import numpy as np
 import pytest
 
-from neomd2.driver import (
+from neomd.driver import (
     CHECKPOINT_FILENAME,
     LAST_CHECKPOINT_FILENAME,
     LAST_STRUCTURE_FILENAME,
@@ -35,13 +35,13 @@ from neomd2.driver import (
     run_md,
     run_minimization,
 )
-from neomd2.kernel import BiasIR, KernelFactory, KernelSpec, Param, SystemData
-from neomd2.kernel._bootstrap import ensure_adapters
-from neomd2.kernel.fake import FakeKernel
-from neomd2.manifest import RunManifest
-from neomd2.plan import Plan
-from neomd2.probes import KernelView
-from neomd2.sinks import LocalDirSink, MemorySink
+from neomd.kernel import BiasIR, KernelFactory, KernelSpec, Param, SystemData
+from neomd.kernel._bootstrap import ensure_adapters
+from neomd.kernel.fake import FakeKernel
+from neomd.manifest import RunManifest
+from neomd.plan import Plan
+from neomd.probes import KernelView
+from neomd.sinks import LocalDirSink, MemorySink
 
 ensure_adapters()
 
@@ -49,7 +49,7 @@ DATA = pathlib.Path(__file__).resolve().parents[1] / "data"
 ALA2_PDB = DATA / "ala2" / "ala2.pdb"
 ALA2_SYSTEM = DATA / "ala2" / "system.xml"
 
-DRIVER_LOGGER = "neomd2.driver"
+DRIVER_LOGGER = "neomd.driver"
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +67,7 @@ def fake_config(**overrides) -> dict:
         "integrator": {"dt": 0.002, "friction_coeff": 1.0},
         "input_files": {"complex": "unused.pdb", "system": "unused.xml"},
         "output": {
-            "output_dir": "/tmp/neomd2-driver-test",
+            "output_dir": "/tmp/neomd-driver-test",
             "state_interval": 0,
             "trajectory_interval": 0,
             "checkpoint_interval": 0,
@@ -368,7 +368,7 @@ def test_run_md_with_sink_writes_last_checkpoint(tmp_path):
 def restrained_config(**overrides) -> dict:
     overrides = dict(overrides)
     output = {
-        "output_dir": "/tmp/neomd2-driver-test",
+        "output_dir": "/tmp/neomd-driver-test",
         "report_interval": 25,
         "report_restraint": True,
         "state_interval": 25,
@@ -452,8 +452,8 @@ def test_drive_min_then_eq_sequence(tmp_path):
 
     # the restrained starting energy, for reference, on a twin kernel
     twin = fake_kernel(seed=42)
-    import neomd2.restraints  # noqa: F401  (import = registration)
-    from neomd2 import registry
+    import neomd.restraints  # noqa: F401  (import = registration)
+    from neomd import registry
 
     for ir in registry.get("restraint", "distance").make_bias(
             "rst", {"grp1": "0", "grp2": "1", "restr_k": 500.0,

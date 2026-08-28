@@ -50,8 +50,8 @@ os.environ["OPENMM_CPU_THREADS"] = "1"
 
 from box import Box  # noqa: E402
 
-from neomd.generic import Pipeline  # noqa: E402
-from neomd.metadynamics.pipeline import MetadynamicsPipeline  # noqa: E402
+from neomd_legacy.generic import Pipeline  # noqa: E402
+from neomd_legacy.metadynamics.pipeline import MetadynamicsPipeline  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA = os.path.join(REPO, "tests", "data")

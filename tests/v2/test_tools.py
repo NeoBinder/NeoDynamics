@@ -1,4 +1,4 @@
-"""Public-interface tests for the neomd2 tools seam (v2 plan §5, item 2.4).
+"""Public-interface tests for the neomd tools seam (v2 plan §5, item 2.4).
 
 Discipline §8 #5: tests only cross public interfaces — ToolRunner.run /
 ToolResult / ToolError, FakeToolRunner, the AntechamberBackend protocols
@@ -34,9 +34,9 @@ from openff.units import unit as openff_unit
 from openmm import NonbondedForce, Vec3, unit
 from openmm.app import ForceField, HBonds, NoCutoff, PME, PDBFile
 
-import neomd2.tools.antechamber as _antechamber_module
-import neomd2.tools.port as _port_module
-from neomd2.tools import (
+import neomd.tools.antechamber as _antechamber_module
+import neomd.tools.port as _port_module
+from neomd.tools import (
     AntechamberBackend,
     ChargeBackend,
     FakeToolRunner,

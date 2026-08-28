@@ -20,6 +20,10 @@ dependencies = [
   "python-box >= 7.3.2",
 ]
 
+[project.scripts]
+neomd = "neomd.cli:main"
+neomd2 = "neomd.cli:main"  # strangler-period alias, removed with neomd_legacy
+
 
 [tool.versioningit]
 
@@ -33,4 +37,5 @@ Issues = "https://github.com/NeoBinder/NeoDynamics/issues"
 [tool.pytest.ini_options]
 markers = [
   "golden: golden-sample parity tests against v1 tapes (run via `pixi run test-golden`)",
+  "legacy: tests exercising frozen v1 (neomd_legacy) live; excluded from CI after the flip (run via `pixi run test-legacy`)",
 ]

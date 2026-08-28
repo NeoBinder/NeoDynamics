@@ -1,5 +1,5 @@
 """Public-interface tests for the §5 item 2.7 utility-script ports
-(``neomd2.tools.convert`` / ``neomd2.tools.fix_protein``; plan §6 parity
+(``neomd.tools.convert`` / ``neomd.tools.fix_protein``; plan §6 parity
 row "convert / fix_protein", verification = output file hashes).
 
 Coverage honesty: **pdbfixer is NOT installed in the test environment**
@@ -24,7 +24,7 @@ import pytest
 from openmm import unit
 from openmm.app import PDBFile, PDBxFile, Element, Topology
 
-from neomd2.tools.convert import load_file, main as convert_main
+from neomd.tools.convert import load_file, main as convert_main
 
 DATA = pathlib.Path(__file__).resolve().parents[1] / "data"
 ALA2_PDB = DATA / "ala2" / "ala2.pdb"
@@ -273,7 +273,7 @@ def test_openmm_accepts_v1_numpy_periodic_box_vector_form():
 
 def _require_pdbfixer():
     pytest.importorskip("pdbfixer", reason=PDBFIXER_GAP)
-    from neomd2.tools import fix_protein as module
+    from neomd.tools import fix_protein as module
     return module
 
 

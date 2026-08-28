@@ -1,13 +1,13 @@
 """GAMD plugin drill tests (v2 migration plan §5 item 2.9, §2 Non-Goals).
 
 The drill lives at ``examples/gamd_drill/`` — a complete mini distribution
-OUTSIDE ``src/neomd2/``.  These tests validate the three mechanisms the plan
+OUTSIDE ``src/neomd/``.  These tests validate the three mechanisms the plan
 item names, without installing anything into the environment:
 
-1. **registration** — importing ``neomd2_gamd_drill`` self-registers the
+1. **registration** — importing ``neomd_gamd_drill`` self-registers the
    ("method", "gamd") triple from outside the core package;
 2. **discovery** — ``registry.scan_entry_points()`` imports the plugin
-   through a faked ``importlib.metadata`` entry point (group ``"neomd2"``),
+   through a faked ``importlib.metadata`` entry point (group ``"neomd"``),
    and the drill's ``pyproject.toml`` really declares that entry point
    (tomllib field check — the install-free substitute for an editable
    install);
@@ -49,15 +49,15 @@ import tomllib
 
 import pytest
 
-import neomd2.methods  # noqa: F401  (in-tree baseline: registers "metadynamics")
-from neomd2 import registry
-from neomd2.driver import drive
-from neomd2.errors import ConfigKeyError
-from neomd2.kernel._bootstrap import ensure_adapters
-from neomd2.kernel.fake import FakeKernel
-from neomd2.manifest import RunManifest
-from neomd2.plan import Plan
-from neomd2.sinks import LocalDirSink, MemorySink
+import neomd.methods  # noqa: F401  (in-tree baseline: registers "metadynamics")
+from neomd import registry
+from neomd.driver import drive
+from neomd.errors import ConfigKeyError
+from neomd.kernel._bootstrap import ensure_adapters
+from neomd.kernel.fake import FakeKernel
+from neomd.manifest import RunManifest
+from neomd.plan import Plan
+from neomd.sinks import LocalDirSink, MemorySink
 
 ensure_adapters()
 
@@ -65,8 +65,8 @@ REPO = pathlib.Path(__file__).resolve().parents[2]
 DRILL = REPO / "examples" / "gamd_drill"
 SRC = DRILL / "src"
 PYPROJECT = DRILL / "pyproject.toml"
-MODULE = "neomd2_gamd_drill"
-CORE = (REPO / "src" / "neomd2").resolve()
+MODULE = "neomd_gamd_drill"
+CORE = (REPO / "src" / "neomd").resolve()
 
 DATA = REPO / "tests" / "data"
 ALA2_PDB = DATA / "ala2" / "ala2.pdb"
@@ -93,7 +93,7 @@ def gamd_config(steps: int = 50, **overrides) -> dict:
         "seed": 2026,
         "integrator": {"dt": 0.002, "friction_coeff": 1.0},
         "input_files": {"complex": "unused.pdb", "system": "unused.xml"},
-        "output": out("/tmp/neomd2-gamd-drill-test"),
+        "output": out("/tmp/neomd-gamd-drill-test"),
     }
     config.update(overrides)
     return config
@@ -127,10 +127,10 @@ def test_pyproject_declares_the_entry_point():
     with open(PYPROJECT, "rb") as handle:
         data = tomllib.load(handle)
     project = data["project"]
-    assert project["name"] == "neomd2-gamd-drill"
+    assert project["name"] == "neomd-gamd-drill"
     assert project["version"] == "0.0.1"
-    # the rack contract: one entry in group "neomd2" naming the plugin module
-    assert project["entry-points"]["neomd2"] == {"gamd_drill": MODULE}
+    # the rack contract: one entry in group "neomd" naming the plugin module
+    assert project["entry-points"]["neomd"] == {"gamd_drill": MODULE}
     # src layout, and the module the entry point names really exists there
     assert data["tool"]["setuptools"]["package-dir"] == {"": "src"}
     assert (SRC / MODULE / "__init__.py").is_file()
@@ -176,9 +176,9 @@ def test_scan_entry_points_loads_plugin(monkeypatch):
 
     def fake_entry_points(**kwargs):
         # exactly the call registry.scan_entry_points() makes
-        assert kwargs.get("group") == registry.ENTRY_POINT_GROUP == "neomd2"
+        assert kwargs.get("group") == registry.ENTRY_POINT_GROUP == "neomd"
         return [importlib.metadata.EntryPoint(
-            name="gamd_drill", value=MODULE, group="neomd2")]
+            name="gamd_drill", value=MODULE, group="neomd")]
 
     monkeypatch.setattr(importlib.metadata, "entry_points", fake_entry_points)
     try:
@@ -235,7 +235,7 @@ def test_drive_dispatches_plugin_on_fake_kernel(tmp_path, gamd):
     assert len(result.positions_sha256) == 64
 
     lines = (tmp_path / LOG_FILENAME).read_text().splitlines()
-    assert lines[0].startswith("# neomd2 GAMD plugin drill")
+    assert lines[0].startswith("# neomd GAMD plugin drill")
     assert lines[1] == "# boost_factor=1.0 frequency=10 fgroup=0"
     assert [row.split("\t")[0] for row in lines[2:]] == \
         [str(step) for step in range(10, 51, 10)]

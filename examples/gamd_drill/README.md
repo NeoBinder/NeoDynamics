@@ -1,4 +1,4 @@
-# neomd2-gamd-drill — the GAMD plugin drill
+# neomd-gamd-drill — the GAMD plugin drill
 
 GAMD / ML-MD are **Non-Goals** of the v2 migration (docs/v2-migration-plan.md
 §2); this mini package exists solely as the drill §5 item 2.9 asks for:
@@ -7,14 +7,14 @@ GAMD / ML-MD are **Non-Goals** of the v2 migration (docs/v2-migration-plan.md
 > `register("method", ...)` and the importlib.metadata discovery mechanism
 
 It is a complete, installable third-party plugin distribution that lives
-**outside** `src/neomd2/` and touches nothing in the core package.
+**outside** `src/neomd/` and touches nothing in the core package.
 
 ## What the drill validates
 
 | Mechanism | How it is exercised | Test |
 |---|---|---|
-| **Registration** | importing `neomd2_gamd_drill` executes `register("method", "gamd", GAMD_METHOD)` — a triple defined *outside* the core package, from a directory that is not `src/neomd2/` | `test_import_outside_package_self_registers` |
-| **Discovery** | `registry.scan_entry_points()` loads every entry point in the `importlib.metadata` group `"neomd2"`; the tests fake `EntryPoint("gamd_drill", "neomd2_gamd_drill", "neomd2")` via monkeypatching (install-free), and parse `pyproject.toml` with `tomllib` to prove the real distribution declares the same entry point | `test_scan_entry_points_loads_plugin`, `test_pyproject_declares_the_entry_point` |
+| **Registration** | importing `neomd_gamd_drill` executes `register("method", "gamd", GAMD_METHOD)` — a triple defined *outside* the core package, from a directory that is not `src/neomd/` | `test_import_outside_package_self_registers` |
+| **Discovery** | `registry.scan_entry_points()` loads every entry point in the `importlib.metadata` group `"neomd"`; the tests fake `EntryPoint("gamd_drill", "neomd_gamd_drill", "neomd")` via monkeypatching (install-free), and parse `pyproject.toml` with `tomllib` to prove the real distribution declares the same entry point | `test_scan_entry_points_loads_plugin`, `test_pyproject_declares_the_entry_point` |
 | **Dispatch** | `driver.drive(plan-with-method-"gamd")` falls through its built-in `min/eq/md/prod` names into `registry.get("method", "gamd").run(kernel=..., plan=..., sink=..., logger=...)`; the drill runs the loop through `driver.run_md` with an `on_step` hook counting boost "updates", installs one placeholder `BiasIR` via `kernel.install_bias`, appends `gamd_drill.log` through the sink, and returns a `GAMDResult` mirroring the metadynamics `MethodResult` attribute contract. Verified on the fake kernel **and** the openmm ala2 kernel (50 steps) | `test_drive_dispatches_plugin_on_fake_kernel`, `test_drive_dispatches_plugin_on_openmm_ala2` |
 
 The physics is a placeholder on purpose: the installed bias is a
@@ -27,18 +27,18 @@ parameter update in `on_step` — the seam layout is the deliverable here.
 ## How a real plugin would be packaged / installed / discovered
 
 1. **Package**: a normal setuptools distribution (`src/` layout) that depends
-   on `neomd2`, exactly like this drill's `pyproject.toml`.
+   on `neomd`, exactly like this drill's `pyproject.toml`.
 2. **Declare**: one line per contribution under the entry-point group:
 
    ```toml
-   [project.entry-points."neomd2"]
-   gamd_drill = "neomd2_gamd_drill"
+   [project.entry-points."neomd"]
+   gamd_drill = "neomd_gamd_drill"
    ```
 
    The value names a *module* whose import self-registers everything the
    distribution contributes (`register("method", ...)` at module level —
    the registry makes double imports idempotent and flags real collisions).
-3. **Install**: `pip install neomd2-gamd-drill` (or an editable install).
+3. **Install**: `pip install neomd-gamd-drill` (or an editable install).
    No core file changes; the four rack kinds (`restraint`, `cv`, `method`,
    `probe`) are all open to the same mechanism.
 4. **Discover**: whoever starts a run calls `registry.scan_entry_points()`
@@ -49,7 +49,7 @@ parameter update in `on_step` — the seam layout is the deliverable here.
 
 The drill's schema documents a `gamd_set` section
 (`{boost_factor, frequency, k_drill}`), but **v2 plans cannot carry a
-top-level `gamd_set` key today**: `plan.KNOWN_KEYS` (src/neomd2/plan.py) is a
+top-level `gamd_set` key today**: `plan.KNOWN_KEYS` (src/neomd/plan.py) is a
 closed whitelist and `Plan.from_dict` raises `ConfigKeyError` ("unknown
 configuration key 'gamd_set'") before any method — plugin or built-in — ever
 sees the plan. There is no generic reserved plugin namespace in v2 yet; the
@@ -91,7 +91,7 @@ except to assert that an unpatched scan stays quiet.
 ## Rough edges the drill surfaced (for the core backlog)
 
 * `_default_probes` (the plan-intervals → probes helper) lives as a private
-  name in `neomd2.driver`; metadynamics imports it anyway, and so does this
+  name in `neomd.driver`; metadynamics imports it anyway, and so does this
   drill. A real plugin API would export it.
 * A plugin cannot add plan-level validation for its own section: plan.py
   validates `meta_set` only as a mapping, so unknown/garbage keys inside the

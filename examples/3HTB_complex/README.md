@@ -314,9 +314,9 @@ output:
 ```
 If `report_restraint: true` is set, a `restraint.dat` file will be generated in the output path, documenting the restraint information.
 
-## Running under v2 (neomd2)
+## Running under v2 (neomd)
 
-The same workflow runs under the v2 package (`neomd2`) through its public API —
+The same workflow runs under the v2 package (`neomd`) through its public API —
 `prepare_system` for the system preparation, the one-shot `migrate_v1.translate`
 for the v1 run-config YAMLs, and `md_run`/`compile` for the legs. The executable
 form of this section is [`run_v2.py`](./run_v2.py) in this directory.
@@ -344,9 +344,9 @@ re-run to resume a partial workflow (`--force-prep` re-prepares).
 
 | v1 step | v2 spelling in `run_v2.py` |
 |---|---|
-| `prepare.yaml` | a prepare-config dict for `neomd2.system.prepare_system` (the DEFAULT gaff factory parameterizes the ligand through real antechamber); writes `sys_prep/3htb/{solv.pdbx,system.xml,ligand.json}` |
-| `min.yaml` | `neomd2.migrate_v1.translate` → `neomd2.compile(plan).run()`; writes `min/{output.ckpt,last.ckpt,last.pdbx,manifest.json}` |
-| `eq_restraints.yaml` | `translate` → `neomd2.md_run(plan)` (L2 dict); writes `eq_restraints/{output.state,output.dcd,output.ckpt,last.ckpt,last.pdbx,restraint.tsv,manifest.json}` |
+| `prepare.yaml` | a prepare-config dict for `neomd.system.prepare_system` (the DEFAULT gaff factory parameterizes the ligand through real antechamber); writes `sys_prep/3htb/{solv.pdbx,system.xml,ligand.json}` |
+| `min.yaml` | `neomd.migrate_v1.translate` → `neomd.compile(plan).run()`; writes `min/{output.ckpt,last.ckpt,last.pdbx,manifest.json}` |
+| `eq_restraints.yaml` | `translate` → `neomd.md_run(plan)` (L2 dict); writes `eq_restraints/{output.state,output.dcd,output.ckpt,last.ckpt,last.pdbx,restraint.tsv,manifest.json}` |
 
 A machine-readable summary of every stage (timings, final energies, restraint
 force groups, the full-tolerance attempt outcome) lands in

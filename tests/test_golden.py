@@ -38,7 +38,10 @@ sys.path.insert(0, GOLDEN_DIR)
 import compare  # noqa: E402
 import scenarios  # noqa: E402  (also pins OPENMM_CPU_THREADS=1)
 
-pytestmark = pytest.mark.golden
+# legacy: this module re-runs v1 (neomd_legacy) live; after flip, CI runs the
+# replay-tape parity tier only (tests/v2/test_parity_*). Run explicitly with
+# `pixi run test-legacy` while the deprecation window lasts.
+pytestmark = [pytest.mark.golden, pytest.mark.legacy]
 
 
 def _load_tape(scenario):

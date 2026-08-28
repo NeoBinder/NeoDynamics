@@ -10,9 +10,32 @@ This package contains:
 - Protein conformation analysis based on OpenMM engine with various forcefields
 - Ligand forcefield creation and support for externally supplied ligand forcefields (from AM1BCC, DFT, or expert designed)
 
+## Quick start (v2: `md_run`)
+
+Since v0.2.0 the v2 architecture is the default: an immutable `Plan`, a
+kernel seam (`openmm` / `fake` / `replay` adapters), knowledge triples
+registered via `register()`, and the single facade `md_run` with progressive
+disclosure:
+
+```python
+from neomd import md_run
+
+md_run("path/to/run_dir")                      # L0: zero-config (reads the plan file in the dir)
+md_run("path/to/run_dir", steps=50000)         # L1: scalar knobs deepen the plan
+md_run(plan_dict)                              # L2: the full experiment spec
+```
+
+The same spellings work from the shell:
+
+```bash
+neomd run path/to/run_dir --steps 50000        # the [project.scripts] entry point
+neomd prepare prep_config.yaml                 # system preparation (protein+ligand+solvent)
+neomd migrate old_v1_config.yaml -o plan.yaml  # one-shot v1 YAML -> Plan translation
+```
+
 # Installation
 NeoDynamics can be installed using:
-## (*preferred*) Pixi Installation 
+## (*preferred*) Pixi Installation
 
 1. Install [pixi](https://pixi.sh/latest/#alternative-installation-methods)
 ```bash
@@ -26,7 +49,7 @@ mkdir -p /path/to/env
 cd /path/to/env
 pixi init neomd
 cd neomd
-pixi add "python==3.11.*"
+pixi add "python==3.12.*"
 # git installation
 pixi add --pypi "neodynamics @ git+https://github.com/NeoBinder/NeoDynamics"
 # local installation
@@ -62,11 +85,20 @@ pip install -e ./
 
 ## Examples
 ```bash
-# prepare system
-python3 /path/to/project/NeoDynamics/bin/prepare_openmm_system.py /path/to/project/NeoDynamics/examples/prep_system.yaml
-# generic MD
-python3 /path/to/project/NeoDynamics/bin/run_generic_md.py /path/to/project/NeoDynamics/examples/min.yaml
-python3 /path/to/project/NeoDynamics/bin/run_generic_md.py /path/to/project/NeoDynamics/examples/eq.yaml
-# metadynamics
-python3 /path/to/project/NeoDynamics/bin/run_metadynamics.py /path/to/project/NeoDynamics/examples/meta.yaml
+# prepare system (protein + ligand + solvent, GAFF via antechamber)
+neomd prepare /path/to/project/NeoDynamics/examples/3HTB_complex/prepare.yaml
+# generic MD (a prepared system + a plan file)
+neomd run /path/to/work_dir/min --platform cpu
+neomd run /path/to/work_dir/eq --platform cpu
+# metadynamics: method: metadynamics in the plan; same facade
+neomd run /path/to/work_dir/meta --platform cpu
 ```
+
+The runnable v2 walkthrough for the 3HTB complex lives in
+[examples/3HTB_complex/run_v2.py](examples/3HTB_complex/run_v2.py)
+(prepare -> translate -> `md_run`, with smoke presets).
+
+The old v1 bin/ entry points (`run_generic_md.py`, `run_metadynamics.py`,
+`prepare_openmm_system.py`, ...) remain as thin compatibility wrappers over
+the new CLI for one release; `src/neomd_legacy/` holds the frozen v1 package
+during the deprecation window.

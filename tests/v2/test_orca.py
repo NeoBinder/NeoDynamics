@@ -1,4 +1,4 @@
-"""Public-interface tests for neomd2.tools.orca (v2 plan §5, item 2.5).
+"""Public-interface tests for neomd.tools.orca (v2 plan §5, item 2.5).
 
 Discipline §8 #5: tests only cross public interfaces — Resp2Backend
 (create_nval_file / create_orca_input / run_orca / convert_to_molden /
@@ -41,8 +41,8 @@ import re
 import numpy as np
 import pytest
 
-import neomd2.tools.orca as _orca_module
-from neomd2.tools.orca import (
+import neomd.tools.orca as _orca_module
+from neomd.tools.orca import (
     DEFAULT_KEYWORD,
     MULTIWFN_EQVCONS_H_MENU,
     MULTIWFN_RESP_EQVCON_MENU,
@@ -55,11 +55,17 @@ from neomd2.tools.orca import (
     parse_chg,
     run,
 )
-from neomd2.tools.port import ChargeBackend, FakeToolRunner, ToolError
+from neomd.tools.port import ChargeBackend, FakeToolRunner, ToolError
 
+# v1 golden anchors, recorded verbatim from bin/resp2_orca.py at tag
+# v1-final (flip day replaced the script with a thin CLI wrapper; the anchors
+# below are the frozen reference the port must not drift from).
 V1_SOURCE = (
-    pathlib.Path(__file__).resolve().parents[2] / "bin" / "resp2_orca.py"
-).read_text()
+    "commands = " + "\"7\\n18\\n5\\n1\\n\\n1\\ny\\n0\\n0\\nq\\n\"" + "\n"
+    "commands = " + "\"7\\n18\\n1\\ny\\n0\\n0\\nq\\n\"" + "\n"
+    "commands = " + "\"7\\n18\\n5\\n10\\n0\\n0\\n0\\nq\\n\"" + "\n"
+    'nval_content = """' + "[Nval]\nRb  9\nSr 10\nY  11\nZr 12\nNb 13\nMo 14\nTc 15\nRu 16\nRh 17\nPd 18\nAg 19\nCd 20\nIn 21\nSn 22\nSb 23\nTe 24\nI  25\nXe 26\nCs  9\nBa 10\nLa 11\nCe 30\nPr 31\nNd 32\nPm 33\nSm 34\nEu 35\nGd 36\nTb 37\nDy 38\nHo 39\nEr 40\nTm 41\nYb 42\nLu 43\nHf 12\nTa 13\nW  14\nRe 15\nOs 16\nIr 17\nPt 18\nAu 19\nHg 20\nTl 21\nPb 22\nBi 23\nPo 24\nAt 25\nRn 26\n" + '"""\n'
+)
 
 
 # ===========================================================================

@@ -1,8 +1,8 @@
-"""Public-interface tests for neomd2.sinks / neomd2.probes (v2 plan §5 item 1.5).
+"""Public-interface tests for neomd.sinks / neomd.probes (v2 plan §5 item 1.5).
 
 Discipline §8 #5: only public interfaces — sink methods, probe
 constructors/observe, KernelView, the scheduler, and the public DCD writer
-functions in neomd2.sinks.  The MDAnalysis round-trip skips cleanly where
+functions in neomd.sinks.  The MDAnalysis round-trip skips cleanly where
 MDAnalysis is absent (test env) and is the gate in the dev env; a structural
 binary check of the DCD layout always runs.
 """
@@ -14,8 +14,8 @@ import struct
 import numpy as np
 import pytest
 
-from neomd2.kernel.port import EnergyReport
-from neomd2.probes import (
+from neomd.kernel.port import EnergyReport
+from neomd.probes import (
     CheckpointProbe,
     ColvarProbe,
     KernelView,
@@ -24,7 +24,7 @@ from neomd2.probes import (
     StateProbe,
     TrajectoryProbe,
 )
-from neomd2.sinks import (
+from neomd.sinks import (
     DCD_HEADER_SIZE,
     LocalDirSink,
     MemorySink,

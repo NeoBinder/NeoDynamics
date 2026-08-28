@@ -1,4 +1,4 @@
-"""Public-interface tests for neomd2.tools.template_xml (v2 migration plan
+"""Public-interface tests for neomd.tools.template_xml (v2 migration plan
 §6 parity row "Template XML processing"; verification = ffxml hash).
 
 Discipline §8 #5: tests only cross public interfaces — generate_template /
@@ -29,8 +29,8 @@ import pytest
 import yaml
 from openff.toolkit import Molecule
 
-from neomd2.tools.port import FakeToolRunner, ToolError
-from neomd2.tools.template_xml import (
+from neomd.tools.port import FakeToolRunner, ToolError
+from neomd.tools.template_xml import (
     generate_template,
     main,
     modify_template,
