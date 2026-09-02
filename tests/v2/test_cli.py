@@ -219,3 +219,72 @@ def test_unknown_command_exits_2_like_argparse(capsys):
         main(["fly"])
     assert excinfo.value.code == 2
     assert "usage:" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# validate (v2 improvements item 3)
+# ---------------------------------------------------------------------------
+
+
+def _write_plan(directory, **mutations) -> pathlib.Path:
+    config = {
+        "method": "eq",
+        "steps": 100,
+        "temperature": 298,
+        "seed": 42,
+        "input_files": {"complex": "unused.pdb", "system": "unused.xml"},
+        "output": {"output_dir": str(directory / "out")},
+    }
+    config.update(mutations)
+    path = directory / "plan.yaml"
+    with open(path, "w") as handle:
+        yaml.safe_dump(config, handle)
+    return path
+
+
+def test_validate_clean_plan_exits_zero_writes_nothing(tmp_path, capsys):
+    path = _write_plan(tmp_path)
+    before = sorted(p.name for p in tmp_path.iterdir())
+    assert main(["validate", str(path)]) == 0
+    after = sorted(p.name for p in tmp_path.iterdir())
+    assert before == after  # zero files created
+    assert "valid" in capsys.readouterr().out
+
+
+def test_validate_seeded_four_errors_all_reported_exit_2(tmp_path, capsys):
+    path = _write_plan(
+        tmp_path,
+        tmeperature=310,           # 1: unknown key (typo)
+        steps=-5,                  # 2: bad value
+        seed="not-an-int",         # 3: bad type
+        output={"output_dir": str(tmp_path), "iterval": 20},  # 4: unknown key
+    )
+    before = sorted(p.name for p in tmp_path.iterdir())
+    assert main(["validate", str(path)]) == 2
+    stderr = capsys.readouterr().err
+    assert "4 problems found" in stderr
+    for needle in ("tmeperature", "-5", "not-an-int", "iterval"):
+        assert needle in stderr, needle
+    assert "nothing was executed" in stderr
+    assert sorted(p.name for p in tmp_path.iterdir()) == before  # no files
+
+
+def test_validate_check_files_tier(tmp_path, capsys):
+    system = tmp_path / "system.xml"
+    system.write_text("<System><Particle mass='1'/></System>")  # 1 particle
+    path = _write_plan(
+        tmp_path,
+        input_files={"complex": str(tmp_path / "missing.pdb"),
+                     "system": str(system)},
+        restraint={"r": {"type": "distance", "grp1": "0", "grp2": "7",
+                         "restr_k": 5.0, "max_nm": 1.0}},
+    )
+    assert main(["validate", str(path), "--check-files"]) == 2
+    stderr = capsys.readouterr().err
+    assert "missing.pdb" in stderr
+    assert "out of bounds" in stderr and "grp2" in stderr
+
+
+def test_validate_missing_file_is_clean_error(tmp_path, capsys):
+    assert main(["validate", str(tmp_path / "nope.yaml")]) == 2
+    assert "cannot read" in capsys.readouterr().err

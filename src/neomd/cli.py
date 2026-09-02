@@ -23,6 +23,11 @@ mapping onto a public library call —
                      summary (output dir, written artifacts, particle count
                      when openmm is importable — via KernelFactory on the
                      written system.xml/solv.pdbx pair, skipped otherwise)
+    validate plan.yaml [--check-files]
+                  -> structural validation always; --check-files adds the
+                     file-existence / index-bounds / method-schema tier.
+                     Reports EVERY problem in one pass, writes nothing,
+                     exits 2 on problems ("nothing was executed" footer).
     version       -> neomd.__version__
 
 Exit codes: 0 success; 2 user error — the :class:`~neomd.errors.NeoUserError`
@@ -95,6 +100,15 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("config", help="prepare-config YAML file "
                                         "(protein/ff_setting/additional/...)")
     prepare.set_defaults(func=_cmd_prepare)
+
+    validate = sub.add_parser(
+        "validate", help="validate a plan file without running anything")
+    validate.add_argument("target",
+                          help="plan file path (yaml/json)")
+    validate.add_argument("--check-files", action="store_true",
+                          help="also check that input files exist and atom "
+                               "indices fall inside the system")
+    validate.set_defaults(func=_cmd_validate)
 
     version = sub.add_parser("version", help="print the neomd version")
     version.set_defaults(func=_cmd_version)
@@ -210,6 +224,48 @@ def _cmd_prepare(args) -> int:
           + f" system={bundle.system_xml}"
           + f" particles={particles if particles is not None else 'unknown'}")
     return 0
+
+
+def _cmd_validate(args) -> int:
+    """`neomd validate` — dry-run diagnosis, writes nothing (exit 2 on
+    problems, 0 when clean)."""
+    import json as _json
+
+    import yaml
+
+    from .errors import PlanValidationErrors
+    from .plan import check_plan_files, validate_config
+
+    path = args.target
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            text = handle.read()
+    except OSError as error:
+        print(f"neomd validate: cannot read {path!r}: {error}", file=sys.stderr)
+        return 2
+
+    try:
+        data = _json.loads(text) if path.endswith(".json") else yaml.safe_load(text)
+    except (ValueError, yaml.YAMLError) as error:
+        print(f"neomd validate: {path!r} does not parse: {error}",
+              file=sys.stderr)
+        return 2
+
+    errors = validate_config(data, source=path)
+    if args.check_files and isinstance(data, dict):
+        errors += check_plan_files(data, source=path,
+                                   base_dir=os.path.dirname(path) or None)
+
+    if not errors:
+        print(f"neomd validate: {path} is valid"
+              + (" (files checked)" if args.check_files else ""))
+        return 0
+
+    aggregate = PlanValidationErrors(
+        errors, footer="nothing was executed — fix the problems above and "
+        "re-run `neomd validate`")
+    print(aggregate.render(), file=sys.stderr)
+    return 2
 
 
 def _cmd_version(args) -> int:

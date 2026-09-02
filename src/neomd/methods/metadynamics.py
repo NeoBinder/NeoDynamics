@@ -67,14 +67,20 @@ import datetime
 import io
 import logging
 import math
-import os
 from dataclasses import dataclass
 from functools import reduce
 from typing import Callable
 
 import numpy as np
 
-from neomd.kernel.port import BiasIR, CVIR, GridSpec, TableSpec
+from neomd.kernel.port import (
+    BiasIR,
+    CVIR,
+    GridSpec,
+    TableSpec,
+    cv_is_angular,
+    to_canonical,
+)
 from neomd.registry import register
 
 __all__ = [
@@ -112,7 +118,9 @@ class Method:
     """One method knowledge triple: schema + run (registry kind "method").
 
     ``run`` has the drive() dispatch signature
-    ``run(kernel=..., plan=..., sink=..., logger=...) -> MethodResult``.
+    ``run(kernel=..., plan=..., sink=..., logger=..., on_progress=None) ->
+    MethodResult`` (``on_progress`` receives per-artifact write progress for
+    manifest recording; methods without artifacts may ignore it).
     """
 
     schema: dict
@@ -132,14 +140,14 @@ class MethodResult:
 
 # ---------------------------------------------------------------------------
 # grid standardization — openmm BiasVariable._standardize for md_unit_system
+# (through THE shared port table: port.to_canonical / port.cv_is_angular,
+# the same conversion the fake kernel and the colvar tapes use)
 # ---------------------------------------------------------------------------
 
 
 def _is_angular(cv: CVIR) -> bool:
     """Angular CVs are declared in degrees by v1 configs (dihedral, angle)."""
-    if cv.kind == "CustomTorsionForce":
-        return True
-    return "angle(" in cv.expression.replace(" ", "")
+    return cv_is_angular(cv)
 
 
 def _standardize(value: float, cv: CVIR) -> float:
@@ -147,12 +155,13 @@ def _standardize(value: float, cv: CVIR) -> float:
 
     Port of ``BiasVariable._standardize(minValue*degree, ...)``: v1 handed the
     engine degree Quantities and BiasVariable converted them into the md unit
-    system, whose angle unit is the RADIAN (verified against
-    ``unit.md_unit_system``).  The kernel-side table limits and the values
+    system, whose angle unit is the RADIAN (verified: ``(1*degree).
+    value_in_unit_system(md_unit_system)`` == pi/180 — the exact factor in
+    port.CANONICAL_FACTORS).  The kernel-side table limits and the values
     returned by ``bias_ops().cv_values()`` then agree exactly as in v1.
     """
     if _is_angular(cv):
-        return math.radians(float(value))
+        return to_canonical(value, "deg")
     return float(value)
 
 
@@ -228,11 +237,12 @@ class MetadynamicsRun:
     :class:`MethodResult` that drive() records.
     """
 
-    def __init__(self, kernel, plan, sink=None, logger=None):
+    def __init__(self, kernel, plan, sink=None, logger=None, on_progress=None):
         self.kernel = kernel
         self.plan = plan
         self.sink = sink
         self.log = LOG if logger is None else logger
+        self._on_progress = on_progress
 
         # -- meta_set (v1 engine __init__) ---------------------------------
         meta = dict(getattr(plan, "meta_set", None) or {})
@@ -327,12 +337,20 @@ class MetadynamicsRun:
                 f"({', '.join(needed)}); metadynamics cannot run on it")
         self._ops = ops
 
-        resume = bool(getattr(self.plan, "continue_md", False))
+        # resume through the single owner (neomd.resume.plan_resume): the
+        # kernel restore + tape trimming happen there, AFTER install_bias
+        # (forcing the openmm Context earlier would flip bias installs onto
+        # the reinitialize path — see kernel/openmm.py).  What stays here is
+        # the method's own physics: replaying the (already-trimmed) ledger.
+        from neomd.resume import plan_resume
+
+        resume_plan = plan_resume(self.plan, self.kernel, self.sink)
+        resume = resume_plan is not None
         if resume:
-            self._resume()
+            self._replay_ledger(resume_plan)
 
         # -- probes: the plan's defaults + the colvar recorder ---------------
-        probes = _default_probes(self.plan, self.sink)
+        probes = _default_probes(self.plan, self.sink, resume=resume_plan)
         if self.sink is not None:
             from neomd.probes import ColvarProbe
 
@@ -341,15 +359,17 @@ class MetadynamicsRun:
                 interval=self.frequency,
                 cvs=[{"label": name, "evaluate": _make_evaluator(entry, cv)}
                      for name, cv, entry in self.cvs],
-                masses=getattr(self.kernel, "masses", None),
-                append=resume,  # v1 continue_md appended to COLVAR
+                masses=self.kernel.masses,
+                append=resume_plan is not None
+                and "colvar.tsv" in resume_plan.trims,
             ))
 
         result = run_md(self.kernel, self.plan, probes,
                         on_step=self._deposit,
                         on_step_interval=self.frequency,
                         logger=self.log,
-                        sink=self.sink)  # last.pdbx + last.ckpt (v1 save_last)
+                        sink=self.sink,  # last.pdbx + last.ckpt (v1 save_last)
+                        on_progress=self._forward_progress)
 
         # v1 save_last: bias + colvar + checkpoint at run end
         self._save_hills()
@@ -369,47 +389,43 @@ class MetadynamicsRun:
 
     # -- resume (v1 continue_metadynamics) ------------------------------------
 
-    def _resume(self) -> None:
-        """Restore kernel state, replay the hills ledger, push the rebuilt bias.
+    def _forward_progress(self, step, artifacts):
+        """run_md on_progress passthrough (drive() wires the manifest)."""
+        if self._on_progress is not None:
+            self._on_progress(step, artifacts)
+
+    def _replay_ledger(self, resume_plan) -> None:
+        """Replay the hills ledger into the bias matrix and push it.
 
         v1 loaded ``bias_last.npy`` (the full matrix) + ``COLVAR.npy``; the v2
         ledger stores the hills themselves and the bias matrix is REBUILT by
         replaying them through the deposition math — deterministic, and
         ``update_table`` replaces v1's unconditional
         ``setFunctionParameters + updateParametersInContext`` pair.
-        """
-        # Kernel state: kernels driven through drive() already restored via
-        # KernelSpec.resume (the openmm Context path).  A kernel still at
-        # step 0 restores here from the derived checkpoint path — this covers
-        # the fake kernel (which does not read spec.resume) exactly like v1's
-        # _create_simulation resume branch covered every engine.
-        if self.kernel.current_step == 0:
-            checkpoint = getattr(self.plan, "checkpoint", None)
-            if not checkpoint:
-                raise ValueError(
-                    "continue_md is true but no checkpoint was derived "
-                    "(input_files.checkpoint / output.output_dir)")
-            with open(checkpoint, "rb") as handle:
-                self.kernel.restore(handle.read())
-            self.log.info("Load checkpoint FILE:%s (step %d)",
-                          checkpoint, self.kernel.current_step)
 
+        The kernel restore and the ledger TRIM (hills deposited past the
+        checkpoint step are dropped before replay) belong to
+        :func:`neomd.resume.plan_resume` — the single resume owner; this
+        method only replays what the trimmed ledger holds.
+        """
         if self.sink is None:
             raise ValueError(
                 f"continue_md needs a sink to load {HILLS_FILENAME} from")
         try:
-            path = self.sink.path(HILLS_FILENAME)
-        except NotImplementedError as error:
-            raise ValueError(
-                f"continue_md needs a filesystem sink to load "
-                f"{HILLS_FILENAME}") from error
-        if not os.path.exists(path):
+            data = self.sink.read_bytes(HILLS_FILENAME)
+        except (KeyError, FileNotFoundError):
+            path = None
+            try:
+                path = self.sink.path(HILLS_FILENAME)
+            except NotImplementedError:
+                pass
             raise FileNotFoundError(
-                f"cannot continue metadynamics: {path} not found")
-        with np.load(path) as data:
-            steps = np.asarray(data["steps"], dtype=np.int64)
-            heights = np.asarray(data["heights"], dtype=np.float64)
-            positions = np.asarray(data["positions"], dtype=np.float64)
+                f"cannot continue metadynamics: {HILLS_FILENAME} not found"
+                + (f" at {path}" if path else "")) from None
+        with np.load(io.BytesIO(data)) as loaded:
+            steps = np.asarray(loaded["steps"], dtype=np.int64)
+            heights = np.asarray(loaded["heights"], dtype=np.float64)
+            positions = np.asarray(loaded["positions"], dtype=np.float64)
         ncv = len(self.grids)
         positions = positions.reshape(len(steps), ncv)
         for step, position, height in zip(steps.tolist(),
@@ -420,7 +436,8 @@ class MetadynamicsRun:
             self._hills_positions.append(position)
             self._hills_heights.append(height)
         self._ops.update_table(LABEL, self._total_bias.flatten())
-        self.log.info("Load bias FILE:%s (%d hills replayed)", path, len(steps))
+        self.log.info("Load bias FILE:%s (%d hills replayed)",
+                      HILLS_FILENAME, len(steps))
 
     # -- the deposition cycle (v1 run_md inner body) ---------------------------
 
@@ -439,6 +456,8 @@ class MetadynamicsRun:
         self._hills_heights.append(float(height))
         # v1 saved its bias + COLVAR every cycle; the ledger replaces both
         self._save_hills()
+        if self._on_progress is not None:
+            self._on_progress(int(step), {HILLS_FILENAME: int(step)})
         if self._update_context_check(step):
             self._ops.update_table(LABEL, self._total_bias.flatten())
 
@@ -547,9 +566,14 @@ SCHEMA = {
 }
 
 
-def _run(kernel, plan, sink=None, logger=None) -> MethodResult:
-    """Registry entry point — drive() calls this for method 'metadynamics'."""
-    return MetadynamicsRun(kernel, plan, sink=sink, logger=logger).run()
+def _run(kernel, plan, sink=None, logger=None, on_progress=None) -> MethodResult:
+    """Registry entry point — drive() calls this for method 'metadynamics'.
+
+    ``on_progress`` is the driver's manifest recorder (per-artifact write
+    progress); the hills ledger reports through it as hills are deposited.
+    """
+    return MetadynamicsRun(kernel, plan, sink=sink, logger=logger,
+                           on_progress=on_progress).run()
 
 
 register("method", "metadynamics", Method(schema=SCHEMA, run=_run))

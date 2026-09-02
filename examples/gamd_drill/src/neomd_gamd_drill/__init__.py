@@ -125,8 +125,13 @@ def _settings(plan) -> dict:
     return settings
 
 
-def _run(kernel, plan, sink=None, logger=None) -> GAMDResult:
-    """Registry entry point — drive() calls this for method 'gamd'."""
+def _run(kernel, plan, sink=None, logger=None, on_progress=None) -> GAMDResult:
+    """Registry entry point — drive() calls this for method 'gamd'.
+
+    ``on_progress`` is the driver's manifest recorder; the drill keeps no
+    appendable artifact of its own, so it simply forwards it to run_md for
+    the plan's default probes.
+    """
     from neomd.driver import CHECKPOINT_FILENAME, _default_probes, run_md
 
     log = LOG if logger is None else logger
@@ -171,7 +176,8 @@ def _run(kernel, plan, sink=None, logger=None) -> GAMDResult:
     result = run_md(kernel, plan, _default_probes(plan, sink),
                     on_step=on_step,
                     on_step_interval=frequency,
-                    logger=log)
+                    logger=log,
+                    on_progress=on_progress)
 
     # v1 save_last: checkpoint at run end (mirrors the metadynamics triple)
     if sink is not None:

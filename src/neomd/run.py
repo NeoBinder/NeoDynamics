@@ -56,7 +56,8 @@ from typing import Mapping
 from .errors import ConfigKeyError
 from .plan import KNOWN_KEYS, Plan, load_plan
 
-__all__ = ["CompiledRun", "compile", "md_run", "PLAN_FILENAMES"]
+__all__ = ["CompiledRun", "compile", "md_run", "build_kernel_spec",
+           "PLAN_FILENAMES"]
 
 #: L0 plan-file discovery: preferred names, in priority order (first hit wins).
 PLAN_FILENAMES = ("neomd.yaml", "plan.yaml", "neomd.json", "plan.json")
@@ -191,10 +192,14 @@ def _particle_masses(system_modification) -> dict[int, float] | None:
     return masses or None
 
 
-def _kernel_spec(plan: Plan, *, kind: str = "openmm", platform: str = "cpu"):
+def build_kernel_spec(plan: Plan, *, kind: str = "openmm",
+                      platform: str = "cpu") -> KernelSpec:
     """Compile the plan into a :class:`~neomd.kernel.port.KernelSpec`.
 
-    Everything an adapter needs, with v1 semantics preserved:
+    THE one spec builder (improvements-list item 4): both ``compile()`` and
+    direct ``drive()`` calls consume exactly this — there is no second,
+    weaker spec path anymore.  Everything an adapter needs, with v1
+    semantics preserved:
 
     * ``system_xml`` / ``topology_file`` come straight from ``input_files``;
     * the integrator dict is the RAW plan section (plus the v1 defaults for
@@ -311,8 +316,8 @@ def compile(plan_or_dict, *, kernel: str = "openmm", platform: str = "cpu",
     from .sinks import LocalDirSink
 
     ensure_adapters()
-    created = KernelFactory.create(_kernel_spec(plan, kind=kernel,
-                                                platform=platform))
+    created = KernelFactory.create(build_kernel_spec(plan, kind=kernel,
+                                                     platform=platform))
     return CompiledRun(plan, created, LocalDirSink(plan.output_dir), logger)
 
 

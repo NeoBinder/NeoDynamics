@@ -56,7 +56,7 @@ does exactly that; the parity tests import it in-test).  Until the import
 happens, ``KernelFactory`` treats ``kind="replay"`` as unknown — which is
 exactly what tests/v2/test_kernel.py's factory test still asserts.
 
-Semantics of the 8 operations
+Semantics of the core operations
 -----------------------------
 * ``positions()`` — SYNTHETIC unless the tape carries ``coord_frames_data``:
   a pure function of (spec.seed, current step, N) drawn from a seeded
@@ -74,8 +74,8 @@ Semantics of the 8 operations
   world "before the run".  ``step(n)`` — advance current_step by n.  No
   dynamics exist; both are pure counter moves.
 * ``install_bias`` / ``clear_bias`` — records biases and hands out
-  sequential group ids starting at 0 (no physics); clearing resets the
-  counter, like the fake kernel.
+  group ids through the shared port policy (max free id first, like every
+  adapter — see port.py's invariant); clearing frees them all.
 * ``snapshot`` / ``restore`` — pickle of (step, biases, group counter).
   There is no RNG state to carry: everything observable is a deterministic
   function of the step, so restoring reproduces subsequent energies
@@ -83,10 +83,15 @@ Semantics of the 8 operations
   THAT kernel's tape/seed from the restored step (the step is the state).
 * ``bias_ops()`` — always ``None`` (documented: replay carries no live bias
   semantics — metadynamics-style mid-run table interaction is openmm/fake
-  territory; methods must degrade as port.py prescribes).
-
-``spec.resume`` is accepted and ignored: resume parity uses
-snapshot/restore of this kernel directly.
+  territory; methods must degrade as port.py prescribes).  The other
+  negotiated capabilities are refused the same way (by absence): no
+  ``group_energy`` (the tape has one potential, not per-group energies —
+  the restraint reporter writes ``nan``) and no ``write_structure`` (no
+  topology to write).
+* ``masses`` — unit masses (documented default; the tape carries none).
+  ``box_vectors()`` — always None (tapes carry no box).
+* ``spec.resume`` is accepted and ignored: resume parity uses
+  snapshot/restore of this kernel directly.
 """
 
 from __future__ import annotations
@@ -98,7 +103,7 @@ from typing import Mapping
 
 import numpy as np
 
-from .port import BiasIR, EnergyReport, KernelFactory, KernelSpec
+from .port import BiasIR, EnergyReport, KernelFactory, KernelSpec, pick_free_force_group
 
 __all__ = ["ReplayKernel", "load_tape"]
 
@@ -242,6 +247,19 @@ class ReplayKernel:
         return self._step
 
     @property
+    def masses(self) -> np.ndarray:
+        """Unit masses (dalton, (N,)) — the tape carries no mass data; the
+        documented default for a recording kernel (nothing mass-dependent is
+        physics here)."""
+        return np.ones(self._num_particles, dtype=np.float64)
+
+    def box_vectors(self) -> np.ndarray | None:
+        """Always None — golden tapes carry no periodic box (documented
+        refusal of the box operation; trajectory box records from a replay
+        kernel would be fabricated)."""
+        return None
+
+    @property
     def scenario(self) -> str:
         """The tape's scenario name ("" when the tape carries none)."""
         return str(self.tape.get("scenario") or "")
@@ -288,10 +306,18 @@ class ReplayKernel:
     # ------------------------------------------------------------------
 
     def install_bias(self, bias: BiasIR) -> int:
-        group = self._next_group
-        self._next_group += 1
+        group = self._pick_force_group()
         self._biases.append((group, bias))
+        self._next_group += 1  # install counter (snapshot-format field)
         return group
+
+    def _pick_force_group(self) -> int:
+        """The shared port policy (pick_free_force_group), aligned with the
+        other adapters: max free id first (see port.py's invariant)."""
+        return pick_free_force_group(
+            (group for group, _ in self._biases),
+            {group: (bias.label or f"bias{group}")
+             for group, bias in self._biases})
 
     def clear_bias(self) -> None:
         self._biases.clear()

@@ -13,15 +13,17 @@ The RunView contract (this module owns it; the driver codes against it):
 
     RunView
         step          int   — current step count (driver's counter)
-        kernel        KernelPort — the live kernel (8-op protocol, port.py)
+        kernel        KernelPort — the live kernel (port.py's closed surface)
         positions()   (N, 3) nm float64    — cached per observation
         energy()      EnergyReport         — cached per observation
         box_vectors() (3, 3) nm or None    — cached per observation
 
-``KernelPort`` deliberately has no box operation, so the view carries box
-vectors supplied by whoever constructs it (Plan derivation knows periodicity;
-NPT runs pass a callable).  A driver builds one view per observation point;
-the cached accessors hit the kernel at most once per view instance, so a step
+The view's box accessor defaults to the kernel's own
+``KernelPort.box_vectors()`` port call (the driver's default view factory
+hands it in as a callable so NPT boxes are fresh per observation); anyone
+constructing a view directly may supply a static array or their own
+callable instead.  A driver builds one view per observation point; the
+cached accessors hit the kernel at most once per view instance, so a step
 batch with several probes costs one kernel query.
 
 This module never imports openmm (units: nm / kJ/mol / ps per port.py).
@@ -30,12 +32,14 @@ This module never imports openmm (units: nm / kJ/mol / ps per port.py).
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import Callable, Iterable, Mapping, Protocol, Sequence, runtime_checkable
 
 import numpy as np
 
-from .kernel.port import EnergyReport, KernelPort
-from .sinks import ArtifactSink, init_dcd, write_dcd_frame
+from .kernel.port import EnergyReport, GroupEnergy, KernelPort, provides
+from .registry import register
+from .sinks import ArtifactSink, init_dcd, read_dcd_header, write_dcd_frame
 
 __all__ = [
     "RunView",
@@ -47,6 +51,7 @@ __all__ = [
     "ColvarProbe",
     "RestraintProbe",
     "ProbeScheduler",
+    "ProbePreset",
 ]
 
 _STATE_FILENAME = "output.state"
@@ -140,6 +145,11 @@ class Probe(Protocol):
     ``interval``: fire every ``interval`` steps (cadence decided by
     :class:`ProbeScheduler`).  ``finish()`` is OPTIONAL — the scheduler calls
     it when present; probes that open/append per observation don't need one.
+
+    ``progress()`` is also OPTIONAL — probes that append to a named artifact
+    report ``(artifact_name, last_step_written)`` so the driver can record
+    per-artifact write progress in the manifest (resume cross-check).  Return
+    None before the first write or when the probe keeps no artifact.
     """
 
     interval: int
@@ -199,6 +209,12 @@ class StateProbe:
         self._clock = clock
         self._last_clock: float | None = None
         self._wrote_header = False
+        self._last_step: int | None = None
+
+    def progress(self):
+        if self._last_step is None:
+            return None
+        return (_STATE_FILENAME, self._last_step)
 
     def observe(self, view: RunView) -> None:
         report = view.energy()
@@ -243,6 +259,7 @@ class StateProbe:
                 fh.write(_STATE_HEADER + "\n")
                 self._wrote_header = True
             fh.write(row + "\n")
+        self._last_step = int(view.step)
 
 
 def _format_remaining(seconds: float) -> str:
@@ -277,8 +294,10 @@ class TrajectoryProbe:
     * False — never write box records (vacuum)
     * callable — ``box(view) -> (3, 3) nm or None``, evaluated per observe
 
-    The file is (re)created on the first observe; appending to an existing
-    DCD across a resume (v1 continue_md) is driver/manifest work, not here.
+    ``append=True`` (the resume planner's instruction, never the probe's own
+    decision) continues an existing file: the first observe adopts the
+    existing header (validating atom count and stride) instead of recreating
+    it.  A missing file falls back to fresh creation.
     """
 
     def __init__(
@@ -287,13 +306,21 @@ class TrajectoryProbe:
         interval: int,
         dt_ps: float,
         box: bool | Callable[[RunView], "np.ndarray | None"] | None = None,
+        append: bool = False,
     ):
         self.sink = sink
         self.interval = _check_interval(interval)
         self.dt_ps = float(dt_ps)
         self._box = box
+        self.append = bool(append)
         self._initialized = False
         self._periodic = False
+        self._last_step: int | None = None
+
+    def progress(self):
+        if self._last_step is None:
+            return None
+        return (_DCD_FILENAME, self._last_step)
 
     def _box_for(self, view: RunView) -> np.ndarray | None:
         if self._box is None or self._box is True:
@@ -306,20 +333,38 @@ class TrajectoryProbe:
             return None
         return self._box(view)  # type: ignore[misc]
 
+    def _adopt_existing(self) -> None:
+        """Take over a pre-existing DCD (resume): validate, don't recreate."""
+        with self.sink.binary_writer(_DCD_FILENAME) as fh:
+            header = read_dcd_header(fh)
+        if header.n_atoms != self._n_atoms:
+            raise ValueError(
+                f"cannot append to {_DCD_FILENAME}: file has "
+                f"{header.n_atoms} atoms, run has {self._n_atoms}")
+        if header.interval_steps != self.interval:
+            raise ValueError(
+                f"cannot append to {_DCD_FILENAME}: file stride is "
+                f"{header.interval_steps} steps, probe interval is {self.interval}")
+        self._periodic = header.periodic
+
     def observe(self, view: RunView) -> None:
         positions = view.positions()
         box = self._box_for(view)
         if not self._initialized:
-            self._periodic = box is not None
-            with self.sink.binary_writer(_DCD_FILENAME, truncate=True) as fh:
-                init_dcd(
-                    fh,
-                    n_atoms=positions.shape[0],
-                    first_step=view.step,
-                    interval_steps=self.interval,
-                    dt_ps=self.dt_ps,
-                    periodic=self._periodic,
-                )
+            self._n_atoms = int(positions.shape[0])
+            if self.append and self.sink.exists(_DCD_FILENAME):
+                self._adopt_existing()
+            else:
+                self._periodic = box is not None
+                with self.sink.binary_writer(_DCD_FILENAME, truncate=True) as fh:
+                    init_dcd(
+                        fh,
+                        n_atoms=self._n_atoms,
+                        first_step=view.step,
+                        interval_steps=self.interval,
+                        dt_ps=self.dt_ps,
+                        periodic=self._periodic,
+                    )
             self._initialized = True
         else:
             if self._periodic and box is None:
@@ -328,6 +373,7 @@ class TrajectoryProbe:
                 raise ValueError("box vectors appeared: header says non-periodic DCD")
         with self.sink.binary_writer(_DCD_FILENAME) as fh:
             write_dcd_frame(fh, positions, box if self._periodic else None)
+        self._last_step = int(view.step)
 
 
 class CheckpointProbe:
@@ -340,9 +386,16 @@ class CheckpointProbe:
     def __init__(self, sink: ArtifactSink, interval: int):
         self.sink = sink
         self.interval = _check_interval(interval)
+        self._last_step: int | None = None
+
+    def progress(self):
+        if self._last_step is None:
+            return None
+        return (_CKPT_FILENAME, self._last_step)
 
     def observe(self, view: RunView) -> None:
         self.sink.write_bytes(_CKPT_FILENAME, view.kernel.snapshot())
+        self._last_step = int(view.step)
 
 
 class ColvarProbe:
@@ -377,6 +430,12 @@ class ColvarProbe:
         self.masses = masses
         self.append = bool(append)
         self._wrote_header = False
+        self._last_step: int | None = None
+
+    def progress(self):
+        if self._last_step is None:
+            return None
+        return (_COLVAR_FILENAME, self._last_step)
 
     def observe(self, view: RunView) -> None:
         positions = view.positions()
@@ -387,6 +446,7 @@ class ColvarProbe:
                 fh.write("# step\t" + "\t".join(cv["label"] for cv in self.cvs) + "\n")
                 self._wrote_header = True
             fh.write(row + "\n")
+        self._last_step = int(view.step)
 
 
 # ---------------------------------------------------------------------------
@@ -454,9 +514,9 @@ class RestraintProbe:
     observable(s) from the restraint triple's ``observables`` spec (through
     :func:`_observable_values`, i.e. the cv registry's natural units) then
     the restraint's bias energy — the sum of its assigned force groups'
-    energies read through the kernel's duck-typed public
-    ``group_energy(groups)`` (``nan`` when the kernel does not expose it or
-    no groups are known for the restraint).
+    energies read through the kernel's negotiated
+    :class:`~neomd.kernel.port.GroupEnergy` capability (``nan`` when the
+    kernel does not provide it or no groups are known for the restraint).
 
     ``restraints``: list of ``(name, spec, observable)`` — the plan's
     restraint entries paired with their registry ObservableSpecs (the driver
@@ -485,6 +545,12 @@ class RestraintProbe:
         self.append = bool(append)
         self.fgroups = dict(fgroups) if fgroups else None
         self._wrote_header = False
+        self._last_step: int | None = None
+
+    def progress(self):
+        if self._last_step is None:
+            return None
+        return (_RESTRAINT_FILENAME, self._last_step)
 
     # -- column layout ------------------------------------------------------
 
@@ -510,12 +576,11 @@ class RestraintProbe:
 
     def _energy(self, view: RunView, name: str) -> float:
         groups = (self.fgroups or {}).get(name)
-        reader = getattr(view.kernel, "group_energy", None)
-        if not groups or not callable(reader):
+        if not groups or not provides(view.kernel, GroupEnergy):
             return float("nan")
         try:
-            return float(reader(groups))
-        except Exception:  # pragma: no cover - duck-typed seam, degrade
+            return float(view.kernel.group_energy(groups))
+        except Exception:  # pragma: no cover - capability seam, degrade
             return float("nan")
 
     def observe(self, view: RunView) -> None:
@@ -537,6 +602,7 @@ class RestraintProbe:
                 fh.write(self._header() + "\n")
                 self._wrote_header = True
             fh.write("\t".join(row) + "\n")
+        self._last_step = int(view.step)
 
 
 # ---------------------------------------------------------------------------
@@ -566,8 +632,71 @@ class ProbeScheduler:
             if step % probe.interval == 0:
                 probe.observe(view)
 
+    def progress(self) -> dict:
+        """``{artifact name: last step written}`` over probes that report.
+
+        Merged from every probe's optional ``progress()`` (see :class:`Probe`)
+        — the driver records this in the manifest after each tick.
+        """
+        reported: dict[str, int] = {}
+        for probe in self.probes:
+            report = getattr(probe, "progress", None)
+            if callable(report):
+                result = report()
+                if result is not None:
+                    name, step = result
+                    reported[str(name)] = int(step)
+        return reported
+
     def finish(self) -> None:
         for probe in self.probes:
             finish = getattr(probe, "finish", None)
             if callable(finish):
                 finish()
+
+
+# ---------------------------------------------------------------------------
+# the probe knowledge triples (registry kind "probe" — the rack owns the
+# built-in presets; third-party probes register the same way)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ProbePreset:
+    """One probe knowledge triple: artifact + factory + description.
+
+    ``make`` has the per-preset constructor signature the driver uses
+    (``make(sink=..., interval=..., **per-preset kwargs)``); importing this
+    module registers the five built-ins under their natural names.
+    """
+
+    artifact: str  # the tape this preset appends to ("" when it keeps none)
+    make: Callable
+    description: str = ""
+
+
+register("probe", "state", ProbePreset(
+    artifact=_STATE_FILENAME,
+    make=lambda **kw: StateProbe(**kw),
+    description="thermo state rows to output.state (v1 StateDataReporter)",
+))
+register("probe", "trajectory", ProbePreset(
+    artifact=_DCD_FILENAME,
+    make=lambda **kw: TrajectoryProbe(**kw),
+    description="frames to output.dcd (v1 DCDReporter)",
+))
+register("probe", "checkpoint", ProbePreset(
+    artifact=_CKPT_FILENAME,
+    make=lambda **kw: CheckpointProbe(**kw),
+    description="wholesale output.ckpt overwrites (v1 CheckpointReporter)",
+))
+register("probe", "colvar", ProbePreset(
+    artifact=_COLVAR_FILENAME,
+    make=lambda **kw: ColvarProbe(**kw),
+    description="collective-variable rows to colvar.tsv (metadynamics)",
+))
+register("probe", "restraint", ProbePreset(
+    artifact=_RESTRAINT_FILENAME,
+    make=lambda **kw: RestraintProbe(**kw),
+    description="restraint observables + bias energies to restraint.tsv",
+))

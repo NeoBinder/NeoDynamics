@@ -65,12 +65,25 @@ import numpy as np
 import openmm
 from openmm import app, unit
 
-from .port import BiasIR, CVIR, EnergyReport, KernelFactory, KernelSpec, Param, TableSpec
+from .port import (
+    BiasIR,
+    CVIR,
+    EnergyReport,
+    KernelFactory,
+    KernelSpec,
+    Param,
+    TableSpec,
+    pick_free_force_group,
+)
 
 __all__ = ["OpenMMKernel"]
 
 #: Param.unit -> callable(float) producing an openmm Quantity (or bare float
 #: for dimensionless).  Mirrors v1's unit choices at addGlobalParameter time.
+#: The VOCABULARY is the port's (port.CANONICAL_FACTORS — pinned equal by
+#: tests so the adapter's table and the shared canonical table cannot drift;
+#: only the target type is adapter-specific: Quantities here, canonical
+#: floats everywhere else).
 _UNIT_MAP = {
     "kJ/mol": lambda v: v * unit.kilojoules_per_mole,
     "nm": lambda v: v * unit.nanometer,
@@ -244,6 +257,19 @@ class OpenMMKernel:
             getPositions=True).getPositions(asNumpy=True)
         return np.asarray(pos.value_in_unit(unit.nanometer), dtype=np.float64)
 
+    def box_vectors(self) -> np.ndarray | None:
+        """Live periodic box (3, 3) nm rows, or None when non-periodic —
+        the port operation that replaced the driver's duck-punched
+        ``simulation.context.getState()`` reach-through (the box query stays
+        inside the adapter, where openmm objects are sanctioned)."""
+        if not self.system.usesPeriodicBoundaryConditions():
+            return None
+        a, b, c = self.simulation.context.getState().getPeriodicBoxVectors()
+        # getState() box vectors are plain Vec3 in nm (no unit machinery)
+        return np.array(
+            [[a.x, a.y, a.z], [b.x, b.y, b.z], [c.x, c.y, c.z]],
+            dtype=np.float64)
+
     def energy_forces(self) -> EnergyReport:
         state = self.simulation.context.getState(getForces=True, getEnergy=True)
         potential = state.getPotentialEnergy().value_in_unit(unit.kilojoule_per_mole)
@@ -347,15 +373,14 @@ class OpenMMKernel:
             self.simulation.context.reinitialize(preserveState=True)
 
     def _pick_force_group(self) -> int:
-        """Port of v1 ``max_force_grps`` (builder/neosystem.py:12-18, 94-122):
-        max of the free force-group ids; RuntimeError when all 32 are used."""
-        free_groups = set(range(32)) - set(
-            force.getForceGroup() for force in self.system.getForces())
-        if len(free_groups) == 0:
-            raise RuntimeError(
-                "Cannot assign a force group to the restraint force. "
-                "The maximum number (32) of the force groups is already used.")
-        return max(free_groups)
+        """The shared port policy (pick_free_force_group): max of the free
+        force-group ids — v1 ``max_force_grps`` (builder/neosystem.py:12-18,
+        94-122) — with the exhaustion error listing the system forces that
+        hold each group."""
+        forces = list(self.system.getForces())
+        return pick_free_force_group(
+            (force.getForceGroup() for force in forces),
+            {force.getForceGroup(): type(force).__name__ for force in forces})
 
     def _compile_bias(self, bias: BiasIR) -> openmm.Force:
         if bias.kind == "CustomCentroidBondForce":

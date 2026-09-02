@@ -40,7 +40,7 @@ from neomd.kernel._bootstrap import ensure_adapters
 from neomd.kernel.fake import FakeKernel
 from neomd.manifest import RunManifest
 from neomd.plan import Plan
-from neomd.probes import KernelView
+from neomd.probes import KernelView, StateProbe
 from neomd.sinks import LocalDirSink, MemorySink
 
 ensure_adapters()
@@ -399,7 +399,7 @@ def test_drive_eq_full_plan_with_restraint(tmp_path):
     assert kernel.current_step == 100
     # restraint installed through the public fake surface
     assert set(kernel.bias_values()) == {"rst"}
-    assert outcome.fgroups == {"rst": [0]}  # name -> assigned force groups
+    assert outcome.fgroups == {"rst": [31]}  # shared max-free-first policy
 
     # manifest: fingerprint + epoch chain (start, done:eq)
     manifest = RunManifest.read(tmp_path / "manifest.json")
@@ -465,7 +465,7 @@ def test_drive_min_then_eq_sequence(tmp_path):
                         sink=LocalDirSink(tmp_path))
     assert min_outcome.phases_run == ["min"]
     assert isinstance(min_outcome.results[0], MinResult)
-    assert min_outcome.fgroups == {"rst": [0]}
+    assert min_outcome.fgroups == {"rst": [31]}  # shared max-free-first policy
     assert min_outcome.results[0].final_energy < initial_energy
     manifest = RunManifest.read(tmp_path / "manifest.json")
     assert [epoch.reason for epoch in manifest.epochs] == ["start", "done:min"]
@@ -600,3 +600,20 @@ def test_drive_openmm_ala2_with_restraint(tmp_path):
     manifest = RunManifest.read(tmp_path / "manifest.json")
     assert manifest.plan_fingerprint == plan.fingerprint
     assert manifest.kernel == "openmm"
+
+
+def test_builtin_probes_register_through_the_rack():
+    """The registry's "probe" kind is real: importing neomd.probes registers
+    the five built-in presets (artifact + factory), and the factories build
+    the documented classes (the driver constructs through these entries)."""
+    from neomd import registry
+    import neomd.probes  # noqa: F401
+
+    presets = registry.registered("probe")
+    assert sorted(presets) == ["checkpoint", "colvar", "restraint",
+                               "state", "trajectory"]
+    sink = MemorySink()
+    assert isinstance(presets["state"].make(
+        sink=sink, interval=10, total_steps=100, dt_ps=0.002), StateProbe)
+    assert presets["trajectory"].artifact == "output.dcd"
+    assert presets["checkpoint"].make(sink=sink, interval=10).interval == 10

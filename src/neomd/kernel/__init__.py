@@ -4,12 +4,15 @@ from .port import (
     CVIR,
     EnergyReport,
     GridSpec,
+    GroupEnergy,
     KernelFactory,
     KernelPort,
     KernelSpec,
     Param,
+    StructureWriter,
     SystemData,
     TableSpec,
+    provides,
 )
 
 __all__ = [
@@ -18,10 +21,13 @@ __all__ = [
     "CVIR",
     "EnergyReport",
     "GridSpec",
+    "GroupEnergy",
     "KernelFactory",
     "KernelPort",
     "KernelSpec",
     "Param",
+    "StructureWriter",
     "SystemData",
     "TableSpec",
+    "provides",
 ]

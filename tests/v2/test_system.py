@@ -42,7 +42,7 @@ from openmm import app, unit
 from openmm.app import ForceField
 
 import neomd.system as nsys
-from neomd.errors import ConfigValueError
+from neomd.errors import ConfigValueError, UpstreamVersionError
 from neomd.kernel import KernelFactory, KernelSpec
 from neomd.kernel._bootstrap import ensure_adapters
 from neomd.plan import Plan
@@ -388,7 +388,10 @@ class TestPrepareSystemBranches:
             calls["gromacs"] = dict(config)
             return _fake_payload()
 
-        monkeypatch.setattr(nsys, "system_from_gromacs", fake_gromacs)
+        # the loaders live in neomd.prepare since the item-6 split; patch
+        # there (the re-export on neomd.system is not the lookup site)
+        import neomd.prepare as nprep
+        monkeypatch.setattr(nprep, "system_from_gromacs", fake_gromacs)
         bundle = prepare_system({
             "from_gromacs": {"gro": "sys.gro", "top": "sys.top",
                              "ff_path": "/shared/ff"},
@@ -410,7 +413,8 @@ class TestPrepareSystemBranches:
             calls["amber"] = dict(config)
             return _fake_payload()
 
-        monkeypatch.setattr(nsys, "system_from_amber", fake_amber)
+        import neomd.prepare as nprep
+        monkeypatch.setattr(nprep, "system_from_amber", fake_amber)
         bundle = prepare_system({
             "from_amber": {"inpcrd": "sys.inpcrd", "prmtop": "sys.prmtop"},
             "output_dir": str(tmp_path),
@@ -636,3 +640,80 @@ def test_restraint_sections_are_not_the_system_layers_business():
         restraint={"pull": {"type": "distance", "force_constant": 100}},
     )))
     assert set(bundle.modifications) == {"barostat", "particle_masses"}
+
+
+# ---------------------------------------------------------------------------
+# openmm_privates: the pinned version gate + isolation scan (item 6)
+# ---------------------------------------------------------------------------
+
+
+class TestOpenmmPrivatesPin:
+    def test_out_of_range_openmm_raises_loudly(self, tmp_path, monkeypatch):
+        import neomd.openmm_privates as privates
+
+        monkeypatch.setattr(privates, "_checked", False)
+        import openmm
+
+        monkeypatch.setattr(openmm, "__version__", "9.0.0",
+                            raising=False)
+        with pytest.raises(UpstreamVersionError, match="pinned"):
+            privates.assert_pinned_openmm(openmm)
+
+    def test_pinned_minor_series_passes(self, monkeypatch):
+        import neomd.openmm_privates as privates
+
+        monkeypatch.setattr(privates, "_checked", False)
+        import openmm
+
+        monkeypatch.setattr(openmm, "__version__", "8.6.1", raising=False)
+        privates.assert_pinned_openmm(openmm)  # no raise
+
+    def test_smoke_each_private_usage_runs_on_the_pinned_openmm(self, tmp_path):
+        """One smoke per private surface (item 6 acceptance): the Topology
+        bonds rebuild and the Modeller hydrogen registration both work on
+        the installed (pinned) openmm."""
+        import neomd.openmm_privates as privates
+
+        # a residue name no other test used: openmm's _standardBonds dict is
+        # CLASS-level (process-global), so shared names collide across tests
+        ffxml = tmp_path / "smoke.ffxml"
+        ffxml.write_text(LIG_FFXML.replace('name="LIG"', 'name="SMK"'))
+        topology, positions = _tiny_topology()
+        privates.custom_bonds(topology, positions,
+                              {"SMK": {"bonds_from_ffxml": str(ffxml)}})
+        assert topology._standardBonds["SMK"]
+
+        modeller = app.Modeller(*_tiny_topology())
+        privates.custom_addH(modeller, ForceField(str(ffxml)),
+                             {"SMK": {"H_from_ffxml": str(ffxml)}})
+        assert modeller._residueHydrogens["SMK"].hydrogens
+
+        box = privates.compute_periodic_box_vectors(
+            (2.0, 2.0, 2.0), (np.pi / 2,) * 3)
+        assert box[0][0] == 2.0 * unit.nanometer
+
+
+def test_private_openmm_api_lives_only_in_openmm_privates():
+    """The item-6 isolation rule, enforced by source scan: no underscored
+    openmm attribute or internal module import outside openmm_privates.py
+    (and the frozen legacy tree)."""
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[2] / "src" / "neomd"
+    pattern = re.compile(
+        r"top\._standardBonds|\._standardBonds|\._bonds\b|_ResidueData|"
+        r"_residueHydrogens|modeller\._Hydrogen|\._atomTypes|"
+        r"app\.internal")
+    offenders = []
+    for path in sorted(root.rglob("*.py")):
+        rel = path.relative_to(root)
+        if str(rel) == "openmm_privates.py" or rel.parts[0] == "tools":
+            continue  # the tools layer documents its own internal usage
+        for lineno, line in enumerate(path.read_text().splitlines(), 1):
+            if line.lstrip().startswith("#"):
+                continue  # comments may reference the names
+            if pattern.search(line):
+                offenders.append(f"{rel}:{lineno}: {line.strip()}")
+    assert not offenders, \
+        "openmm private API outside openmm_privates.py:\n" + "\n".join(offenders)

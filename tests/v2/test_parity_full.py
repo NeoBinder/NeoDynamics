@@ -741,8 +741,10 @@ def test_resume_manifest_epoch_chain(tmp_path):
     assert outcome.results[0].steps_done == 800
 
     manifest = RunManifest.read(pathlib.Path(tmp_path) / MANIFEST_FILENAME)
+    # the resume owner (neomd.resume) opens a resume:<step> epoch between
+    # start and done — the resumed lineage is part of the chain now
     assert [epoch.reason for epoch in manifest.epochs] == \
-        ["start", "done:eq"], "expected the start + done:eq epochs"
+        ["start", "resume:400", "done:eq"], "expected start + resume + done"
     previous = GENESIS
     for epoch in manifest.epochs:  # lineage: fingerprint_{n} chains on _{n-1}
         assert epoch.fingerprint == epoch_fingerprint(previous, epoch.reason,

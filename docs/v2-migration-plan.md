@@ -65,31 +65,40 @@
 
 ```
 src/
-├── neomd/                 # v1 · hard-frozen: bug fixes only, no new features
-└── neomd/                # v2 · the new spine
+├── neomd_legacy/          # v1 · frozen at the flip (v0.2.0); bug fixes only
+└── neomd/                # v2 · the spine
     ├── __init__.py        # public surface: md_run, load_plan, compile, register, __version__
-    ├── run.py             # md_run facade (L0/L1)
-    ├── plan.py            # Plan: validate · derive · freeze · fingerprint; .with() structural sharing
-    ├── registry.py        # register() + importlib.metadata scanning
-    ├── errors.py          # NeoUserError family (file:line + did-you-mean)
-    ├── colvars.py         # unified vocabulary: Distance/Angle/Dihedral/Torsion
+    ├── run.py             # md_run facade (L0/L1) + compile() + build_kernel_spec (L2)
+    ├── cli.py             # the console-script entry: run / migrate / prepare / validate / version
+    ├── plan.py            # Plan: validate (collect-all) · derive · freeze · fingerprint; validate_config + check_plan_files
+    ├── registry.py        # register() + importlib.metadata scanning (kinds: restraint / cv / method / probe)
+    ├── errors.py          # NeoUserError family (file:line + did-you-mean) + UpstreamVersionError
+    ├── colvars.py         # unified vocabulary: distance / dihedral / angle / min_distances / distance_ref
     ├── restraints.py      # knowledge triples for the 8 restraint types (force expressions copied verbatim from v1)
     ├── methods/
     │   └── metadynamics.py  # well-tempered meta: Gaussian accumulation + hills ledger + resume
-    ├── probes.py          # Probe presets: trajectory/state/checkpoint/colvar
-    ├── driver.py          # deep module: minimize/MD loops, progress statistics, periodic scheduling
+    ├── probes.py          # Probe presets: trajectory/state/checkpoint/colvar/restraint (+ ProbePreset rack registration)
+    ├── driver.py          # deep module: minimize/MD loops, progress statistics, periodic scheduling, drive()
+    ├── resume.py          # THE resume owner: restore + per-artifact trim-on-resume (ResumePlan)
     ├── kernel/
-    │   ├── port.py        # KernelPort + KernelFactory
+    │   ├── port.py        # KernelPort (closed surface) + capability protocols + force-group allocator + unit table
+    │   ├── _bootstrap.py  # ensure_adapters: openmm + fake factory registration
     │   ├── openmm.py      # production adapter (the only file in the core that imports openmm)
     │   ├── fake.py        # deterministic fake kernel (textbook Langevin, CI workhorse)
-    │   └── replay.py      # golden-tape playback (takes over parity assertions after v1 is deleted)
-    ├── system.py          # system loading and construction (ported from the v1 builder)
+    │   └── replay.py      # golden-tape playback (self-registers at import; import before factory use)
+    ├── system.py          # SystemBundle: kernel-agnostic description (openmm-free)
+    ├── prepare.py         # the system-preparation WORKFLOW (split from system.py)
+    ├── openmm_privates.py # the ONE isolated, version-pinned home for openmm private APIs
     ├── tools/
     │   ├── port.py        # ChargeBackend / ParamBackend / ToolRunner
     │   ├── antechamber.py # subprocess-isolated tmpdir, os.chdir forbidden
-    │   └── orca.py        # ORCA+Multiwfn adapter for the resp2_orca workflow
-    ├── sinks.py           # ArtifactSink: LocalDir / Memory
-    ├── manifest.py        # provenance: fingerprints + epoch chain
+    │   ├── orca.py        # ORCA+Multiwfn adapter for the resp2_orca workflow
+    │   ├── ligand.py      # ligand workflow: SMILES validation, charge files, template_ffxml
+    │   ├── convert.py     # structure/coordinate conversion helpers
+    │   ├── template_xml.py # template ffxml writer
+    │   └── fix_protein.py # pdbfixer-based protein repair
+    ├── sinks.py           # ArtifactSink: LocalDir / Memory + DCD writer/reader/trimmer
+    ├── manifest.py        # provenance: fingerprints + epoch chain + artifact progress
     └── migrate_v1.py      # one-shot v1 YAML → Plan translator (a tool, never imported at runtime)
 ```
 
@@ -181,6 +190,7 @@ src/
 **Phase 3 verification notes (2026-08-27):**
 - 3.4: no CUDA GPU available locally; the statistical tier is implemented and verified via `NEO_GOLDEN_TOLERANT=1`; the CPU-vs-CUDA cross-check is deferred until a GPU is present.
 - System preparation row: v1's prepare pipeline (ligand AND protein-only) is broken under the pinned environment (openmm 8.6 + openmmforcefields 0.16) — the ~100-line vendored copy of openmm's `_matchAllResiduesToTemplates` (openmm 8.2 API) no longer matches openmmforcefields' expectations, and `GAFFTemplateGenerator()` no-arg construction is rejected. This is exactly the fragility §5-2.4 deletes. v2's preparation is therefore the only working implementation; parity is anchored to the v2 3HTB e2e (31,612 particles, real GAFF, JZ4 ligand) rather than a v1 hash comparison.
+- Full private-API surface (post-flip audit, improvements item 6): besides the renamed `matchResidueToTemplate` usage in `tools/antechamber.py` (documented there), the preparation workflow touches `Topology._standardBonds`/`_bonds`, `Modeller._ResidueData`/`_residueHydrogens`/`_Hydrogen`, `ForceField._atomTypes` and `openmm.app.internal.unitcell`. ALL of these now live in `src/neomd/openmm_privates.py` behind a pinned-version gate (`UpstreamVersionError` outside the verified openmm 8.6 series), with one smoke test per usage — the fork risk is contained and loud, not silent.
 - Metadynamics energies are bit-exact against the v1 tapes (the well-tempered height now reproduces openmm's Quantity float sequence: `1000.0 * ((1.0/(deltaT*R_J)) * -E)`).
 
 ## 7. Risks and Countermeasures

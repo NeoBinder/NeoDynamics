@@ -20,6 +20,8 @@ Subclasses:
     ConfigValueError      bad value or range for a known key
     PlanFrozenError       attempted mutation of a frozen Plan
     PlanValidationError   structural garbage (e.g. config root is not a mapping)
+    PlanValidationErrors  the collect-all aggregate (>= 2 problems in one pass)
+    UpstreamVersionError  an upstream private-API pin refuses this version
 """
 
 from __future__ import annotations
@@ -32,6 +34,8 @@ __all__ = [
     "ConfigValueError",
     "PlanFrozenError",
     "PlanValidationError",
+    "PlanValidationErrors",
+    "UpstreamVersionError",
     "suggest",
 ]
 
@@ -164,3 +168,46 @@ class PlanValidationError(NeoUserError):
     """Structurally invalid plan document (not a single bad key/value)."""
 
     kind = "plan validation error"
+
+
+class PlanValidationErrors(PlanValidationError):
+    """The collect-all aggregate: every structural problem found in one pass.
+
+    Plan construction raises this (instead of the first single error) when a
+    config has two or more problems, so one ``neomd validate`` run diagnoses
+    everything; a config with exactly one problem still raises that error
+    type directly.  ``.errors`` carries the individual
+    :class:`NeoUserError` instances.
+    """
+
+    kind = "plan validation errors"
+
+    def __init__(self, errors, *, footer: str = "nothing was executed"):
+        self.errors = list(errors)
+        if not self.errors:  # pragma: no cover - callers guard this
+            raise ValueError("PlanValidationErrors needs at least one error")
+        self.footer = footer  # before super().__init__ — it renders
+        super().__init__(
+            f"{len(self.errors)} problems found ({footer})",
+            source=getattr(self.errors[0], "source", None),
+        )
+
+    def render(self) -> str:
+        lines = [f"{self.kind}: {len(self.errors)} problems found"]
+        for number, error in enumerate(self.errors, start=1):
+            indented = error.render().replace("\n", "\n    ")
+            lines.append(f"  [{number}] {indented}")
+        lines.append(f"  {self.footer}")
+        return "\n".join(lines)
+
+
+class UpstreamVersionError(NeoUserError):
+    """The installed upstream (openmm) is outside a pinned private-API range.
+
+    neomd's system-preparation workflow touches a small set of openmm
+    private attributes (see neomd/openmm_privates.py); those usages are
+    pinned to verified versions and this error fires LOUDLY at first use on
+    anything outside the pin, instead of letting behavior drift silently.
+    """
+
+    kind = "upstream version error"

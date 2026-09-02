@@ -40,6 +40,7 @@ import struct
 import time
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO, Callable, Iterator
 
@@ -49,8 +50,12 @@ __all__ = [
     "ArtifactSink",
     "LocalDirSink",
     "MemorySink",
+    "DCDHeader",
     "init_dcd",
     "write_dcd_frame",
+    "read_dcd_header",
+    "dcd_last_step",
+    "trim_dcd",
     "dcd_frame_size",
     "DCD_HEADER_SIZE",
 ]
@@ -76,6 +81,8 @@ class ArtifactSink(ABC):
     * :meth:`path` — absolute filesystem path for the name (undefined for
       sinks without a filesystem; MemorySink raises).
     * :meth:`names` — artifacts written so far, in first-write order.
+    * :meth:`exists` / :meth:`read_bytes` — the read side (resume trimming
+      and post-run tooling inspect what earlier runs left behind).
     """
 
     @abstractmethod
@@ -106,6 +113,25 @@ class ArtifactSink(ABC):
     def names(self) -> list[str]:
         """Artifact names written so far (first-write order, deduplicated)."""
         ...
+
+    def exists(self, name: str) -> bool:
+        """Whether ``name`` was ever written to this sink.
+
+        Concrete sinks override this cheaply; the default pays a read.
+        """
+        try:
+            self.read_bytes(name)
+        except (KeyError, FileNotFoundError):
+            return False
+        return True
+
+    def read_bytes(self, name: str) -> bytes:
+        """Bytes of a previously written artifact.
+
+        Raises FileNotFoundError (filesystem sinks) / KeyError (MemorySink)
+        when the artifact was never written.  Subclasses must override.
+        """
+        raise NotImplementedError(f"{type(self).__name__} cannot read artifacts")
 
 
 def _check_name(name: str) -> None:
@@ -159,6 +185,12 @@ class LocalDirSink(ArtifactSink):
 
     def names(self) -> list[str]:
         return list(self._names)
+
+    def exists(self, name: str) -> bool:
+        return self._resolve(name).exists()
+
+    def read_bytes(self, name: str) -> bytes:
+        return self._resolve(name).read_bytes()
 
 
 class _SyncedBytesIO(io.BytesIO):
@@ -220,6 +252,12 @@ class MemorySink(ArtifactSink):
 
     def names(self) -> list[str]:
         return list(self._data.keys())
+
+    def exists(self, name: str) -> bool:
+        return name in self._data
+
+    def read_bytes(self, name: str) -> bytes:
+        return self._data[name]
 
     def get_bytes(self, name: str) -> bytes:
         """Stored bytes for ``name`` (KeyError when never written)."""
@@ -363,3 +401,90 @@ def write_dcd_frame(
         fh.flush()
     except AttributeError:  # non-file streams
         pass
+
+
+# ---------------------------------------------------------------------------
+# DCD reading / trimming (the resume path inspects what a killed run left)
+# ---------------------------------------------------------------------------
+
+#: header offsets of the fields readers need (see the layout comment above)
+_DCD_OFF_NFRAMES = 8      # frame count (patched on every write)
+_DCD_OFF_ISTART = 12     # first frame's step
+_DCD_OFF_NSAVC = 16      # frames stride in steps
+_DCD_OFF_LASTSTEP = 20   # last frame's step (kept in sync by write_dcd_frame)
+_DCD_OFF_BOXFLAG = 48
+_DCD_OFF_DT = 44
+_DCD_OFF_NATOMS = 268
+
+
+@dataclass(frozen=True)
+class DCDHeader:
+    """The reader-facing fields of a written DCD header."""
+
+    n_frames: int
+    first_step: int
+    interval_steps: int
+    n_atoms: int
+    periodic: bool
+    dt_akma: float
+
+
+def read_dcd_header(fh: BinaryIO) -> DCDHeader:
+    """Parse the 276-byte header at the start of ``fh`` (seeks freely)."""
+    fh.seek(0)
+    head = fh.read(DCD_HEADER_SIZE)
+    if len(head) < DCD_HEADER_SIZE or head[4:8] != b"CORD":
+        raise ValueError("stream is not a DCD file (missing CORD header)")
+    n_frames, first_step, interval = struct.unpack_from(
+        "<3i", head, _DCD_OFF_NFRAMES)
+    n_atoms = struct.unpack_from("<i", head, _DCD_OFF_NATOMS)[0]
+    if n_frames < 0 or interval <= 0 or n_atoms <= 0:
+        raise ValueError(
+            f"corrupt DCD header: n_frames={n_frames}, "
+            f"interval={interval}, n_atoms={n_atoms}")
+    return DCDHeader(
+        n_frames=n_frames,
+        first_step=first_step,
+        interval_steps=interval,
+        n_atoms=n_atoms,
+        periodic=struct.unpack_from("<i", head, _DCD_OFF_BOXFLAG)[0] != 0,
+        dt_akma=struct.unpack_from("<f", head, _DCD_OFF_DT)[0],
+    )
+
+
+def dcd_last_step(header: DCDHeader) -> int | None:
+    """Step of the last frame (None when the file holds no frames)."""
+    if header.n_frames == 0:
+        return None
+    return header.first_step + (header.n_frames - 1) * header.interval_steps
+
+
+def trim_dcd(fh: BinaryIO, last_step: int) -> int:
+    """Drop frames recorded beyond ``last_step``; returns frames kept.
+
+    Also normalizes a torn tail (a frame whose bytes were interrupted by a
+    crash lands after the last complete frame, while the header's count is
+    only patched after a completed write): the file is truncated to exactly
+    ``DCD_HEADER_SIZE + n_frames * dcd_frame_size`` bytes.
+    """
+    header = read_dcd_header(fh)
+    last = dcd_last_step(header)
+    if last is not None and last > last_step:
+        # frames sit at first_step + k*interval; keep those <= last_step
+        header = replace(
+            header,
+            n_frames=max(
+                0, min(header.n_frames,
+                       (last_step - header.first_step) // header.interval_steps + 1)),
+        )
+    keep = header.n_frames
+    fh.truncate(DCD_HEADER_SIZE
+                + keep * dcd_frame_size(header.n_atoms, header.periodic))
+    fh.seek(_DCD_OFF_NFRAMES)
+    fh.write(struct.pack("<i", keep))
+    last_kept = (header.first_step + (keep - 1) * header.interval_steps
+                 if keep else header.first_step)
+    fh.seek(_DCD_OFF_LASTSTEP)
+    fh.write(struct.pack("<i", last_kept))
+    fh.seek(0, 2)
+    return keep

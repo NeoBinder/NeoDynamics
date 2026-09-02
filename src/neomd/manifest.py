@@ -57,6 +57,13 @@ class RunManifest:
     Create with :meth:`RunManifest.start` (which opens epoch 0 with reason
     ``"start"``), extend with :meth:`add_epoch` whenever the plan/bias changes
     mid-run, and persist with :meth:`write` (atomic tmp+rename).
+
+    ``artifacts`` records per-artifact write progress (artifact name -> last
+    step written) as probes run — the resume planner's cross-check for what
+    a killed run left on disk, and post-mortem evidence of how far each tape
+    got.  It updates at probe cadence and therefore may lag the last on-disk
+    rows after a crash; trimming is driven by the checkpoint step, not by
+    this record.
     """
 
     plan_fingerprint: str
@@ -65,6 +72,7 @@ class RunManifest:
     versions: dict
     started_at: str  # ISO 8601 (UTC) — deliberately outside all fingerprints
     epochs: list[Epoch] = field(default_factory=list)
+    artifacts: dict[str, int] = field(default_factory=dict)
 
     # -- construction ------------------------------------------------------
 
@@ -114,6 +122,13 @@ class RunManifest:
         self.epochs.append(epoch)
         return epoch
 
+    # -- artifact progress ----------------------------------------------------
+
+    def record_artifacts(self, progress: dict) -> None:
+        """Merge ``{artifact name: last step written}`` into ``artifacts``."""
+        for name, step in progress.items():
+            self.artifacts[str(name)] = int(step)
+
     # -- persistence ------------------------------------------------------------
 
     def to_payload(self) -> dict:
@@ -132,6 +147,7 @@ class RunManifest:
                 }
                 for epoch in self.epochs
             ],
+            "artifacts": dict(self.artifacts),
         }
 
     def write(self, directory) -> str:
@@ -150,6 +166,8 @@ class RunManifest:
     def from_payload(cls, payload: dict) -> "RunManifest":
         try:
             epochs = [Epoch(**epoch) for epoch in payload["epochs"]]
+            artifacts = {str(name): int(step)
+                         for name, step in (payload.get("artifacts") or {}).items()}
             return cls(
                 plan_fingerprint=payload["plan_fingerprint"],
                 plan_raw=payload["plan_raw"],
@@ -157,8 +175,9 @@ class RunManifest:
                 versions=payload["versions"],
                 started_at=payload["started_at"],
                 epochs=epochs,
+                artifacts=artifacts,
             )
-        except (KeyError, TypeError) as error:
+        except (KeyError, TypeError, ValueError) as error:
             raise PlanValidationError(
                 f"malformed manifest payload: {error}",
                 value=payload,

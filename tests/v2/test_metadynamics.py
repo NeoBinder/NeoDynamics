@@ -319,7 +319,7 @@ def test_fake_sinkless_run_deposits_without_artifacts():
     result = MetadynamicsRun(fake_kernel(seed=5), plan).run()
     assert result.steps_done == 40
     assert result.n_hills == 2
-    assert result.fgroup == 0  # the only installed bias
+    assert result.fgroup == 31  # the only installed bias (max-free-first)
 
 
 # ===========================================================================

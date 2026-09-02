@@ -39,7 +39,7 @@ Snapshot/restore pickles (positions, velocities, step, installed biases,
 group counter, and the RandomState state) — restoring mid-run reproduces
 the subsequent trajectory bit-for-bit.
 
-Public helpers beyond the 8 port operations (used by driver/probe tests):
+Public helpers beyond the port operations (used by driver/probe tests):
 ``bias_values()`` — geometric value of each installed bias in report units
 (distance in nm, angle/dihedral in degrees), matching the v1 reporter and
 neomd.colvars evaluate conventions; ``group_energy(groups)`` — per-force-
@@ -57,7 +57,17 @@ import pickle
 
 import numpy as np
 
-from .port import BiasIR, CVIR, EnergyReport, KernelFactory, KernelSpec, SystemData
+from .port import (
+    BiasIR,
+    CVIR,
+    EnergyReport,
+    KernelFactory,
+    KernelSpec,
+    SystemData,
+    cv_is_angular,
+    pick_free_force_group,
+    to_canonical,
+)
 
 __all__ = ["FakeKernel"]
 
@@ -232,10 +242,9 @@ def _eval_node(node, variables, env, coms, source) -> float:
 
 
 def _convert_param(value: float, unit_name: str) -> float:
-    """Param -> fake canonical value (openmm canonicalization)."""
-    if unit_name == "deg":
-        return math.radians(value)
-    return float(value)  # nm, kJ/mol, dimensionless are used as-is
+    """Param -> fake canonical value: THE shared table (port.to_canonical,
+    openmm's canonicalization — degrees become radians)."""
+    return to_canonical(value, unit_name)
 
 
 # ----------------------------------------------------------------------
@@ -294,6 +303,10 @@ class FakeKernel:
 
     def positions(self) -> np.ndarray:
         return self._positions.copy()
+
+    def box_vectors(self) -> np.ndarray | None:
+        """The synthetic system's fixed box ((3, 3) nm rows, None = vacuum)."""
+        return None if self._box is None else self._box.copy()
 
     def energy_forces(self) -> EnergyReport:
         potential = self._bias_potential(self._positions)
@@ -368,10 +381,19 @@ class FakeKernel:
     # ------------------------------------------------------------------
 
     def install_bias(self, bias: BiasIR) -> int:
-        group = self._next_group
-        self._next_group += 1
+        group = self._pick_force_group()
         self._biases.append((group, bias))
+        self._next_group += 1  # install counter (snapshot-format field)
         return group
+
+    def _pick_force_group(self) -> int:
+        """The shared port policy (pick_free_force_group), aligned with the
+        openmm adapter (improvements item 5): max free id first — 31, 30, …
+        — so fake-kernel runs exercise the same ids production would."""
+        return pick_free_force_group(
+            (group for group, _ in self._biases),
+            {group: self._bias_label(group, bias)
+             for group, bias in self._biases})
 
     def clear_bias(self) -> None:
         self._biases.clear()
@@ -442,8 +464,8 @@ class FakeKernel:
         coms = self._centroids(cv.groups, positions) if cv.groups else None
         env = self._cv_variables(cv)
         value = _evaluate_expression(cv.expression, env, coms)
-        # distance-type CVs are nm; angle-type CVs come back in radians
-        if "angle(" in cv.expression.replace(" ", ""):
+        # distance-type CVs are nm; angular CVs come back in radians
+        if cv_is_angular(cv):
             return math.degrees(value)
         return value
 
@@ -499,9 +521,7 @@ class FakeKernel:
         """CV value in the grid's natural units (degree for torsion/angle
         CVs, nm otherwise) — matching how colvars grids are declared."""
         value = self._cv_expression_value(cv, positions)  # nm / radians
-        if cv.kind == "CustomTorsionForce":
-            return math.degrees(value)
-        if "angle(" in cv.expression.replace(" ", ""):
+        if cv_is_angular(cv):
             return math.degrees(value)
         return value
 

@@ -188,12 +188,14 @@ def test_tape_coord_frames_are_used_when_present():
     assert np.array_equal(kernel.positions(), frames[1])
 
 
-def test_install_bias_returns_sequential_ids_and_clear_resets():
+def test_install_bias_uses_shared_allocation_order_and_clear_resets():
+    """Improvements item 5: replay allocates like every adapter (max free
+    id first — 31, 30, ...); clearing frees them."""
     kernel = make_kernel(tape={"energies": ["1.0"]})
     ids = [kernel.install_bias(distance_bias(f"r{i}")) for i in range(3)]
-    assert ids == [0, 1, 2]
+    assert ids == [31, 30, 29]
     kernel.clear_bias()
-    assert kernel.install_bias(distance_bias("r9")) == 0
+    assert kernel.install_bias(distance_bias("r9")) == 31  # freed
     assert kernel.bias_ops() is None  # documented: no live bias semantics
 
 
@@ -210,8 +212,9 @@ def test_snapshot_restore_reproduces_subsequent_energies():
     b.restore(blob)
     assert b.current_step == 15
     assert not np.array_equal(b.positions(), a.positions())  # a is at 25
-    # the group counter travels with the snapshot: b's next id continues a's
-    assert b.install_bias(distance_bias("r2")) == 1
+    # installed biases travel with the snapshot: b's next id continues a's
+    # (a holds 31; b's next allocation is 30)
+    assert b.install_bias(distance_bias("r2")) == 30
     # restoring reproduces the subsequent energies (deterministic in step)
     b.step(5)  # -> 20
     assert b.energy_forces().potential == pytest.approx(ENERGIES[1])

@@ -231,12 +231,12 @@ def test_drive_dispatches_plugin_on_fake_kernel(tmp_path, gamd):
     assert isinstance(result, gamd.GAMDResult)  # plugin object, verbatim
     assert result.steps_done == 50
     assert result.n_updates == 50 // 10  # DEFAULT_SETTINGS["frequency"] == 10
-    assert result.fgroup == 0  # the only installed bias
+    assert result.fgroup == 31  # the only installed bias (max-free-first)
     assert len(result.positions_sha256) == 64
 
     lines = (tmp_path / LOG_FILENAME).read_text().splitlines()
     assert lines[0].startswith("# neomd GAMD plugin drill")
-    assert lines[1] == "# boost_factor=1.0 frequency=10 fgroup=0"
+    assert lines[1] == "# boost_factor=1.0 frequency=10 fgroup=31"
     assert [row.split("\t")[0] for row in lines[2:]] == \
         [str(step) for step in range(10, 51, 10)]
 

@@ -73,10 +73,16 @@ def write_plan_file(directory: pathlib.Path, name: str, config: dict) -> pathlib
 
 
 def write_sentinel_plan(directory: pathlib.Path, name: str, sentinel: str) -> pathlib.Path:
-    """A plan file whose ONLY content is an unknown key (validation raises
+    """A plan file whose ONLY problem is an unknown key (validation raises
     ConfigKeyError carrying key=sentinel and source=this file — that is how
-    the discovery tests observe which file md_run picked)."""
-    return write_plan_file(directory, name, {sentinel: 1})
+    the discovery tests observe which file md_run picked).  The required
+    sections are included so the sentinel stays the single error even under
+    the collect-all validator."""
+    return write_plan_file(directory, name, {
+        sentinel: 1,
+        "input_files": {"complex": "unused.pdb", "system": "unused.xml"},
+        "output": {"output_dir": str(directory / "out")},
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -281,3 +287,46 @@ def test_md_run_end_to_end_ala2_distance_restraint(tmp_path):
     manifest = json.loads((out / "manifest.json").read_text())
     assert manifest["plan_fingerprint"] == Plan.from_dict(
         config).with_(steps=50).fingerprint
+
+
+# ---------------------------------------------------------------------------
+# the one spec builder (v2 improvements item 4)
+# ---------------------------------------------------------------------------
+
+
+def test_direct_drive_and_compile_share_one_kernel_spec(tmp_path):
+    """drive()'s spec == compile()'s spec for the same plan, including the
+    barostat seeding / particle_masses / platform richness that the old
+    duplicated driver-side builder dropped."""
+    from neomd.driver import drive
+    from neomd.kernel.fake import FakeKernel
+    from neomd.plan import Plan
+    from neomd.run import build_kernel_spec
+    from neomd.sinks import MemorySink
+
+    plan = Plan.from_dict({
+        "method": "eq", "steps": 10, "seed": 7,
+        "integrator": {"dt": 0.002},
+        "barostat": {"pressure": 1.0, "frequency": 25},
+        "system_modification": {"0": {"mass": 3.0}},
+        "input_files": {"complex": "unused.pdb", "system": "unused.xml"},
+        "output": {"output_dir": str(tmp_path)},
+    })
+
+    compiled = build_kernel_spec(plan, kind="fake", platform="cuda")
+    assert compiled.barostat == {"pressure": 1.0, "frequency": 25, "seed": 7}
+    assert compiled.particle_masses == {0: 3.0}
+    assert compiled.platform == "cuda"
+
+    captured: dict = {}
+
+    def factory(spec):
+        captured["spec"] = spec
+        return FakeKernel(spec)
+
+    drive(plan, kernel_factory=factory, sink=MemorySink())
+    # the exact same construction as compile()'s (openmm/cpu defaults both)
+    assert captured["spec"] == build_kernel_spec(plan)
+    # ...and the rich v1 fields survive the drive() path too
+    assert captured["spec"].barostat == compiled.barostat
+    assert captured["spec"].particle_masses == compiled.particle_masses

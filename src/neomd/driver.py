@@ -51,14 +51,19 @@ the view hands the method the live kernel (for CV queries) at that point.
 Probes tick *before* ``on_step`` at a shared boundary, mirroring v1 where
 reporters fired at step completion and the hill was deposited after.
 
-Box vectors (Layer-0 friction, worked around here)
---------------------------------------------------
-``KernelPort`` deliberately has no box operation, so a generic driver cannot
-ask a kernel for its periodic box.  ``run_md(view=...)`` therefore accepts a
-view factory from anyone who knows periodicity, and the default factory
-duck-types the OpenMM adapter's public ``simulation``/``system`` attributes
-(fake kernels are non-periodic by construction and get ``None``).  When the
-port grows a box operation this workaround collapses to a port call.
+Box vectors
+-----------
+``KernelPort.box_vectors()`` is the port operation carrying the live
+periodic box (None for non-periodic systems); ``run_md(view=...)`` accepts
+a view factory from anyone who knows periodicity better, and the default
+factory simply hands the view the kernel's own ``box_vectors`` callable
+(fresh per observation — NPT boxes change between calls).
+
+Optional capabilities (negotiated, never assumed): the per-leg
+``last.pdbx`` artifact is written only when the kernel provides the
+:class:`~neomd.kernel.port.StructureWriter` capability; the restraint
+probe's energy column only when it provides
+:class:`~neomd.kernel.port.GroupEnergy` (see port.py).
 
 Progress logging goes to ``logging.getLogger("neomd.driver")``; the
 ``logger`` parameter only swaps the destination object — no handler is ever
@@ -76,7 +81,14 @@ from typing import Callable, Iterable, Mapping, Sequence
 
 import numpy as np
 
-from .kernel.port import KernelFactory, KernelPort, KernelSpec
+from .kernel.port import (
+    KernelFactory,
+    KernelPort,
+    KernelSpec,
+    StructureWriter,
+    provides,
+)
+from .manifest import MANIFEST_FILENAME
 from .probes import KernelView, Probe, ProbeScheduler, RunView
 
 __all__ = [
@@ -103,8 +115,8 @@ CHECKPOINT_FILENAME = "output.ckpt"
 #: v1 ``save_last`` per-leg final-state artifacts (plan §5 Phase 3 item 3.2:
 #: every leg leaves its final positions + restorable state behind, so the
 #: next leg can start from them without manual bridging).  ``last.pdbx`` is
-#: written through the kernel's duck-typed public ``write_structure(path)``
-#: (kernels without it — the fake — skip the structure but still get the
+#: written through the port's StructureWriter capability (kernels without
+#: it — the fake — skip the structure but still get the
 #: ``last.ckpt`` snapshot); ``last.ckpt`` is the same opaque snapshot blob
 #: ``snapshot()``/``restore()`` round-trip.
 LAST_STRUCTURE_FILENAME = "last.pdbx"
@@ -189,32 +201,8 @@ def _next_boundary(step_now: int, intervals: Iterable[int], cap: int) -> int:
     return target
 
 
-def _box_provider(kernel: KernelPort):
-    """Zero-arg callable returning the live periodic box (nm, (3,3) rows) or
-    None — the documented KernelPort-has-no-box workaround (see module
-    docstring).  Non-openmm kernels and non-periodic systems yield None."""
-    simulation = getattr(kernel, "simulation", None)
-    system = getattr(kernel, "system", None)
-    if simulation is None or system is None:
-        return None
-
-    def current_box():
-        try:
-            if not system.usesPeriodicBoundaryConditions():
-                return None
-            # getState() box vectors are plain Vec3 in nm (no unit machinery)
-            a, b, c = simulation.context.getState().getPeriodicBoxVectors()
-            return np.array(
-                [[a.x, a.y, a.z], [b.x, b.y, b.z], [c.x, c.y, c.z]],
-                dtype=np.float64)
-        except Exception:
-            return None
-
-    return current_box
-
-
 def _default_view_factory(kernel: KernelPort) -> ViewFactory:
-    box = _box_provider(kernel)
+    box = getattr(kernel, "box_vectors", None)  # bound method or None
 
     def make_view(kernel: KernelPort, step: int) -> RunView:
         return KernelView(kernel, step, box_vectors=box)
@@ -224,17 +212,15 @@ def _default_view_factory(kernel: KernelPort) -> ViewFactory:
 
 def _write_last_structure(kernel: KernelPort, sink) -> None:
     """The ``last.pdbx`` half of v1 ``save_last`` — final positions as a
-    structure artifact, written through the kernel's duck-typed public
-    ``write_structure(path)`` (the same layering workaround as
-    :func:`_box_provider`: KernelPort has no structure-writing operation,
-    the openmm adapter owns the PDBx writer, and kernels without the method —
-    the fake — skip the artifact entirely).  Filesystem-less sinks
+    structure artifact, written through the port's negotiated
+    :class:`~neomd.kernel.port.StructureWriter` capability (only the openmm
+    adapter has a real topology to write; fake/replay kernels skip the
+    artifact by not providing it).  Filesystem-less sinks
     (``sink.path`` raises NotImplementedError) skip it too."""
-    writer = getattr(kernel, "write_structure", None)
-    if not callable(writer):
+    if not provides(kernel, StructureWriter):
         return
     try:
-        writer(sink.path(LAST_STRUCTURE_FILENAME))
+        kernel.write_structure(sink.path(LAST_STRUCTURE_FILENAME))
     except NotImplementedError:
         pass  # filesystem-less sink (MemorySink): no structure artifact
 
@@ -319,7 +305,7 @@ def run_minimization(kernel: KernelPort, plan, sink=None, logger=None) -> MinRes
     (``tolerance``, ``maxiter``) with v1 defaults (10 kJ/mol/nm, 10000
     iterations).  When ``sink`` is given a final ``output.ckpt`` snapshot is
     written plus the per-leg v1 ``save_last`` pair — ``last.ckpt`` and
-    (through the kernel's duck-typed ``write_structure``) ``last.pdbx``
+    (through the port's StructureWriter capability) ``last.pdbx``
     carrying the MINIMIZED positions, so the next leg can start from them
     without manual bridging.
     """
@@ -359,6 +345,7 @@ def run_md(
     logger=None,
     clock: Clock = time.time,
     sink=None,
+    on_progress: Callable[[int, Mapping[str, int]], None] | None = None,
 ) -> RunResult:
     """Run ``plan.steps`` of dynamics on ``kernel`` (resume-aware) with probe
     scheduling, progress statistics, and an optional method hook.
@@ -373,8 +360,9 @@ def run_md(
                  ``interval`` (never at step 0 — openmm reporter cadence).
     scheduler:   caller-built scheduler override.
     view:        factory ``(kernel, step) -> RunView``; the default wraps the
-                 kernel in a :class:`~neomd.probes.KernelView` with the
-                 box-vector workaround of this module's docstring.
+                 kernel in a :class:`~neomd.probes.KernelView` whose box
+                 accessor is the kernel's own ``box_vectors()`` port call
+                 (see "Box vectors" in the module docstring).
     on_step:     Wave-2 method hook, called as ``on_step(step, view)`` on
                  every multiple of ``on_step_interval`` (default 1 = every
                  step).  Metadynamics deposits hills here.
@@ -386,9 +374,14 @@ def run_md(
                  statistics — v1 used ``time.time``; tests inject fakes.
     sink:        optional artifact sink for the v1 ``save_last`` per-leg
                  final-state pair written at run end (``last.ckpt`` always;
-                 ``last.pdbx`` through the kernel's duck-typed public
-                 ``write_structure(path)``, skipped by kernels without it —
-                 the fake — and by filesystem-less sinks).
+                 ``last.pdbx`` through the port's StructureWriter capability,
+                 skipped by kernels without it — the fake — and by
+                 filesystem-less sinks).
+    on_progress: optional ``on_progress(step, {artifact: last step})`` hook
+                 fired after every probe boundary with the scheduler's
+                 aggregated artifact progress — drive() records it into the
+                 run manifest (per-artifact write progress, the resume
+                 cross-check).
 
     Returns :class:`RunResult`.  Probes that define ``finish()`` see it at
     run end (scheduler contract).
@@ -443,6 +436,10 @@ def run_md(
         if fire_probe or fire_hook:
             boundary_view = make_view(kernel, step_now)
             scheduler.tick(step_now, boundary_view)  # probes first (v1 order)
+            if on_progress is not None and fire_probe:
+                progress = scheduler.progress()
+                if progress:
+                    on_progress(step_now, progress)
             if fire_hook:
                 on_step(step_now, boundary_view)
 
@@ -488,67 +485,63 @@ def run_md(
 
 
 def _kernel_spec(plan, kind: str = "openmm") -> KernelSpec:
-    """Best-effort Plan -> KernelSpec compilation (run.py's L2 job in the
-    final architecture; the spine needs it here first)."""
-    integrator = dict(_plan_integrator(plan))
-    integrator.setdefault("integrator_name", "LangevinIntegrator")
-    integrator.setdefault("friction_coeff", 1.0)
-    integrator.setdefault("dt", 0.002)
-    resume = None
-    if getattr(plan, "continue_md", False):
-        checkpoint = getattr(plan, "checkpoint", None)
-        state = getattr(plan, "state", None)
-        if checkpoint:
-            resume = {"checkpoint": checkpoint}
-        elif state:
-            resume = {"state": state}
-    input_files = plan.input_files
-    return KernelSpec(
-        kind=kind,
-        system_xml=str(input_files["system"]),
-        topology_file=str(input_files["complex"]),
-        integrator=integrator,
-        temperature=float(plan.temperature),
-        seed=int(plan.seed),
-        platform="cpu",
-        resume=resume,
-    )
+    """Best-effort Plan -> KernelSpec compilation for direct ``drive()``
+    calls (fake-kernel tests, replay smoke, metadynamics resume): the SAME
+    one-and-only builder run.py's ``compile()`` uses — there is no second,
+    weaker spec path (improvements-list item 4; run.py owns the port of the
+    v1 semantics: barostat seeding, particle_masses, platform params)."""
+    from .run import build_kernel_spec
+
+    return build_kernel_spec(plan, kind=kind)
 
 
-def _default_probes(plan, sink) -> list:
+def _default_probes(plan, sink, resume=None) -> list:
     """Probes implied by the plan's derived output intervals ([] without a
     sink — the caller (run.py) owns sink construction, the driver never
-    invents one)."""
+    invents one).  The built-in presets are constructed through the probe
+    knowledge triples (registry kind "probe") — third-party probes register
+    the same way.  ``resume`` (a :class:`~neomd.resume.ResumePlan`, or None
+    for a fresh run) owns every append decision: an artifact trimmed by the
+    resume planner is appended to, everything else starts fresh — the probes
+    themselves never decide append/truncate."""
     if sink is None:
         return []
-    from .probes import CheckpointProbe, StateProbe, TrajectoryProbe
+    from . import registry
+    from . import probes as _probes  # noqa: F401  (import = registration)
 
+    trims = resume.trims if resume is not None else {}
     dt_ps = _plan_dt_ps(plan)
+    def make(name):
+        return registry.get("probe", name).make  # KeyError w/ did-you-mean
     probes: list = []
     state_interval = int(getattr(plan, "state_interval", 0) or 0)
     if state_interval > 0:
-        probes.append(StateProbe(
-            sink, interval=state_interval, total_steps=int(plan.steps),
-            dt_ps=dt_ps, append=bool(getattr(plan, "continue_md", False))))
+        probes.append(make("state")(
+            sink=sink, interval=state_interval, total_steps=int(plan.steps),
+            dt_ps=dt_ps, append="output.state" in trims))
     trajectory_interval = int(getattr(plan, "trajectory_interval", 0) or 0)
     if trajectory_interval > 0:
-        probes.append(TrajectoryProbe(sink, interval=trajectory_interval,
-                                      dt_ps=dt_ps))
+        probes.append(make("trajectory")(
+            sink=sink, interval=trajectory_interval,
+            dt_ps=dt_ps,
+            append="output.dcd" in trims))
     checkpoint_interval = int(getattr(plan, "checkpoint_interval", 0) or 0)
     if checkpoint_interval > 0:
-        probes.append(CheckpointProbe(sink, interval=checkpoint_interval))
+        probes.append(make("checkpoint")(sink=sink,
+                                         interval=checkpoint_interval))
     return probes
 
 
-def _append_restraint_probe(probes: list, plan, sink, kernel, fgroups) -> None:
+def _append_restraint_probe(probes: list, plan, sink, kernel, fgroups,
+                            resume=None) -> None:
     """Append the :class:`~neomd.probes.RestraintProbe` the plan's derived
     ``restraint_interval`` asks for (> 0 only when a restraint is configured
     AND ``output.report_restraint`` is truthy — the plan.py port of v1's
     ``restraint_interval`` mirror of ``report_interval``; v1 attached its
     RestraintReporter to MD simulations, so this is MD-branch wiring, not
     minimization).  Columns come from the restraint registry observables +
-    the kernel's masses; energies from the kernel's duck-typed
-    ``group_energy`` over the restraint's assigned force groups."""
+    the kernel's masses; energies from the port's GroupEnergy
+    capability over the restraint's assigned force groups."""
     restraint_interval = int(getattr(plan, "restraint_interval", 0) or 0)
     restraint = getattr(plan, "restraint", None) or {}
     if restraint_interval <= 0 or sink is None or not restraint:
@@ -556,6 +549,7 @@ def _append_restraint_probe(probes: list, plan, sink, kernel, fgroups) -> None:
     from . import registry
     from .probes import RestraintProbe
 
+    trims = resume.trims if resume is not None else {}
     probes.append(RestraintProbe(
         sink,
         interval=restraint_interval,
@@ -564,13 +558,33 @@ def _append_restraint_probe(probes: list, plan, sink, kernel, fgroups) -> None:
              registry.get("restraint", spec["type"]).observables(name, spec))
             for name, spec in restraint.items()
         ],
-        masses=getattr(kernel, "masses", None),
+        masses=kernel.masses,
         fgroups=fgroups or None,
+        append="restraint.tsv" in trims,
     ))
 
 
 _MIN_METHODS = ("min",)
 _MD_METHODS = ("eq", "md", "prod")
+
+
+def _manifest_recorder(manifest, sink):
+    """``on_progress`` wiring for drive(): record artifact progress into the
+    manifest and rewrite manifest.json while the run goes (a crash leaves
+    the last recorded progress behind — the resume cross-check)."""
+    directory = None
+    if sink is not None:
+        try:
+            directory = sink.path(MANIFEST_FILENAME).parent
+        except NotImplementedError:
+            directory = None  # filesystem-less sink (MemorySink)
+
+    def record(step, artifacts):
+        manifest.record_artifacts(artifacts)
+        if directory is not None:
+            manifest.write(directory)
+
+    return record
 
 
 def drive(
@@ -591,15 +605,22 @@ def drive(
       (``registry.get("method", ...)``, did-you-mean on miss) — metadynamics
       lives there (Wave 2).  Every phase leaves the v1 ``save_last`` pair
       behind: ``last.ckpt`` (a ``snapshot()`` blob) and — through the
-      kernel's duck-typed public ``write_structure(path)`` — ``last.pdbx``
+      port's StructureWriter capability — ``last.pdbx``
       with the final positions, so the next leg can start from them.
     * ``plan.restraint`` entries are compiled through the registry knowledge
       triples (``registry.get("restraint", type).make_bias``) and installed
       with ``kernel.install_bias``; the assigned force-group ids come back in
       ``RunOutcome.fgroups`` (name -> list[int]) — the §2.3 return-value rule.
+    * resume (``continue_md``): the MD branch runs
+      :func:`neomd.resume.plan_resume` — the single owner — which restores
+      the kernel and trims every tape to the checkpoint step before the
+      probes are built (method-rack methods like metadynamics call it
+      themselves, after installing their bias).  A resumed run opens a
+      ``resume:<step>`` manifest epoch.
     * a :class:`~neomd.manifest.RunManifest` opens epoch 0 ("start") before
       the method and closes ``done:<method>`` after it, written to the sink
-      directory when the sink has a filesystem.
+      directory when the sink has a filesystem; per-artifact write progress
+      is recorded into it as probes run.
     """
     log = _resolve_logger(logger)
     if kernel_factory == KernelFactory.create:
@@ -609,9 +630,10 @@ def drive(
 
     kernel = kernel_factory(_kernel_spec(plan))
 
-    from .manifest import MANIFEST_FILENAME, RunManifest
+    from .manifest import RunManifest
 
     manifest = RunManifest.start(plan, kernel.name)
+    record_progress = _manifest_recorder(manifest, sink)
 
     fgroups: dict[str, list[int]] = {}
     restraint = getattr(plan, "restraint", None)
@@ -631,11 +653,21 @@ def drive(
     if method in _MIN_METHODS:
         results.append(run_minimization(kernel, plan, sink=sink, logger=log))
     elif method in _MD_METHODS:
-        probes = _default_probes(plan, sink)
-        _append_restraint_probe(probes, plan, sink, kernel, fgroups)
+        from .resume import plan_resume
+
+        resume_plan = plan_resume(plan, kernel, sink)
+        if resume_plan is not None:
+            log.info("resuming from step %d (checkpoint %s); tapes trimmed: %s",
+                     resume_plan.resume_step, resume_plan.checkpoint,
+                     sorted(resume_plan.trims) or "none")
+            manifest.add_epoch(f"resume:{resume_plan.resume_step}",
+                               steps_so_far=resume_plan.resume_step)
+        probes = _default_probes(plan, sink, resume=resume_plan)
+        _append_restraint_probe(probes, plan, sink, kernel, fgroups,
+                                resume=resume_plan)
         results.append(run_md(kernel, plan, probes,
                               view=_default_view_factory(kernel), logger=log,
-                              sink=sink))
+                              sink=sink, on_progress=record_progress))
         if sink is not None:  # v1 save_last after run_md
             sink.write_bytes(CHECKPOINT_FILENAME, kernel.snapshot())
     else:
@@ -645,7 +677,8 @@ def drive(
         from . import methods, registry
 
         entry = registry.get("method", method)  # KeyError w/ did-you-mean
-        results.append(entry.run(kernel=kernel, plan=plan, sink=sink, logger=log))
+        results.append(entry.run(kernel=kernel, plan=plan, sink=sink,
+                                 logger=log, on_progress=record_progress))
 
     manifest.add_epoch(f"done:{method}", steps_so_far=kernel.current_step)
 

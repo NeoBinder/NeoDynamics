@@ -1,17 +1,48 @@
-"""KernelPort — the physics-kernel seam of neomd (v2 migration plan §2, D foundation).
+"""KernelPort — the physics-kernel seam of neomd (v2 migration plan §2, D
+foundation; surface closed per the v2 improvements list item 2).
 
-The 8 operations (frozen surface, do not widen casually):
+The core operations (the closed surface — everything driver/probes/methods
+may call, do not widen casually):
 
-    positions / energy_forces / minimize / step / install_bias / clear_bias /
-    snapshot / restore
+    name / num_particles / current_step / masses          state description
+    positions / energy_forces / box_vectors               observation
+    minimize / step                                        dynamics
+    install_bias / clear_bias                              bias lifecycle
+    snapshot / restore                                     state round-trip
 
-This module is the *contract owner*: it is pure data + typing, imports neither
-openmm nor numpy-heavy machinery beyond numpy itself, and is the single file
-every layer agrees on.  Adapters live beside it:
+Optional capabilities are NEGOTIATED, never assumed — callers ask
+``provides(kernel, <Capability>)`` (isinstance plus a proxy-safe fallback;
+see :func:`provides`) and must degrade when a kernel does not provide them:
 
-    openmm.py  — production adapter (the only core module that imports openmm)
-    fake.py    — deterministic textbook-Langevin kernel (CI workhorse)
-    replay.py  — golden-tape playback (added with the parity suite)
+    BiasOps          via ``kernel.bias_ops()`` — live table-bias manipulation
+                     (well-tempered metadynamics); None when unsupported
+    GroupEnergy      ``group_energy(groups)`` — per-force-group energy reads
+                     (the restraint reporter's bias-energy column)
+    StructureWriter  ``write_structure(path)`` — final positions as a
+                     structure file (the ``last.pdbx`` half of v1 save_last)
+
+Adapter notes:
+
+* ``openmm.py`` — production adapter (the only core module that imports
+  openmm).  Its public ``simulation``/``system`` attributes are adapter
+  internals: NOTHING outside ``kernel/`` may reach through them (the
+  driver's former box-vector duck-punching is now the port's
+  ``box_vectors()``).
+* ``fake.py`` — deterministic textbook-Langevin kernel (CI workhorse).
+* ``replay.py`` — golden-tape playback (parity carrier).  It deliberately
+  self-registers at import and is NOT covered by
+  ``kernel/_bootstrap.ensure_adapters``: import ``neomd.kernel.replay``
+  before creating replay kernels through the factory (the CLI's
+  ``run --kernel replay`` and the parity tests do exactly that).
+
+Documented invariants:
+
+* force-group ids returned by ``install_bias`` are OPAQUE ints, never
+  compared across kernels or assumed to follow an allocation order; each
+  adapter's own allocation policy is pinned by its tests (openmm ports v1's
+  max-free-group-first; fake mirrors it).
+* ``box_vectors()`` returns None for non-periodic systems; a periodic
+  system's box may change between calls (NPT).
 
 Unit conventions inside neomd (all adapters convert at the boundary):
     positions  nm, float64, shape (N, 3)
@@ -25,14 +56,17 @@ Unit conventions inside neomd (all adapters convert at the boundary):
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import Iterable, Protocol, runtime_checkable
 
 import numpy as np
 
 __all__ = [
     "BiasIR",
     "BiasOps",
+    "GroupEnergy",
+    "StructureWriter",
     "CVIR",
     "GridSpec",
     "Param",
@@ -41,8 +75,68 @@ __all__ = [
     "KernelSpec",
     "KernelPort",
     "KernelFactory",
+    "MAX_FORCE_GROUPS",
+    "pick_free_force_group",
+    "provides",
     "UNITS",
+    "CANONICAL_FACTORS",
+    "to_canonical",
+    "cv_is_angular",
 ]
+
+
+#: openmm's hard per-System force-group capacity (v1's max_force_grps bound)
+MAX_FORCE_GROUPS = 32
+
+
+def pick_free_force_group(used, holders: dict) -> int:
+    """The one force-group allocation policy every adapter shares (v2
+    improvements item 5): max of the free ids, v1 ``max_force_grps`` order.
+
+    ``used``: iterable of already-taken group ids.  ``holders``: ``{group id:
+    description}`` of who owns each taken group — the exhaustion error lists
+    them, so a 32-group collision is diagnosable instead of mysterious.
+    Returns are OPAQUE ints to callers (see the module docstring invariant);
+    the allocation ORDER is pinned here so fake/replay runs exercise the
+    same ids production would.
+    """
+    taken = {int(g) for g in used}
+    free = set(range(MAX_FORCE_GROUPS)) - taken
+    if not free:
+        listing = "\n".join(
+            f"      group {group}: {holders.get(group, '?')}"
+            for group in sorted(taken))
+        raise RuntimeError(
+            f"Cannot assign a force group to the force. The maximum number "
+            f"({MAX_FORCE_GROUPS}) of the force groups is already used. "
+            f"Current holders:\n{listing}")
+    return max(free)
+
+
+def _capability_attrs(capability) -> tuple:
+    """Method names a capability protocol requires (its own callable members)."""
+    return tuple(
+        name for name, value in vars(capability).items()
+        if not name.startswith("_") and callable(value)
+    )
+
+
+def provides(kernel, capability) -> bool:
+    """Capability negotiation: does *kernel* provide *capability*?
+
+    ``isinstance(kernel, capability)`` is the primary check, but Python's
+    runtime Protocol checks read STATIC attributes and never see members a
+    dynamic proxy synthesizes through ``__getattr__`` — a wrapper kernel
+    forwarding every operation to an inner adapter would wrongly read as
+    "does not provide".  The fallback probes the required methods directly,
+    so proxies negotiate honestly too:
+
+        provides(kernel, GroupEnergy)   # instead of isinstance
+    """
+    if isinstance(kernel, capability):
+        return True
+    return all(callable(getattr(kernel, attr, None))
+               for attr in _capability_attrs(capability))
 
 #: canonical unit strings accepted in Param / spec dicts
 UNITS = {
@@ -51,6 +145,46 @@ UNITS = {
     "deg",         # degree
     "dimensionless",
 }
+
+#: THE unit-conversion table (v2 improvements item 7): how a declared unit
+#: translates into the canonical kernel-space float every expression
+#: evaluator uses — degrees become radians (openmm's md unit system), the
+#: other units pass through unchanged.  The fake kernel's param conversion
+#: and the metadynamics grid standardization both consume this table; the
+#: openmm adapter's Quantity constructors are keyed by the same vocabulary
+#: (pinned by tests, so the three can never drift apart again).
+CANONICAL_FACTORS = {
+    "kJ/mol": 1.0,
+    "nm": 1.0,
+    "deg": math.pi / 180.0,
+    "dimensionless": 1.0,
+}
+
+
+def to_canonical(value: float, unit: str) -> float:
+    """Param value -> canonical kernel-space float (``deg`` -> radians).
+
+    Bit-identical to ``math.radians`` for degrees (CPython computes radians
+    as ``x * (pi/180)`` — the same constant multiply used here).
+    """
+    try:
+        factor = CANONICAL_FACTORS[unit]
+    except KeyError:
+        raise ValueError(
+            f"unknown unit {unit!r}; expected one of {sorted(UNITS)}") from None
+    return float(value) * factor
+
+
+def cv_is_angular(cv: "CVIR") -> bool:
+    """Whether a CV's value is an ANGLE: torsion CVs and expressions built
+    around ``angle(...)`` are declared in degrees by configs and evaluate to
+    radians in kernel space — the one conversion the grid standardizer, the
+    fake kernel's reporters and the colvar tapes all have to agree on
+    (previously three independent sniffers, now one).
+    """
+    if cv.kind == "CustomTorsionForce":
+        return True
+    return "angle(" in cv.expression.replace(" ", "")
 
 
 @dataclass(frozen=True)
@@ -203,11 +337,11 @@ class KernelSpec:
 class BiasOps(Protocol):
     """ OPTIONAL capability: live manipulation of installed table biases.
 
-    The 8 core operations stay frozen; methods that need mid-run bias
-    interaction (well-tempered metadynamics: read CV values, read the bias
-    energy to temper hill heights, push updated tables) get this handle via
-    ``kernel.bias_ops()``.  Kernels return ``None`` when they do not support
-    it — methods must degrade or refuse cleanly.
+    Methods that need mid-run bias interaction (well-tempered metadynamics:
+    read CV values, read the bias energy to temper hill heights, push
+    updated tables) get this handle via ``kernel.bias_ops()``.  Kernels
+    return ``None`` when they do not support it — methods must degrade or
+    refuse cleanly.
     """
 
     def cv_values(self, label: str) -> list[float]:
@@ -224,13 +358,53 @@ class BiasOps(Protocol):
 
 
 @runtime_checkable
+class GroupEnergy(Protocol):
+    """OPTIONAL capability: per-force-group potential-energy reads.
+
+    What the restraint reporter's bias-energy column needs
+    (``group_energy({1, 4})`` -> the energy of exactly those force groups,
+    kJ/mol).  Kernels without group-resolved energies (the replay kernel
+    plays a single tape potential) do not provide it and the reporter
+    writes ``nan`` — ask ``provides(kernel, GroupEnergy)``.
+    """
+
+    def group_energy(self, groups: Iterable[int]) -> float:
+        ...
+
+
+@runtime_checkable
+class StructureWriter(Protocol):
+    """OPTIONAL capability: write the current positions as a structure file.
+
+    The ``last.pdbx`` half of v1 ``save_last``: writing real coordinates
+    needs a real topology, which only topology-carrying kernels (openmm)
+    have — ask ``provides(kernel, StructureWriter)`` and skip the artifact
+    when absent.
+    """
+
+    def write_structure(self, path) -> None:
+        ...
+
+
+@runtime_checkable
 class KernelPort(Protocol):
-    """The 8-operation physics-kernel protocol."""
+    """The physics-kernel protocol (see the module docstring for the closed
+    surface and the capability list)."""
 
     name: str
 
     @property
     def num_particles(self) -> int: ...
+
+    @property
+    def current_step(self) -> int:
+        """Absolute step count of the dynamics (resume arithmetic keys on it)."""
+        ...
+
+    @property
+    def masses(self) -> np.ndarray:
+        """Particle masses, dalton, shape (N,)."""
+        ...
 
     def positions(self) -> np.ndarray:
         """Current positions, (N, 3) nm float64 (not wrapped)."""
@@ -239,6 +413,13 @@ class KernelPort(Protocol):
     def energy_forces(self) -> EnergyReport:
         """Potential energy + forces (always); kinetic/volume/temperature when
         the adapter can provide them."""
+        ...
+
+    def box_vectors(self) -> np.ndarray | None:
+        """Periodic box as (3, 3) nm rows a/b/c, or None when non-periodic.
+
+        May change between calls on an NPT system; adapters without a box
+        (the replay kernel) return None."""
         ...
 
     def minimize(self, tolerance: float = 10.0, max_iterations: int = 10000) -> None:
@@ -250,7 +431,8 @@ class KernelPort(Protocol):
         ...
 
     def install_bias(self, bias: BiasIR) -> int:
-        """Install one biasing force; returns the assigned force-group id."""
+        """Install one biasing force; returns the assigned force-group id
+        (opaque — see the module docstring's invariant)."""
         ...
 
     def clear_bias(self) -> None:
@@ -266,7 +448,7 @@ class KernelPort(Protocol):
         ...
 
     def bias_ops(self) -> "BiasOps | None":
-        """OPTIONAL 9th capability: live table-bias manipulation (see BiasOps).
+        """OPTIONAL capability: live table-bias manipulation (see BiasOps).
 
         Returns None when unsupported; callers must handle that."""
         ...

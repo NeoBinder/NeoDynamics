@@ -21,6 +21,7 @@ from neomd.errors import (
     NeoUserError,
     PlanFrozenError,
     PlanValidationError,
+    PlanValidationErrors,
 )
 from neomd.manifest import GENESIS, Epoch, RunManifest, epoch_fingerprint
 from neomd.plan import Plan, load_plan
@@ -140,8 +141,13 @@ def test_integrator_requires_positive_dt(integrator):
 
 
 def test_missing_required_sections():
-    with pytest.raises(ConfigKeyError):
+    # both missing sections report in one pass (collect-all); one missing
+    # section keeps the single-error contract
+    with pytest.raises(PlanValidationErrors) as excinfo:
         Plan.from_dict({})
+    assert len(excinfo.value.errors) == 2  # input_files + output
+    with pytest.raises(ConfigKeyError):
+        Plan.from_dict({"output": {"output_dir": "/tmp/x"}})
 
 
 def test_input_files_typo_gets_did_you_mean():
@@ -660,3 +666,97 @@ def test_frozen_error_mentions_with_():
     with pytest.raises(PlanFrozenError) as excinfo:
         plan.steps = 5
     assert "with_(" in str(excinfo.value)
+
+
+# ---------------------------------------------------------------------------
+# collect-all validation (v2 improvements item 3)
+# ---------------------------------------------------------------------------
+
+
+def test_multiple_structural_errors_all_reported_in_one_pass():
+    config = base_config()
+    config["tmeperature"] = 310          # unknown key (typo)
+    config["steps"] = -5                 # bad value
+    config["seed"] = "not-an-int"        # bad type
+    config["output"]["iterval"] = 20     # unknown output key
+    with pytest.raises(PlanValidationErrors) as excinfo:
+        Plan.from_dict(config, source="bad.yaml")
+    errors = excinfo.value.errors
+    assert len(errors) == 4
+    kinds = {type(e) for e in errors}
+    assert kinds == {ConfigKeyError, ConfigValueError}
+    rendered = str(excinfo.value)
+    assert "tmeperature" in rendered and "temperature" in rendered  # did-you-mean
+    assert "-5" in rendered
+    assert "not-an-int" in rendered
+    assert "iterval" in rendered and "interval" in rendered
+    assert "nothing was executed" in rendered
+    assert "[1]" in rendered and "[4]" in rendered  # numbered problems
+
+
+def test_single_error_still_raises_its_specific_type():
+    config = base_config()
+    config["steps"] = -5
+    with pytest.raises(ConfigValueError):  # not the aggregate
+        Plan.from_dict(config)
+
+
+def test_shape_errors_skip_dependent_checks_but_keep_collecting():
+    config = base_config()
+    config["input_files"] = "not-a-mapping"
+    config["seed"] = 1.5  # independent -> still reported
+    with pytest.raises(PlanValidationErrors) as excinfo:
+        Plan.from_dict(config)
+    assert len(excinfo.value.errors) == 2
+
+
+def test_validate_config_returns_error_list():
+    from neomd.plan import validate_config
+
+    clean = validate_config(base_config())
+    assert clean == []
+    config = base_config()
+    config["ouptut"] = {}
+    errors = validate_config(config, source="x.yaml")
+    assert len(errors) == 1
+    assert isinstance(errors[0], ConfigKeyError)
+
+
+def test_check_plan_files_reports_missing_and_out_of_bounds(tmp_path):
+    from neomd.plan import check_plan_files
+
+    system = tmp_path / "system.xml"
+    system.write_text(
+        "<System><Particle mass='1'/><Particle mass='1'/>"
+        "<Particle mass='1'/></System>")  # 3 particles
+    config = base_config()
+    config["input_files"] = {
+        "complex": str(tmp_path / "missing.pdb"),
+        "system": str(system),
+    }
+    config["restraint"] = {"r": {"type": "distance", "grp1": "0",
+                                 "grp2": "9", "restr_k": 5.0, "max_nm": 1.0}}
+    errors = check_plan_files(config)
+    messages = [e.message for e in errors]
+    assert any("does not exist" in m and "complex" in m for m in messages)
+    assert any("out of bounds" in m and "grp2" in m for m in messages)
+    assert not any("grp1" in m for m in messages)  # index 0 is fine
+
+
+def test_check_plan_files_method_schema_requirements(tmp_path):
+    from neomd.plan import check_plan_files
+
+    config = base_config()
+    config["method"] = "metadynamics"  # registry schema demands colvars/meta_set
+    config["input_files"] = {"complex": "x.pdb", "system": "x.xml"}
+    errors = check_plan_files(config)
+    assert any("colvars" in e.message for e in errors)
+    assert any("meta_set" in e.message for e in errors)
+
+
+def test_error_rendering_has_no_sentinel_leak():
+    config = base_config()
+    config["integrator"] = {}
+    with pytest.raises(ConfigValueError) as excinfo:
+        Plan.from_dict(config)
+    assert "<object" not in str(excinfo.value)

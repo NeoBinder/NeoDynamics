@@ -7,7 +7,10 @@ Pipeline (all of it happens once, at construction):
 * **validate** replaces v1's ``check_config`` whitelist
   (``neomd/utils.py``): unknown top-level keys raise
   :class:`~neomd.errors.ConfigKeyError` with a did-you-mean list; known keys
-  get structural checks (types and ranges).
+  get structural checks (types and ranges).  The validator COLLECTS every
+  problem in one pass — two or more raise the
+  :class:`~neomd.errors.PlanValidationErrors` aggregate (a single problem
+  still raises its own specific type).
 * **derive** ports v1's ``BasePipeline.modify_config``
   (``neomd/base/pipeline.py:92-127`` plus the ``restraint_interval`` mirror at
   ``pipeline.py:61-66``) into a *separate* derived view.  v1 mutated the user's
@@ -38,10 +41,11 @@ from .errors import (
     ConfigValueError,
     PlanFrozenError,
     PlanValidationError,
+    PlanValidationErrors,
     suggest,
 )
 
-__all__ = ["Plan", "load_plan", "KNOWN_KEYS"]
+__all__ = ["Plan", "load_plan", "KNOWN_KEYS", "validate_config", "check_plan_files"]
 
 
 # ---------------------------------------------------------------------------
@@ -204,14 +208,17 @@ class _Context:
         candidates=None,
         known_keys=None,
     ):
+        kwargs = {}
+        if value is not _NOT_GIVEN:
+            kwargs["value"] = value
         return exc(
             message,
             key=path[-1] if path else None,
-            value=value,
             source=self.source,
             line=self.line_of(path),
             candidates=candidates,
             known_keys=known_keys,
+            **kwargs,
         )
 
 
@@ -219,19 +226,32 @@ def _is_number(value) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def _validate(data: Any, ctx: _Context) -> None:
-    """Structural validation of the raw user dict (replaces check_config)."""
+def _validate(data: Any, ctx: _Context) -> list:
+    """Structural validation of the raw user dict (replaces check_config).
+
+    Collects EVERY problem in one pass (the improvements-list item 3
+    aggregator): a config with three mistakes reports all three.  Checks
+    that depend on a section's shape (per-key checks inside
+    ``input_files``/``output``/``integrator``/``restraint``) are skipped
+    when the section itself is structurally wrong — everything independent
+    still runs.
+    """
+    errors: list = []
     if not isinstance(data, Mapping):
+        # nothing else can be checked — the root is not even a mapping
         raise ctx.error(
             PlanValidationError,
             f"plan data must be a mapping at the top level, got {type(data).__name__}",
             value=data,
         )
 
+    def problem(exc, message, path=(), value=_NOT_GIVEN, **kwargs):
+        errors.append(ctx.error(exc, message, path, value, **kwargs))
+
     # -- top-level keys: the v2 whitelist with did-you-mean ---------------
     for key in data:
         if not isinstance(key, str) or key not in KNOWN_KEYS:
-            raise ctx.error(
+            problem(
                 ConfigKeyError,
                 f"unknown configuration key {key!r}",
                 (key,) if isinstance(key, str) else (),
@@ -240,7 +260,7 @@ def _validate(data: Any, ctx: _Context) -> None:
 
     for required in REQUIRED_KEYS:
         if required not in data:
-            raise ctx.error(
+            problem(
                 ConfigKeyError,
                 f"missing required configuration key {required!r}",
                 (required,),
@@ -249,7 +269,7 @@ def _validate(data: Any, ctx: _Context) -> None:
 
     # -- scalar keys ------------------------------------------------------
     if data.get("method") is not None and not isinstance(data["method"], str):
-        raise ctx.error(
+        problem(
             ConfigValueError,
             f"method must be a string, got {type(data['method']).__name__}",
             ("method",),
@@ -267,7 +287,7 @@ def _validate(data: Any, ctx: _Context) -> None:
             except (TypeError, ValueError, OverflowError):
                 steps_ok = False
         if not steps_ok:
-            raise ctx.error(
+            problem(
                 ConfigValueError,
                 "steps must be a positive integer",
                 ("steps",),
@@ -277,7 +297,7 @@ def _validate(data: Any, ctx: _Context) -> None:
     temperature = data.get("temperature")
     if temperature is not None:
         if not _is_number(temperature) or temperature < 0:
-            raise ctx.error(
+            problem(
                 ConfigValueError,
                 "temperature must be a number >= 0 (kelvin)",
                 ("temperature",),
@@ -287,7 +307,7 @@ def _validate(data: Any, ctx: _Context) -> None:
     seed = data.get("seed")
     if seed is not None:
         if isinstance(seed, bool) or not isinstance(seed, int):
-            raise ctx.error(
+            problem(
                 ConfigValueError,
                 f"seed must be an integer, got {type(seed).__name__}",
                 ("seed",),
@@ -296,7 +316,7 @@ def _validate(data: Any, ctx: _Context) -> None:
 
     if "continue_md" in data and data["continue_md"] is not None:
         if not isinstance(data["continue_md"], bool):
-            raise ctx.error(
+            problem(
                 ConfigValueError,
                 "continue_md must be a boolean (true/false)",
                 ("continue_md",),
@@ -305,7 +325,7 @@ def _validate(data: Any, ctx: _Context) -> None:
 
     if "debug" in data and data["debug"] is not None:
         if not isinstance(data["debug"], (bool, Mapping)):
-            raise ctx.error(
+            problem(
                 ConfigValueError,
                 f"debug must be a boolean or a mapping, got {type(data['debug']).__name__}",
                 ("debug",),
@@ -314,23 +334,24 @@ def _validate(data: Any, ctx: _Context) -> None:
 
     # -- integrator -------------------------------------------------------
     integrator = data.get("integrator")
-    if integrator is not None:
-        if not isinstance(integrator, Mapping):
-            raise ctx.error(
-                ConfigValueError,
-                f"integrator must be a mapping, got {type(integrator).__name__}",
-                ("integrator",),
-                integrator,
-            )
+    integrator_ok = integrator is None or isinstance(integrator, Mapping)
+    if not integrator_ok:
+        problem(
+            ConfigValueError,
+            f"integrator must be a mapping, got {type(integrator).__name__}",
+            ("integrator",),
+            integrator,
+        )
+    if integrator_ok and integrator is not None:
         dt = integrator.get("dt")
         if dt is None:
-            raise ctx.error(
+            problem(
                 ConfigValueError,
                 "integrator requires 'dt' (picoseconds, > 0)",
                 ("integrator", "dt"),
             )
-        if not _is_number(dt) or dt <= 0:
-            raise ctx.error(
+        elif not _is_number(dt) or dt <= 0:
+            problem(
                 ConfigValueError,
                 "integrator dt must be a number > 0 (picoseconds)",
                 ("integrator", "dt"),
@@ -341,7 +362,7 @@ def _validate(data: Any, ctx: _Context) -> None:
     for key in _MAPPING_KEYS:
         section = data.get(key)
         if section is not None and not isinstance(section, Mapping):
-            raise ctx.error(
+            problem(
                 ConfigValueError,
                 f"{key} must be a mapping, got {type(section).__name__}",
                 (key,),
@@ -352,7 +373,7 @@ def _validate(data: Any, ctx: _Context) -> None:
     if system_modification is not None and not isinstance(
         system_modification, (Mapping, list)
     ):
-        raise ctx.error(
+        problem(
             ConfigValueError,
             "system_modification must be a mapping or a list of modifications",
             ("system_modification",),
@@ -360,89 +381,92 @@ def _validate(data: Any, ctx: _Context) -> None:
         )
 
     # -- input_files --------------------------------------------------------
-    input_files = data["input_files"]
-    if not isinstance(input_files, Mapping):
-        raise ctx.error(
+    input_files = data.get("input_files")
+    if input_files is not None and not isinstance(input_files, Mapping):
+        problem(
             ConfigValueError,
             f"input_files must be a mapping, got {type(input_files).__name__}",
             ("input_files",),
             input_files,
         )
-    for key, value in input_files.items():
-        if not isinstance(key, str) or key not in _INPUT_FILES_KEYS:
-            raise ctx.error(
-                ConfigKeyError,
-                f"unknown input_files key {key!r}",
-                ("input_files", key) if isinstance(key, str) else ("input_files",),
-                known_keys=_INPUT_FILES_KEYS,
-            )
-        if value is None:
-            if key in ("complex", "system"):
-                raise ctx.error(
-                    ConfigValueError,
-                    f"input_files.{key} must be a path string, got None",
-                    ("input_files", key),
+    elif isinstance(input_files, Mapping):
+        for key, value in input_files.items():
+            if not isinstance(key, str) or key not in _INPUT_FILES_KEYS:
+                problem(
+                    ConfigKeyError,
+                    f"unknown input_files key {key!r}",
+                    ("input_files", key) if isinstance(key, str) else ("input_files",),
+                    known_keys=_INPUT_FILES_KEYS,
                 )
-            continue
-        templates_ok = key == "templates" and isinstance(value, (list, tuple)) and all(
-            isinstance(item, str) for item in value
-        )
-        if not isinstance(value, str) and not templates_ok:
-            raise ctx.error(
-                ConfigValueError,
-                f"input_files.{key} must be a path string, got {type(value).__name__}",
-                ("input_files", key),
-                value,
+            if value is None:
+                if key in ("complex", "system"):
+                    problem(
+                        ConfigValueError,
+                        f"input_files.{key} must be a path string, got None",
+                        ("input_files", key),
+                    )
+                continue
+            templates_ok = key == "templates" and isinstance(value, (list, tuple)) and all(
+                isinstance(item, str) for item in value
             )
+            if not isinstance(value, str) and not templates_ok:
+                problem(
+                    ConfigValueError,
+                    f"input_files.{key} must be a path string, got {type(value).__name__}",
+                    ("input_files", key),
+                    value,
+                )
 
     # -- output --------------------------------------------------------------
-    output = data["output"]
-    if not isinstance(output, Mapping):
-        raise ctx.error(
+    output = data.get("output")
+    if output is not None and not isinstance(output, Mapping):
+        problem(
             ConfigValueError,
             f"output must be a mapping, got {type(output).__name__}",
             ("output",),
             output,
         )
-    for key in output:
-        if not isinstance(key, str) or key not in _OUTPUT_KEYS:
-            raise ctx.error(
-                ConfigKeyError,
-                f"unknown output key {key!r}",
-                ("output", key) if isinstance(key, str) else ("output",),
-                known_keys=_OUTPUT_KEYS,
-            )
-    output_dir = output.get("output_dir")
-    if not isinstance(output_dir, str) or not output_dir.strip():
-        raise ctx.error(
-            ConfigValueError,
-            "output.output_dir is required and must be a non-empty string",
-            ("output", "output_dir"),
-            output_dir,
-        )
-    for key in _INTERVAL_KEYS:
-        interval = output.get(key)
-        if interval is None:
-            continue
-        integral = _is_number(interval) and float(interval).is_integer()
-        if not integral or int(interval) < 0:
-            raise ctx.error(
+    elif isinstance(output, Mapping):
+        for key in output:
+            if not isinstance(key, str) or key not in _OUTPUT_KEYS:
+                problem(
+                    ConfigKeyError,
+                    f"unknown output key {key!r}",
+                    ("output", key) if isinstance(key, str) else ("output",),
+                    known_keys=_OUTPUT_KEYS,
+                )
+        output_dir = output.get("output_dir")
+        if not isinstance(output_dir, str) or not output_dir.strip():
+            problem(
                 ConfigValueError,
-                f"output.{key} must be a non-negative integer number of steps",
-                ("output", key),
-                interval,
+                "output.output_dir is required and must be a non-empty string",
+                ("output", "output_dir"),
+                output_dir,
             )
-    report_restraint = output.get("report_restraint")
-    if report_restraint is not None and not isinstance(report_restraint, bool):
-        raise ctx.error(
-            ConfigValueError,
-            "output.report_restraint must be a boolean (true/false)",
-            ("output", "report_restraint"),
-            report_restraint,
-        )
+        for key in _INTERVAL_KEYS:
+            interval = output.get(key)
+            if interval is None:
+                continue
+            integral = _is_number(interval) and float(interval).is_integer()
+            if not integral or int(interval) < 0:
+                problem(
+                    ConfigValueError,
+                    f"output.{key} must be a non-negative integer number of steps",
+                    ("output", key),
+                    interval,
+                )
+        report_restraint = output.get("report_restraint")
+        if report_restraint is not None and not isinstance(report_restraint, bool):
+            problem(
+                ConfigValueError,
+                "output.report_restraint must be a boolean (true/false)",
+                ("output", "report_restraint"),
+                report_restraint,
+            )
 
     # -- restraint types (registry-aware, best effort) -----------------------
-    _validate_restraint_types(data, ctx)
+    _validate_restraint_types(data, ctx, problem)
+    return errors
 
 
 def _load_registry():
@@ -457,14 +481,16 @@ def _load_registry():
         return None
 
 
-def _validate_restraint_types(data: Mapping, ctx: _Context) -> None:
+def _validate_restraint_types(data: Mapping, ctx: _Context, problem) -> None:
     restraint = data.get("restraint")
     if not restraint:
         return
+    if not isinstance(restraint, Mapping):
+        return  # the _MAPPING_KEYS pass already reported the shape problem
     for name, spec in restraint.items():
         path = ("restraint", name) if isinstance(name, str) else ("restraint",)
         if not isinstance(spec, Mapping) or not isinstance(spec.get("type"), str):
-            raise ctx.error(
+            problem(
                 ConfigValueError,
                 f"restraint entry {name!r} must be a mapping with a string 'type'",
                 path,
@@ -480,6 +506,8 @@ def _validate_restraint_types(data: Mapping, ctx: _Context) -> None:
     if not known:
         return
     for name, spec in restraint.items():
+        if not isinstance(spec, Mapping) or not isinstance(spec.get("type"), str):
+            continue  # already reported above
         restraint_type = spec["type"]
         if restraint_type in known:
             continue
@@ -494,7 +522,7 @@ def _validate_restraint_types(data: Mapping, ctx: _Context) -> None:
             candidates = []
         if not candidates:
             candidates = suggest(restraint_type, known)
-        raise ctx.error(
+        problem(
             ConfigValueError,
             f"unknown restraint type {restraint_type!r} in entry {name!r} "
             f"(registry knows {len(known)} restraint types)",
@@ -624,7 +652,11 @@ class Plan:
                 value=data,
             )
         ctx = _Context(source, line_map)
-        _validate(data, ctx)
+        errors = _validate(data, ctx)
+        if errors:
+            # one problem -> that error type directly (existing callers and
+            # tests keep their specific exceptions); >= 2 -> the aggregate
+            raise errors[0] if len(errors) == 1 else PlanValidationErrors(errors)
         derived = _derive(data, ctx)
 
         plain = copy.deepcopy(dict(data))
@@ -803,3 +835,156 @@ def load_plan(path) -> Plan:
         line_map = _yaml_line_map(text)
 
     return Plan(data, source=path, line_map=line_map)
+
+
+# ---------------------------------------------------------------------------
+# standalone validation (the `neomd validate` entry; writes nothing)
+# ---------------------------------------------------------------------------
+
+#: keys whose values are (or are lists of) 0-based atom indices, per section
+_INDEX_KEYS = (
+    "grp1", "grp2", "grp3", "grp4",
+    "grp1_idx", "grp2_idx", "grp3_idx", "grp4_idx",
+    "min1_idx1", "min2_idx1", "min_idx2",
+    "particles",
+)
+
+
+def validate_config(data, *, source: str | None = None) -> list:
+    """Structural validation only — the error LIST (empty when valid).
+
+    This is what ``neomd validate`` reports first: every structural problem
+    in one pass, each carrying its yaml key path / did-you-mean hints.  No
+    files are touched and nothing is executed.
+    """
+    if not isinstance(data, Mapping):
+        from .errors import PlanValidationError as _PVE
+
+        return [_PVE(
+            f"plan data must be a mapping at the top level, "
+            f"got {type(data).__name__}",
+            value=data, source=source)]
+    ctx = _Context(source, None)
+    return _validate(data, ctx)
+
+
+def _particle_count_from_system_xml(path: str) -> int | None:
+    """Particle count from a serialized openmm System XML (no openmm import
+    — the schema writes one ``<Particle .../>`` per particle)."""
+    import xml.etree.ElementTree as ET
+
+    try:
+        root = ET.parse(path).getroot()
+    except (ET.ParseError, OSError):
+        return None
+    return len(root.findall(".//Particle"))
+
+
+def _flatten_indices(value) -> list[int]:
+    """One index-key value (int | numeric str | list of those) -> ints."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return [int(value)]
+    if isinstance(value, str):
+        try:
+            return [int(value)]
+        except ValueError:
+            return []
+    if isinstance(value, (list, tuple)):
+        out: list[int] = []
+        for item in value:
+            out.extend(_flatten_indices(item))
+        return out
+    return []
+
+
+def check_plan_files(data: Mapping, *, source: str | None = None,
+                     base_dir: str | None = None) -> list:
+    """File-level and semantic checks (the ``--check-files`` tier).
+
+    * every ``input_files`` path exists (resolved against ``base_dir``
+      when relative — mirroring how a run would open them);
+    * restraint/colvar atom indices fall inside the system's particle
+      count (parsed from the system XML, no openmm needed);
+    * the method's required plan keys exist (through the method registry
+      schema — metadynamics demands ``colvars`` + ``meta_set`` + ``steps``).
+
+    Returns a list of :class:`~neomd.errors.NeoUserError` (empty = clean).
+    """
+    from .errors import ConfigValueError
+
+    errors: list = []
+
+    def file_error(message, path, value=_NOT_GIVEN):
+        kwargs = {}
+        if value is not _NOT_GIVEN:
+            kwargs["value"] = value
+        errors.append(ConfigValueError(
+            message, key=path[-1] if path else None, source=source, **kwargs))
+
+    input_files = data.get("input_files") or {}
+    if not isinstance(input_files, Mapping):
+        return errors  # structural pass already reported the shape problem
+
+    def resolve(name, value):
+        if base_dir and value is not None and not os.path.isabs(value):
+            return os.path.join(base_dir, value)
+        return value
+
+    for key in ("complex", "system", "checkpoint", "state"):
+        value = input_files.get(key)
+        if isinstance(value, str) and not os.path.exists(resolve(key, value)):
+            file_error(
+                f"input_files.{key} does not exist: {value!r}",
+                ("input_files", key), value)
+
+    system_path = input_files.get("system")
+    n_particles = None
+    if isinstance(system_path, str):
+        resolved = resolve("system", system_path)
+        if os.path.exists(resolved):
+            n_particles = _particle_count_from_system_xml(resolved)
+            if n_particles is None:
+                file_error(
+                    f"input_files.system is not a readable openmm System XML: "
+                    f"{system_path!r} (index bounds not checked)",
+                    ("input_files", "system"), system_path)
+
+    if n_particles:
+        for section in ("restraint", "colvars"):
+            entries = data.get(section) or {}
+            if not isinstance(entries, Mapping):
+                continue
+            for name, spec in entries.items():
+                if not isinstance(spec, Mapping):
+                    continue
+                for key, value in spec.items():
+                    if key not in _INDEX_KEYS:
+                        continue
+                    for index in _flatten_indices(value):
+                        if index < 0 or index >= n_particles:
+                            errors.append(ConfigValueError(
+                                f"{section}.{name}.{key} index {index} is out of "
+                                f"bounds: the system has {n_particles} particles "
+                                f"(0..{n_particles - 1})",
+                                key=key, value=index, source=source))
+
+    # method-required keys through the registry schema (best effort)
+    method = (data.get("method") or "md")
+    method = str(method).lower()
+    if method not in ("min", "eq", "md", "prod"):
+        try:
+            import neomd.methods  # noqa: F401  (import = registration)
+            from . import registry
+
+            entry = registry.get("method", method)
+            schema = getattr(entry, "schema", None) or {}
+            for required in (schema.get("required") or {}):
+                if data.get(required) in (None, {}, []):
+                    errors.append(ConfigValueError(
+                        f"method {method!r} requires plan key {required!r} "
+                        f"(registry schema)",
+                        key=required, source=source))
+        except (ImportError, KeyError):
+            pass  # unknown methods are the structural/registry pass's job
+
+    return errors

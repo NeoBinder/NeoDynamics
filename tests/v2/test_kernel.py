@@ -137,15 +137,28 @@ def test_fake_snapshot_restore_reproduces_subsequent_trajectory():
     assert a.current_step == b.current_step == 40
 
 
-def test_fake_install_bias_returns_increasing_group_ids():
+def test_fake_install_bias_uses_the_shared_allocation_order():
+    """Improvements item 5: fake allocates like openmm (max free id first,
+    31, 30, ...), so fake-kernel runs exercise production ids; clearing
+    frees them."""
     kernel = KernelFactory.create(KernelSpec(kind="fake", seed=3, temperature=298.0))
     ids = [kernel.install_bias(distance_min_bias(f"r{i}", [[0], [1]], 10.0, 1.0))
            for i in range(3)]
-    assert ids == sorted(ids) and len(set(ids)) == 3
+    assert ids == [31, 30, 29]  # v1 max_force_grps order, openmm-aligned
     kernel.clear_bias()
     assert kernel.bias_values() == {}
     assert kernel.energy_forces().potential == 0.0
-    assert kernel.install_bias(distance_min_bias("r9", [[0], [1]], 10.0, 1.0)) == ids[0]
+    assert kernel.install_bias(distance_min_bias("r9", [[0], [1]], 10.0, 1.0)) == 31
+
+
+def test_force_group_exhaustion_lists_current_holders():
+    """The 32-group exhaustion error names who holds each group (fake tier:
+    bias labels; the openmm adapter lists force class names)."""
+    kernel = KernelFactory.create(KernelSpec(kind="fake", seed=3, temperature=298.0))
+    for i in range(32):
+        kernel.install_bias(distance_min_bias(f"holder{i}", [[0], [1]], 10.0, 1.0))
+    with pytest.raises(RuntimeError, match="holder0"):
+        kernel.install_bias(distance_min_bias("one-too-many", [[0], [1]], 10.0, 1.0))
 
 
 def test_fake_bias_values_on_hand_placed_geometry():
@@ -430,3 +443,134 @@ def test_factory_rejects_unknown_kernel_kind():
     # 'replay' is a real adapter since flip day; use a genuinely unknown kind
     with pytest.raises(ValueError, match="unknown kernel kind 'quantum'"):
         KernelFactory.create(KernelSpec(kind="quantum"))
+
+
+# ===========================================================================
+# port surface closure (v2 improvements item 2)
+# ===========================================================================
+
+
+def test_adapters_implement_the_closed_port_surface():
+    """The declared KernelPort surface (port.py) is what driver/probes call;
+    every adapter implements the core ops — capabilities are negotiated."""
+    from neomd.kernel.port import GroupEnergy, StructureWriter
+
+    for kernel in (
+        KernelFactory.create(openmm_spec()),
+        FakeKernel(KernelSpec(kind="fake", seed=1, temperature=298.0)),
+    ):
+        for op in ("positions", "energy_forces", "box_vectors", "minimize",
+                   "step", "install_bias", "clear_bias", "snapshot",
+                   "restore", "bias_ops"):
+            assert callable(getattr(kernel, op, None)), \
+                f"{kernel.name} lacks port op {op!r}"
+        for attr in ("name", "num_particles", "current_step", "masses"):
+            assert getattr(kernel, attr, None) is not None, \
+                f"{kernel.name} lacks port attribute {attr!r}"
+
+    # negotiated capabilities: openmm provides all, fake refuses structure
+    assert isinstance(KernelFactory.create(openmm_spec()), StructureWriter)
+    assert isinstance(KernelFactory.create(openmm_spec()), GroupEnergy)
+    fake = FakeKernel(KernelSpec(kind="fake", seed=1, temperature=298.0))
+    assert not isinstance(fake, StructureWriter)  # documented refusal
+    assert isinstance(fake, GroupEnergy)
+
+
+def test_replay_kernel_port_surface_and_documented_refusals():
+    """replay: core surface present; box/mass defaults documented; the
+    negotiated capabilities refused by absence (no physics to back them)."""
+    import numpy as np
+
+    from neomd.kernel import replay as replay_module  # noqa: F401 (registration)
+    from neomd.kernel.port import GroupEnergy, StructureWriter
+
+    tape = str(DATA.parent / "golden" / "v1" / "ala2_eq.json")
+    kernel = KernelFactory.create(KernelSpec(kind="replay", system_xml=tape,
+                                             seed=1))
+    assert kernel.box_vectors() is None  # tapes carry no box
+    assert kernel.masses.shape == (kernel.num_particles,)
+    assert (kernel.masses == 1.0).all()  # documented unit-mass default
+    assert not isinstance(kernel, StructureWriter)
+    assert not isinstance(kernel, GroupEnergy)
+
+
+def test_no_simulation_reach_through_outside_kernel_package():
+    """The adapter invariants (port.py): openmm ``simulation``/``system``
+    objects never leave ``kernel/`` — enforced by source scan, not review."""
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[2] / "src" / "neomd"
+    pattern = re.compile(r"kernel\s*\.\s*(simulation|system)\b"
+                         r"|\.\s*simulation\s*\.\s*context")
+    offenders = []
+    for path in sorted(root.rglob("*.py")):
+        if "kernel" in path.relative_to(root).parts[:-1]:
+            continue  # adapters may use their own openmm objects
+        for lineno, line in enumerate(path.read_text().splitlines(), 1):
+            if pattern.search(line):
+                offenders.append(f"{path.relative_to(root)}:{lineno}: {line.strip()}")
+    assert not offenders, \
+        "kernel.simulation/system reach-through outside kernel/:\n" \
+        + "\n".join(offenders)
+
+
+def test_box_vectors_port_op_matches_former_reach_through(tmp_path):
+    """The port's box_vectors() replaces the driver's former
+    ``simulation.context.getState()`` duck-punch: solvated (periodic) openmm
+    systems return a (3, 3) nm box, vacuum ala2 and the fake return None."""
+    solv = KernelFactory.create(KernelSpec(
+        kind="openmm", system_xml=SOLV_SYSTEM_XML, topology_file=str(SOLV_PDBX),
+        temperature=298.0, seed=SEED, platform="cpu"))
+    box = solv.box_vectors()
+    assert box is not None and box.shape == (3, 3)
+    assert abs(np.linalg.det(box) - 34.391) < 0.05  # nm^3, matches the volume
+
+    vacuum = KernelFactory.create(openmm_spec())
+    assert vacuum.box_vectors() is None
+
+    fake = FakeKernel(KernelSpec(kind="fake", seed=1, temperature=298.0))
+    assert fake.box_vectors() is None  # default synthetic system is vacuum
+
+
+# ===========================================================================
+# unit conversion: one shared table (v2 improvements item 7)
+# ===========================================================================
+
+
+def test_one_unit_vocabulary_three_consumers():
+    """port.CANONICAL_FACTORS is THE table: the accepted Param units, the
+    canonical factors and the openmm adapter's Quantity map share one
+    vocabulary (pinned, so they can never drift apart again)."""
+    import math
+
+    from neomd.kernel.openmm import _UNIT_MAP
+    from neomd.kernel.port import CANONICAL_FACTORS, UNITS
+
+    assert set(CANONICAL_FACTORS) == UNITS == set(_UNIT_MAP)
+
+
+def test_to_canonical_converts_degrees_bitwise_like_radians():
+    import math
+
+    from neomd.kernel.port import to_canonical
+
+    for value in (0.0, 45.0, 90.0, 180.0, 270.0, 33.3333333):
+        assert to_canonical(value, "deg") == math.radians(value)
+    assert to_canonical(2.5, "nm") == 2.5
+    assert to_canonical(-3, "kJ/mol") == -3.0
+    assert to_canonical(1, "dimensionless") == 1.0
+    with pytest.raises(ValueError, match="unknown unit"):
+        to_canonical(1.0, "angstrom")
+
+
+def test_cv_is_angular_covers_both_sniffed_patterns():
+    from neomd.kernel.port import CVIR, cv_is_angular
+
+    assert cv_is_angular(CVIR(kind="CustomTorsionForce",
+                              expression="theta")) is True
+    assert cv_is_angular(CVIR(kind="CustomCentroidBondForce",
+                              expression="angle(g1,g2,g3)")) is True
+    assert cv_is_angular(CVIR(kind="CustomCentroidBondForce",
+                              expression="distance(g1,g2)")) is False
+    assert cv_is_angular(CVIR(kind="RMSDForce",
+                              expression="rmsd")) is False
