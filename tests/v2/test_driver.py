@@ -604,14 +604,14 @@ def test_drive_openmm_ala2_with_restraint(tmp_path):
 
 def test_builtin_probes_register_through_the_rack():
     """The registry's "probe" kind is real: importing neomd.probes registers
-    the five built-in presets (artifact + factory), and the factories build
+    the six built-in presets (artifact + factory), and the factories build
     the documented classes (the driver constructs through these entries)."""
     from neomd import registry
     import neomd.probes  # noqa: F401
 
     presets = registry.registered("probe")
     assert sorted(presets) == ["checkpoint", "colvar", "restraint",
-                               "state", "trajectory"]
+                               "smd", "state", "trajectory"]
     sink = MemorySink()
     assert isinstance(presets["state"].make(
         sink=sink, interval=10, total_steps=100, dt_ps=0.002), StateProbe)

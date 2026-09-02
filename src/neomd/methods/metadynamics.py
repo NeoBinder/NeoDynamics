@@ -115,16 +115,17 @@ LOG = logging.getLogger("neomd.methods.metadynamics")
 
 @dataclass(frozen=True)
 class Method:
-    """One method knowledge triple: schema + run (registry kind "method").
+    """One method knowledge triple: schema + prepare (registry kind "method").
 
-    ``run`` has the drive() dispatch signature
-    ``run(kernel=..., plan=..., sink=..., logger=..., on_progress=None) ->
-    MethodResult`` (``on_progress`` receives per-artifact write progress for
-    manifest recording; methods without artifacts may ignore it).
+    ``prepare`` has the drive() dispatch signature
+    ``prepare(kernel=..., plan=..., sink=..., logger=...) ->
+    neomd.driver.PreparedMethod`` — it installs the method's biases, plans
+    its resume, and builds its tape probes; the DRIVER runs the loop and
+    owns reporting (driver.run_prepared_method).
     """
 
     schema: dict
-    run: Callable
+    prepare: Callable
 
 
 @dataclass(frozen=True)
@@ -233,16 +234,17 @@ class MetadynamicsRun:
     """One well-tempered metadynamics execution over a kernel.
 
     Construct directly for artifact access (``get_free_energy`` /
-    ``write_fes`` survive the run); ``run()`` returns the
-    :class:`MethodResult` that drive() records.
+    ``write_fes`` survive the run).  ``prepare()`` is the registry entry
+    drive() dispatches; ``run()`` is the direct-construction convenience
+    (prepare + the driver's method loop) returning the
+    :class:`MethodResult`.
     """
 
-    def __init__(self, kernel, plan, sink=None, logger=None, on_progress=None):
+    def __init__(self, kernel, plan, sink=None, logger=None):
         self.kernel = kernel
         self.plan = plan
         self.sink = sink
         self.log = LOG if logger is None else logger
-        self._on_progress = on_progress
 
         # -- meta_set (v1 engine __init__) ---------------------------------
         meta = dict(getattr(plan, "meta_set", None) or {})
@@ -309,9 +311,13 @@ class MetadynamicsRun:
 
     # -- entry point --------------------------------------------------------
 
-    def run(self) -> MethodResult:
-        """Install the table bias, (optionally) resume, and run the loop."""
-        from neomd.driver import CHECKPOINT_FILENAME, _default_probes, run_md
+    def prepare(self):
+        """Install the table bias, plan the resume, build the colvar tape.
+
+        The driver runs the loop (driver.run_prepared_method) and owns
+        reporting — the restraint tape is attached there, not here.
+        """
+        from neomd.driver import PreparedMethod
 
         var_names = ["cv%d" % i for i in range(len(self.grids))]
         table = TableSpec(
@@ -345,16 +351,14 @@ class MetadynamicsRun:
         from neomd.resume import plan_resume
 
         resume_plan = plan_resume(self.plan, self.kernel, self.sink)
-        resume = resume_plan is not None
-        if resume:
+        if resume_plan is not None:
             self._replay_ledger(resume_plan)
 
-        # -- probes: the plan's defaults + the colvar recorder ---------------
-        probes = _default_probes(self.plan, self.sink, resume=resume_plan)
+        tapes: dict = {}
         if self.sink is not None:
             from neomd.probes import ColvarProbe
 
-            probes.append(ColvarProbe(
+            tapes["colvar.tsv"] = ColvarProbe(
                 self.sink,
                 interval=self.frequency,
                 cvs=[{"label": name, "evaluate": _make_evaluator(entry, cv)}
@@ -362,14 +366,20 @@ class MetadynamicsRun:
                 masses=self.kernel.masses,
                 append=resume_plan is not None
                 and "colvar.tsv" in resume_plan.trims,
-            ))
+            )
+        return PreparedMethod(
+            on_step=self._deposit,
+            on_step_interval=self.frequency,
+            fgroups={LABEL: [self.fgroup]},
+            resume_plan=resume_plan,
+            tapes=tapes,
+            progress=lambda step: {HILLS_FILENAME: int(step)},
+            finish=self._finish,
+        )
 
-        result = run_md(self.kernel, self.plan, probes,
-                        on_step=self._deposit,
-                        on_step_interval=self.frequency,
-                        logger=self.log,
-                        sink=self.sink,  # last.pdbx + last.ckpt (v1 save_last)
-                        on_progress=self._forward_progress)
+    def _finish(self, result) -> MethodResult:
+        """End-of-run artifacts + the result drive() records."""
+        from neomd.driver import CHECKPOINT_FILENAME
 
         # v1 save_last: bias + colvar + checkpoint at run end
         self._save_hills()
@@ -387,12 +397,16 @@ class MetadynamicsRun:
             positions_sha256=result.positions_sha256,
         )
 
-    # -- resume (v1 continue_metadynamics) ------------------------------------
+    def run(self) -> MethodResult:
+        """Direct-construction entry: prepare + the driver's method loop
+        (drive() calls prepare() and runs the loop itself — both paths share
+        the one definition, driver.run_prepared_method)."""
+        from neomd.driver import run_prepared_method
 
-    def _forward_progress(self, step, artifacts):
-        """run_md on_progress passthrough (drive() wires the manifest)."""
-        if self._on_progress is not None:
-            self._on_progress(step, artifacts)
+        return run_prepared_method(self.kernel, self.plan, self.prepare(),
+                                   sink=self.sink, logger=self.log)
+
+    # -- resume (v1 continue_metadynamics) ------------------------------------
 
     def _replay_ledger(self, resume_plan) -> None:
         """Replay the hills ledger into the bias matrix and push it.
@@ -456,8 +470,6 @@ class MetadynamicsRun:
         self._hills_heights.append(float(height))
         # v1 saved its bias + COLVAR every cycle; the ledger replaces both
         self._save_hills()
-        if self._on_progress is not None:
-            self._on_progress(int(step), {HILLS_FILENAME: int(step)})
         if self._update_context_check(step):
             self._ops.update_table(LABEL, self._total_bias.flatten())
 
@@ -566,14 +578,9 @@ SCHEMA = {
 }
 
 
-def _run(kernel, plan, sink=None, logger=None, on_progress=None) -> MethodResult:
-    """Registry entry point — drive() calls this for method 'metadynamics'.
-
-    ``on_progress`` is the driver's manifest recorder (per-artifact write
-    progress); the hills ledger reports through it as hills are deposited.
-    """
-    return MetadynamicsRun(kernel, plan, sink=sink, logger=logger,
-                           on_progress=on_progress).run()
+def _prepare(kernel, plan, sink=None, logger=None):
+    """Registry entry point — drive() calls this for method 'metadynamics'."""
+    return MetadynamicsRun(kernel, plan, sink=sink, logger=logger).prepare()
 
 
-register("method", "metadynamics", Method(schema=SCHEMA, run=_run))
+register("method", "metadynamics", Method(schema=SCHEMA, prepare=_prepare))

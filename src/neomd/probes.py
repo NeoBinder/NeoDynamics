@@ -50,6 +50,7 @@ __all__ = [
     "CheckpointProbe",
     "ColvarProbe",
     "RestraintProbe",
+    "SmdProbe",
     "ProbeScheduler",
     "ProbePreset",
 ]
@@ -58,6 +59,7 @@ _STATE_FILENAME = "output.state"
 _DCD_FILENAME = "output.dcd"
 _CKPT_FILENAME = "output.ckpt"
 _COLVAR_FILENAME = "colvar.tsv"
+_SMD_FILENAME = "smd.tsv"
 
 #: v1 header line, byte-identical to openmm StateDataReporter with v1's flags
 #: (step/time/potential/kinetic/total/temperature/volume/speed/remainingTime,
@@ -505,6 +507,18 @@ def _observable_values(obs: dict, positions, masses) -> list[float]:
     return [float(entry.evaluate(positions, masses, cv))]
 
 
+def _observable_columns(name: str, observable: dict) -> list[str]:
+    """Column labels for one restraint/smd entry's geometric observable(s)
+    (shared by RestraintProbe and SmdProbe)."""
+    if not observable:  # rmsd: v1 logged the energy only
+        return []
+    if "quantity" not in observable:  # funnel-style multi-quantity
+        return [f"{name}__{key}" for key in observable]
+    if observable["quantity"] == "com":  # xyz_box triple
+        return [f"{name}__{axis}" for axis in ("x", "y", "z")]
+    return [name]
+
+
 class RestraintProbe:
     """Appends restraint observables + bias energies to ``restraint.tsv``.
 
@@ -554,21 +568,10 @@ class RestraintProbe:
 
     # -- column layout ------------------------------------------------------
 
-    @staticmethod
-    def _observable_columns(name: str, observable: dict) -> list[str]:
-        """Column labels for one restraint's geometric observable(s)."""
-        if not observable:  # rmsd: v1 logged the energy only
-            return []
-        if "quantity" not in observable:  # funnel-style multi-quantity
-            return [f"{name}__{key}" for key in observable]
-        if observable["quantity"] == "com":  # xyz_box triple
-            return [f"{name}__{axis}" for axis in ("x", "y", "z")]
-        return [name]
-
     def _header(self) -> str:
         parts = ["# step"]
         for name, _spec, observable in self.restraints:
-            parts.extend(self._observable_columns(name, observable))
+            parts.extend(_observable_columns(name, observable))
             parts.append(f"{name}__energy")
         return "\t".join(parts)
 
@@ -598,6 +601,124 @@ class RestraintProbe:
                                _observable_values(observable, positions, masses))
             row.append(str(self._energy(view, name)))
         with self.sink.text_writer(_RESTRAINT_FILENAME) as fh:
+            if not self._wrote_header and not self.append:
+                fh.write(self._header() + "\n")
+                self._wrote_header = True
+            fh.write("\t".join(row) + "\n")
+        self._last_step = int(view.step)
+
+
+# ---------------------------------------------------------------------------
+# steered-MD tape (methods/smd.py's artifact — brand-new format)
+# ---------------------------------------------------------------------------
+
+
+class SmdProbe:
+    """Appends steered-MD rows to ``smd.tsv`` (new v2 format).
+
+    One row per observation; per ``smd:`` entry, in column order: the
+    geometric observable(s) from the entry's restraint-triple
+    ``observables`` spec (same machinery as :class:`RestraintProbe`),
+    the CURRENT values of the entry's ramped parameters (SPEC units —
+    kJ/mol, nm, degrees, as written in the plan; supplied by the method's
+    ``params_now(name)`` so rows reflect what the kernel was actually
+    pushed; a ``ref_position_nm`` triple ramp expands to ``__x/__y/__z``
+    columns like v1's ``ref_x_nm``/``ref_y_nm``/``ref_z_nm``), then the
+    entry's bias energy — the sum of its assigned force groups' energies
+    through the negotiated :class:`~neomd.kernel.port.GroupEnergy`
+    capability (``nan`` when unavailable).  v1's ``smd.csv`` reported
+    parameters + energies only; the geometry columns are the acknowledged
+    format break (R3-Q3 stance).
+
+    ``entries``: list of ``(name, scalar_spec, observable)`` like
+    RestraintProbe's ``restraints``.  ``params_now``: callable
+    ``name -> {ramp key: current value}`` or None (no parameter columns).
+    Layout: header ``# step <name1> [ramp cols] <name1>__energy ...``;
+    ``append=True`` resumes without rewriting the header.
+    """
+
+    def __init__(
+        self,
+        sink: ArtifactSink,
+        interval: int,
+        entries: Sequence[tuple],
+        masses: np.ndarray | None = None,
+        append: bool = False,
+        fgroups: Mapping[str, Sequence[int]] | None = None,
+        params_now: Callable[[str], Mapping[str, float]] | None = None,
+    ):
+        self.sink = sink
+        self.interval = _check_interval(interval)
+        self.entries = list(entries)
+        self.masses = masses
+        self.append = bool(append)
+        self.fgroups = dict(fgroups) if fgroups else None
+        if params_now is not None and not callable(params_now):
+            raise ValueError("params_now must be callable name -> {key: value}")
+        self.params_now = params_now
+        #: name -> [(ramp key, axis)] — axis None = scalar column, 0/1/2 =
+        #: one column per x/y/z component of a ref_position_nm triple ramp
+        #: (v1 reported ref_x_nm/ref_y_nm/ref_z_nm as separate columns)
+        self._ramp_columns: dict[str, list[tuple[str, object]]] = {}
+        if params_now is not None:
+            for name, _spec, _observable in self.entries:
+                columns: list[tuple[str, object]] = []
+                for key, value in params_now(name).items():
+                    if (isinstance(value, (list, tuple)) and len(value) == 3
+                            and not isinstance(value, str)):
+                        columns.extend((key, axis) for axis in range(3))
+                    else:
+                        columns.append((key, None))
+                self._ramp_columns[name] = columns
+        self._wrote_header = False
+        self._last_step: int | None = None
+
+    def progress(self):
+        if self._last_step is None:
+            return None
+        return (_SMD_FILENAME, self._last_step)
+
+    def _header(self) -> str:
+        parts = ["# step"]
+        for name, _spec, observable in self.entries:
+            parts.extend(_observable_columns(name, observable))
+            for key, axis in self._ramp_columns.get(name, ()):
+                column = f"{name}__{key}"
+                if axis is not None:
+                    column += f"__{'xyz'[axis]}"
+                parts.append(column)
+            parts.append(f"{name}__energy")
+        return "\t".join(parts)
+
+    def _energy(self, view: RunView, name: str) -> float:
+        groups = (self.fgroups or {}).get(name)
+        if not groups or not provides(view.kernel, GroupEnergy):
+            return float("nan")
+        try:
+            return float(view.kernel.group_energy(groups))
+        except Exception:  # pragma: no cover - capability seam, degrade
+            return float("nan")
+
+    def observe(self, view: RunView) -> None:
+        positions = view.positions()
+        masses = self.masses
+        row = [str(view.step)]
+        for name, _spec, observable in self.entries:
+            if observable:
+                if "quantity" not in observable:  # multi-quantity (funnel)
+                    for sub in observable.values():
+                        row.extend(str(v) for v in
+                                   _observable_values(sub, positions, masses))
+                else:
+                    row.extend(str(v) for v in
+                               _observable_values(observable, positions, masses))
+            if self.params_now is not None:
+                current = self.params_now(name)
+                for key, axis in self._ramp_columns.get(name, ()):
+                    value = current[key]
+                    row.append(str(value) if axis is None else str(value[axis]))
+            row.append(str(self._energy(view, name)))
+        with self.sink.text_writer(_SMD_FILENAME) as fh:
             if not self._wrote_header and not self.append:
                 fh.write(self._header() + "\n")
                 self._wrote_header = True
@@ -699,4 +820,9 @@ register("probe", "restraint", ProbePreset(
     artifact=_RESTRAINT_FILENAME,
     make=lambda **kw: RestraintProbe(**kw),
     description="restraint observables + bias energies to restraint.tsv",
+))
+register("probe", "smd", ProbePreset(
+    artifact=_SMD_FILENAME,
+    make=lambda **kw: SmdProbe(**kw),
+    description="steered-MD ramp values + observables + bias energies to smd.tsv",
 ))

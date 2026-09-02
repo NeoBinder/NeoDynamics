@@ -78,13 +78,13 @@ def test_registered_vocabularies_at_import():
         "distance", "dihedral", "angle", "funnel", "dist_ref_position",
         "rmsd", "xyz_box", "vec_restraint"}
     # built-in methods since Phase 2 item 2.2 (tests/v2/test_metadynamics.py)
-    assert set(registered("method")) == {"metadynamics"}
+    assert set(registered("method")) == {"metadynamics", "smd"}
     # built-in probe presets register through the rack (improvements minor
     # observation: the "probe" kind is real, not reserved-and-empty)
     import neomd.probes  # noqa: F401  (import = preset registration)
 
     assert set(registered("probe")) == {
-        "state", "trajectory", "checkpoint", "colvar", "restraint"}
+        "state", "trajectory", "checkpoint", "colvar", "restraint", "smd"}
 
 
 def test_registered_returns_a_copy():

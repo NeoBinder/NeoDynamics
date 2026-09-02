@@ -28,7 +28,7 @@ The contract now:
 
 What is trimmed where (artifact -> format, all step-addressed):
 
-    output.state / colvar.tsv / restraint.tsv   tab-separated rows
+    output.state / colvar.tsv / restraint.tsv / smd.tsv   tab-separated rows
     output.dcd                                   DCD frames (header-carried)
     hills.npz                                    the hills ledger
 
@@ -59,6 +59,7 @@ TAPE_ARTIFACTS: dict[str, str] = {
     "output.dcd": "dcd",
     "colvar.tsv": "tsv",
     "restraint.tsv": "tsv",
+    "smd.tsv": "tsv",
     "hills.npz": "hills",
 }
 

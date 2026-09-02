@@ -64,6 +64,7 @@ KNOWN_KEYS = frozenset(
         "colvars",
         "restraint",
         "meta_set",
+        "smd",  # steered-MD entries (method 'smd'; v1 SMD commit 179ae35)
         "steps",
         "input_files",
         "output",
@@ -86,6 +87,7 @@ _OUTPUT_KEYS = frozenset(
         "output_dir",
         "report_interval",
         "report_restraint",
+        "report_smd",
         "trajectory_interval",
         "state_interval",
         "checkpoint_interval",
@@ -106,6 +108,7 @@ _MAPPING_KEYS = (
     "colvars",
     "restraint",
     "meta_set",
+    "smd",
     "min_params",
     "forcefield",
 )
@@ -463,9 +466,20 @@ def _validate(data: Any, ctx: _Context) -> list:
                 ("output", "report_restraint"),
                 report_restraint,
             )
+        report_smd = output.get("report_smd")
+        if report_smd is not None and not isinstance(report_smd, bool):
+            problem(
+                ConfigValueError,
+                "output.report_smd must be a boolean (true/false)",
+                ("output", "report_smd"),
+                report_smd,
+            )
 
     # -- restraint types (registry-aware, best effort) -----------------------
     _validate_restraint_types(data, ctx, problem)
+
+    # -- the smd section (steered-MD entries; same registry vocabulary) ------
+    _validate_smd_section(data, ctx, problem)
     return errors
 
 
@@ -535,6 +549,95 @@ def _validate_restraint_types(data: Mapping, ctx: _Context, problem) -> None:
 # ---------------------------------------------------------------------------
 # derivation (port of v1 BasePipeline.modify_config — but into a separate view)
 # ---------------------------------------------------------------------------
+
+
+def _validate_smd_section(data: Mapping, ctx: _Context, problem) -> None:
+    """The ``smd`` section (steered-MD entries, method ``"smd"``).
+
+    Entries use the restraint registry's vocabulary; additionally any
+    rampable numeric key may carry a LIST of values (the piecewise-linear
+    ramp v1 ``run_smd`` interpolates over ``steps``).  Shape errors, ramp
+    sanity, and unknown types are collected in one pass like everywhere
+    else.
+    """
+    smd = data.get("smd")
+    if not smd:
+        return
+    if not isinstance(smd, Mapping):
+        return  # the _MAPPING_KEYS pass already reported the shape problem
+    for name, spec in smd.items():
+        path = ("smd", name) if isinstance(name, str) else ("smd",)
+        if not isinstance(spec, Mapping) or not isinstance(spec.get("type"), str):
+            problem(
+                ConfigValueError,
+                f"smd entry {name!r} must be a mapping with a string 'type'",
+                path,
+                spec,
+            )
+
+    def _numeric(value) -> bool:
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+    def _triple(value) -> bool:
+        return (isinstance(value, (list, tuple)) and len(value) == 3
+                and all(_numeric(x) for x in value))
+
+    # ramp sanity — the rampable key set is owned by the method triple
+    # (single source of truth; the checks degrade away when unimportable)
+    try:
+        from .methods.smd import RAMP_KEYS
+    except ImportError:  # pragma: no cover - the package ships both
+        RAMP_KEYS = ()
+    for name, spec in smd.items():
+        if not isinstance(spec, Mapping):
+            continue  # already reported above
+        for key, value in spec.items():
+            if not isinstance(value, (list, tuple)) or not value:
+                continue
+            if key == "ref_position_nm":
+                if all(_triple(item) for item in value):
+                    continue  # list of triples: a reference-position ramp
+                if _triple(value):
+                    continue  # a single [x, y, z]
+                problem(
+                    ConfigValueError,
+                    f"smd.{name}.{key} must be one [x, y, z] triple (nm) or "
+                    f"a list of triples to ramp, got {value!r}",
+                    ("smd", name, key),
+                    value,
+                )
+            elif key in RAMP_KEYS and not all(_numeric(x) for x in value):
+                problem(
+                    ConfigValueError,
+                    f"smd.{name}.{key} ramp values must all be numbers",
+                    ("smd", name, key),
+                    value,
+                )
+
+    # entry types against the restraint registry (same did-you-mean pass)
+    registry = _load_registry()
+    if registry is None:
+        return
+    try:
+        known = dict(registry.registered("restraint") or {})
+    except Exception:
+        return  # registry surface not ready — skip the type-level check
+    if not known:
+        return
+    for name, spec in smd.items():
+        if not isinstance(spec, Mapping) or not isinstance(spec.get("type"), str):
+            continue  # already reported above
+        smd_type = spec["type"]
+        if smd_type in known:
+            continue
+        problem(
+            ConfigValueError,
+            f"unknown smd type {smd_type!r} in entry {name!r} "
+            f"(the restraint registry knows {len(known)} types)",
+            ("smd", name, "type"),
+            smd_type,
+            candidates=suggest(smd_type, known),
+        )
 
 
 def _derive(raw: Mapping, ctx: _Context) -> dict:
@@ -612,6 +715,15 @@ def _derive(raw: Mapping, ctx: _Context) -> dict:
         derived_output["restraint_interval"] = output.get("report_interval", 0)
     else:
         derived_output["restraint_interval"] = 0
+
+    # steered MD: the smd.tsv tape mirrors report_interval whenever an smd
+    # section is configured — the pure CADENCE (the driver gates the tape's
+    # INCLUSION on output.report_smd, default on, at run time; v1 had wired
+    # its SMDReporter to the restraint_interval mirror, which would have
+    # gated the smd tape on report_restraint — an incidental coupling v2
+    # replaces with its own switch.  Deliberate deviation, documented).
+    derived_output["smd_interval"] = (output.get("report_interval", 0)
+                                      if raw.get("smd") else 0)
     derived["output"] = derived_output
 
     return derived
@@ -637,10 +749,12 @@ class Plan:
     _FLAT_OUTPUT_KEYS = (
         "output_dir",
         "report_interval",
+        "report_smd",  # steered-MD tape switch (driver._TAPE_SWITCHES reads it)
         "trajectory_interval",
         "state_interval",
         "checkpoint_interval",
         "restraint_interval",
+        "smd_interval",  # derived-only (steered MD's tape cadence)
     )
     _FLAT_INPUT_KEYS = ("checkpoint", "state", "templates")
 
@@ -847,6 +961,7 @@ _INDEX_KEYS = (
     "grp1_idx", "grp2_idx", "grp3_idx", "grp4_idx",
     "min1_idx1", "min2_idx1", "min_idx2",
     "particles",
+    "restr_grp",  # dist_ref_position / rmsd (restraint and smd sections)
 )
 
 
@@ -950,7 +1065,7 @@ def check_plan_files(data: Mapping, *, source: str | None = None,
                     ("input_files", "system"), system_path)
 
     if n_particles:
-        for section in ("restraint", "colvars"):
+        for section in ("restraint", "colvars", "smd"):
             entries = data.get(section) or {}
             if not isinstance(entries, Mapping):
                 continue

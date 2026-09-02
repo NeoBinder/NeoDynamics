@@ -51,6 +51,23 @@ the view hands the method the live kernel (for CV queries) at that point.
 Probes tick *before* ``on_step`` at a shared boundary, mirroring v1 where
 reporters fired at step completion and the hill was deposited after.
 
+The method-run contract (prepare → run_prepared_method → finish)
+---------------------------------------------------------------
+Registry methods don't run their own loops.  ``entry.prepare(kernel, plan,
+sink, logger)`` installs the method's biases and returns a
+:class:`PreparedMethod` — the ``on_step`` hook + interval, the method's own
+tape probes, its resume plan, and a ``finish`` writing the end-of-run
+artifacts.  :func:`run_prepared_method` (the ONE definition of method-run
+reporting, shared by drive()'s rack branch and the Run classes' direct
+``run()``) then assembles the probe list — the plan defaults + the restraint
+tape (same wiring the MD branch gets) + the method's tapes, each included
+only while its output switch allows (``_TAPE_SWITCHES``) — and runs the
+loop.  Reporting POLICY (which artifacts run) is the driver's; artifact
+CONTENT (column vocabulary, append decisions) stays with the method/probe
+that owns the tape.  Methods therefore never see restraint wiring — no
+dispatch kwarg for it (review decision; replaces the interim
+``restraint_fgroups=`` parameter).
+
 Box vectors
 -----------
 ``KernelPort.box_vectors()`` is the port operation carrying the live
@@ -93,10 +110,12 @@ from .probes import KernelView, Probe, ProbeScheduler, RunView
 
 __all__ = [
     "MinResult",
+    "PreparedMethod",
     "RunResult",
     "RunOutcome",
     "run_minimization",
     "run_md",
+    "run_prepared_method",
     "drive",
     "PROGRESS_INTERVAL",
     "CHECKPOINT_FILENAME",
@@ -538,8 +557,9 @@ def _append_restraint_probe(probes: list, plan, sink, kernel, fgroups,
     ``restraint_interval`` asks for (> 0 only when a restraint is configured
     AND ``output.report_restraint`` is truthy — the plan.py port of v1's
     ``restraint_interval`` mirror of ``report_interval``; v1 attached its
-    RestraintReporter to MD simulations, so this is MD-branch wiring, not
-    minimization).  Columns come from the restraint registry observables +
+    RestraintReporter to MD simulations, so the MD branch AND method runs
+    (through :func:`run_prepared_method`) wire it, minimization does not).
+    Columns come from the restraint registry observables +
     the kernel's masses; energies from the port's GroupEnergy
     capability over the restraint's assigned force groups."""
     restraint_interval = int(getattr(plan, "restraint_interval", 0) or 0)
@@ -566,6 +586,114 @@ def _append_restraint_probe(probes: list, plan, sink, kernel, fgroups,
 
 _MIN_METHODS = ("min",)
 _MD_METHODS = ("eq", "md", "prod")
+
+
+# ---------------------------------------------------------------------------
+# the method-run contract: prepare → run_prepared_method → finish
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PreparedMethod:
+    """What a registry method hands the driver before the loop runs.
+
+    ``entry.prepare(kernel=..., plan=..., sink=..., logger=...)`` builds
+    this; the driver — through :func:`run_prepared_method` — owns the loop
+    and the probe list, so reporting policy lives in one place.  Fields:
+
+    * ``on_step`` / ``on_step_interval`` — the physics hook fired on
+      absolute multiples of the interval (hill deposition, ramp pushes).
+    * ``fgroups`` — the method's own bias force-group ids (informational;
+      drive() does not merge them into ``RunOutcome.fgroups`` — the §2.3
+      write-back stays the restraint section's).
+    * ``resume_plan`` — what the single resume owner
+      (:func:`neomd.resume.plan_resume`) returned while preparing; the
+      keep-install-before-restore ordering is the method's to maintain, and
+      the driver reads the plan for its resume manifest epoch and the
+      append flags of its own probes.
+    * ``tapes`` — the method's artifact probes keyed by FILENAME; whether
+      they run is the driver's call (``_TAPE_SWITCHES``), how they append
+      is the method's (its resume trims).
+    * ``progress`` — optional ``progress(step) -> {artifact: last step}``
+      for artifacts the method writes on its OWN hook cadence (not through
+      a probe — e.g. the hills ledger); run_prepared_method folds it into
+      the driver's manifest recorder right after every ``on_step`` fire.
+    * ``finish`` — ``finish(run_result) -> result``: the end-of-run
+      artifacts (hills/fes, the method checkpoint) plus the MethodResult
+      drive() records.
+    """
+
+    on_step: Callable[[int, RunView], None] | None = None
+    on_step_interval: int = 1
+    fgroups: dict = field(default_factory=dict)
+    resume_plan: object = None
+    tapes: dict = field(default_factory=dict)
+    progress: Callable | None = None
+    finish: Callable | None = None
+
+
+#: method-tape artifact filename -> the output switch gating its inclusion
+#: in a method run's probe list (the reporting policy the DRIVER owns:
+#: methods BUILD their tapes, the driver decides whether they RUN).  An
+#: absent entry — or the key missing from the plan — means the tape runs.
+#: ``restraint.tsv`` is not here: the driver already owns it end to end
+#: (derived ``restraint_interval`` mirrors ``output.report_restraint``).
+_TAPE_SWITCHES = {"smd.tsv": "report_smd"}
+
+
+def _tape_enabled(plan, filename: str) -> bool:
+    switch = _TAPE_SWITCHES.get(filename)
+    return True if switch is None else bool(getattr(plan, switch, True))
+
+
+def run_prepared_method(kernel: KernelPort, plan, prepared: PreparedMethod, *,
+                        sink=None, logger=None, on_progress=None,
+                        restraint_fgroups=None):
+    """Run a prepared method's loop — the ONE definition of method-run
+    reporting (drive()'s rack branch and the Run classes' direct ``run()``
+    both go through here; there is no second assembly path).
+
+    The probe list is the plan's default probes + the restraint tape (the
+    same wiring the MD branch gets: derived ``restraint_interval``, energy
+    columns through the GroupEnergy capability over ``restraint_fgroups``)
+    + the method's tapes, each included only while its output switch
+    allows (``_TAPE_SWITCHES``); every append flag comes from the method's
+    resume plan, so tapes stay append-consistent across kill/resume.
+
+    Returns ``prepared.finish(run_result)`` — the MethodResult drive()
+    records — or the bare :class:`RunResult` when the method supplied no
+    ``finish``.
+    """
+    probes = _default_probes(plan, sink, resume=prepared.resume_plan)
+    _append_restraint_probe(probes, plan, sink, kernel, restraint_fgroups,
+                            resume=prepared.resume_plan)
+    for filename, probe in prepared.tapes.items():
+        if _tape_enabled(plan, filename):
+            probes.append(probe)
+
+    # compose the method's own artifact progress (e.g. the hills ledger)
+    # into the driver's recorder: the merged hook fires it right after
+    # every on_step, the exact cadence the method writes those artifacts on
+    hook, report = prepared.on_step, prepared.progress
+    if on_progress is not None and report is not None:
+        recorder = on_progress
+
+        def hook_with_progress(step, view):
+            if hook is not None:
+                hook(step, view)
+            extra = report(step)
+            if extra:
+                recorder(step, extra)
+
+        on_step = hook_with_progress
+    else:
+        on_step = hook
+
+    result = run_md(kernel, plan, probes,
+                    on_step=on_step,
+                    on_step_interval=prepared.on_step_interval,
+                    logger=logger, sink=sink, on_progress=on_progress)
+    return result if prepared.finish is None else prepared.finish(result)
 
 
 def _manifest_recorder(manifest, sink):
@@ -603,20 +731,25 @@ def drive(
       ``restraint_interval`` asks for it; no probes without a sink).
       Anything else dispatches through the method extension rack
       (``registry.get("method", ...)``, did-you-mean on miss) — metadynamics
-      lives there (Wave 2).  Every phase leaves the v1 ``save_last`` pair
-      behind: ``last.ckpt`` (a ``snapshot()`` blob) and — through the
-      port's StructureWriter capability — ``last.pdbx``
-      with the final positions, so the next leg can start from them.
+      and steered MD live there: the method PREPARES (installs its biases,
+      plans its resume, builds its tapes) and the driver runs the loop with
+      the reporting it owns — the restraint tape plus the method's
+      switch-gated tapes (:func:`run_prepared_method`).  Every phase leaves
+      the v1 ``save_last`` pair behind: ``last.ckpt`` (a ``snapshot()``
+      blob) and — through the port's StructureWriter capability —
+      ``last.pdbx`` with the final positions, so the next leg can start
+      from them without manual bridging.
     * ``plan.restraint`` entries are compiled through the registry knowledge
       triples (``registry.get("restraint", type).make_bias``) and installed
       with ``kernel.install_bias``; the assigned force-group ids come back in
       ``RunOutcome.fgroups`` (name -> list[int]) — the §2.3 return-value rule.
-    * resume (``continue_md``): the MD branch runs
-      :func:`neomd.resume.plan_resume` — the single owner — which restores
-      the kernel and trims every tape to the checkpoint step before the
-      probes are built (method-rack methods like metadynamics call it
-      themselves, after installing their bias).  A resumed run opens a
-      ``resume:<step>`` manifest epoch.
+    * resume (``continue_md``): the MD branch and every method run alike go
+      through :func:`neomd.resume.plan_resume` — the single owner — which
+      restores the kernel and trims every tape to the checkpoint step before
+      the probes are built (method-rack methods call it inside their
+      ``prepare()``, after installing their biases; the resume manifest
+      epoch is recorded here from the prepared resume plan).  A resumed run
+      opens a ``resume:<step>`` manifest epoch.
     * a :class:`~neomd.manifest.RunManifest` opens epoch 0 ("start") before
       the method and closes ``done:<method>`` after it, written to the sink
       directory when the sink has a filesystem; per-artifact write progress
@@ -674,11 +807,26 @@ def drive(
         # Wave-2 method extension rack: registry dispatch.  The lazy imports
         # break the cycle (methods import driver for run_md) and double as
         # registration (importing neomd.methods registers its entries).
+        # The method PREPARES (installs its biases, plans its resume, builds
+        # its tapes); the driver runs the loop with the reporting IT owns —
+        # the restraint tape plus the method's switch-gated tapes — so no
+        # method plugin ever sees restraint wiring (review decision; the
+        # interim restraint_fgroups dispatch kwarg is gone).
         from . import methods, registry
 
         entry = registry.get("method", method)  # KeyError w/ did-you-mean
-        results.append(entry.run(kernel=kernel, plan=plan, sink=sink,
-                                 logger=log, on_progress=record_progress))
+        prepared = entry.prepare(kernel=kernel, plan=plan, sink=sink,
+                                 logger=log)
+        if prepared.resume_plan is not None:
+            resume = prepared.resume_plan
+            log.info("resuming from step %d (checkpoint %s); tapes trimmed: %s",
+                     resume.resume_step, resume.checkpoint,
+                     sorted(resume.trims) or "none")
+            manifest.add_epoch(f"resume:{resume.resume_step}",
+                               steps_so_far=resume.resume_step)
+        results.append(run_prepared_method(
+            kernel, plan, prepared, sink=sink, logger=log,
+            on_progress=record_progress, restraint_fgroups=fgroups or None))
 
     manifest.add_epoch(f"done:{method}", steps_so_far=kernel.current_step)
 

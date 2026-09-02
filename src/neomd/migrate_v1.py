@@ -41,6 +41,10 @@ bridges, explicitly:
 5. **validation** — the result must survive ``Plan.from_dict``; when it does
    not, the error is re-raised with the file:line provenance of the ORIGINAL
    v1 key in the source YAML.
+6. **smd spelling** — v1 SMD configs (origin/main commit 179ae35) carried
+   ``ref_x_nm``/``ref_y_nm``/``ref_z_nm`` parallel ramp lists inside ``smd:``
+   entries; the plan spells the reference position as ``ref_position_nm``
+   (one ``[x, y, z]`` triple or a list of triples to ramp).
 
 It also refuses, with a clear error, v1 *system-preparation* configs (the
 ``protein``/``ligands``/``ff_setting``/``system_params`` schema of
@@ -57,7 +61,12 @@ import sys
 import warnings
 from typing import Mapping
 
-from .errors import ConfigKeyError, NeoUserError, PlanValidationError
+from .errors import (
+    ConfigKeyError,
+    ConfigValueError,
+    NeoUserError,
+    PlanValidationError,
+)
 from .plan import KNOWN_KEYS, Plan
 
 __all__ = [
@@ -95,6 +104,7 @@ V1_ALLOW_SET = frozenset(
         "min_params",
         "debug",
         "system_modification",
+        "smd",  # added by the v1 SMD commit (origin/main 179ae35)
     }
 )
 
@@ -257,6 +267,53 @@ def _fix_templates(value, base_dir: str):
     return value
 
 
+def _translate_smd_section(translated: dict) -> None:
+    """v1 SMD spelling -> v2 plan spelling inside the ``smd`` section.
+
+    v1 ``SMDforce.generate_dist_ref_position`` read three PARALLEL ramp
+    lists (``ref_x_nm`` / ``ref_y_nm`` / ``ref_z_nm``); the v2
+    ``dist_ref_position`` vocabulary spells the reference position as
+    ``ref_position_nm`` — one ``[x, y, z]`` triple, or a list of triples
+    to ramp.  Only the smd section is touched: the static restraint
+    section never used the parallel-list spelling.
+    """
+    smd = translated.get("smd")
+    if not isinstance(smd, dict):
+        return
+    for name, spec in smd.items():
+        if not isinstance(spec, dict):
+            continue
+        axis_keys = ("ref_x_nm", "ref_y_nm", "ref_z_nm")
+        if not any(key in spec for key in axis_keys):
+            continue
+        if "ref_position_nm" in spec:
+            raise ConfigValueError(
+                f"smd entry {name!r} carries both ref_position_nm and the "
+                f"v1 ref_x_nm/ref_y_nm/ref_z_nm spelling — pick one",
+                key="ref_position_nm",
+            )
+        axis_values = [spec.pop(key) for key in axis_keys if key in spec]
+        if all(_is_scalar(v) for v in axis_values):
+            # scalar per-axis references -> one plain triple
+            spec["ref_position_nm"] = list(axis_values)
+            continue
+        lengths = {len(v) for v in axis_values if isinstance(v, (list, tuple))}
+        if len(lengths) != 1:
+            raise ConfigValueError(
+                f"smd entry {name!r}: ref_x_nm/ref_y_nm/ref_z_nm must be "
+                f"three parallel lists of the same length to ramp (got "
+                f"lengths {sorted(lengths)})",
+                key="ref_x_nm",
+            )
+        triples = [[float(x), float(y), float(z)]
+                   for x, y, z in zip(*axis_values)]
+        spec["ref_position_nm"] = triples[0] if len(triples) == 1 else triples
+
+
+def _is_scalar(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def _absolutize_paths(translated: dict, base_dir: str) -> None:
     """Make input_files / output.output_dir paths absolute under *base_dir*.
 
@@ -368,6 +425,10 @@ def translate(
         canonical = METHOD_SYNONYMS.get(method.lower(), method)
         if canonical != method:
             translated["method"] = canonical
+
+    # smd: the v1 parallel ref_x/y/z_nm ramp lists become ref_position_nm
+    # triples ("smd" itself is a real v2 plan key — pass-through, no warning)
+    _translate_smd_section(translated)
 
     # relative paths -> absolute (v1 relied on the CWD of the day)
     if base_dir:

@@ -36,8 +36,9 @@ Physics (documented simplifications):
   synthetic system is non-periodic anyway).
 
 Snapshot/restore pickles (positions, velocities, step, installed biases,
-group counter, and the RandomState state) — restoring mid-run reproduces
-the subsequent trajectory bit-for-bit.
+group counter, the RandomState state, and the steered-MD parameter
+overrides) — restoring mid-run reproduces the subsequent trajectory
+bit-for-bit.
 
 Public helpers beyond the port operations (used by driver/probe tests):
 ``bias_values()`` — geometric value of each installed bias in report units
@@ -283,6 +284,10 @@ class FakeKernel:
         self._next_group = 0
         #: label -> (TableSpec, values ndarray) for CustomCVTableForce biases
         self._tables: dict[str, tuple] = {}
+        #: global-parameter name -> CANONICAL float pushed by set_bias_param
+        #: (steered MD); _param_variables consults this first, bypassing
+        #: to_canonical so a deg override is not converted twice
+        self._param_overrides: dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # state observation
@@ -398,6 +403,24 @@ class FakeKernel:
     def clear_bias(self) -> None:
         self._biases.clear()
         self._next_group = 0
+        self._param_overrides.clear()
+
+    def set_bias_param(self, name: str, value: float) -> None:
+        """Live update of one installed bias's global parameter
+        (port.BiasParamOps, the steered-MD ramp push).
+
+        The override stores the CANONICAL float verbatim (no
+        to_canonical round-trip: dividing then re-multiplying by the deg
+        factor is not bit-stable), so _param_variables must serve it
+        directly.  Unknown names raise — a typo'd parameter would
+        silently no-op everywhere else.
+        """
+        known = {pname for _, bias in self._biases for pname in bias.params}
+        if name not in known:
+            raise KeyError(
+                f"no installed bias declares global parameter {name!r} "
+                f"(installed: {sorted(known) or 'none'})")
+        self._param_overrides[name] = float(value)
 
     def bias_values(self, positions: np.ndarray | None = None) -> dict[str, float]:
         """Geometric value of each installed bias in report units.
@@ -551,7 +574,9 @@ class FakeKernel:
                    for group, bias in self._biases if group in selected)
 
     def _param_variables(self, params: dict, coms: np.ndarray | None) -> dict[str, float]:
-        env = {name: _convert_param(p.value, p.unit) for name, p in params.items()}
+        env = {name: self._param_overrides.get(name,
+                                               _convert_param(p.value, p.unit))
+               for name, p in params.items()}
         if coms is not None:  # centroid coordinates (v1 xyz_box-style x1/y1/z1)
             for i, com in enumerate(coms, start=1):
                 env[f"x{i}"] = float(com[0])
@@ -589,7 +614,7 @@ class FakeKernel:
 
     def snapshot(self) -> bytes:
         payload = {
-            "format": "neomd-fake-kernel-v1",
+            "format": "neomd-fake-kernel-v2",
             "positions": self._positions,
             "velocities": self._velocities,
             "step": self._step,
@@ -597,12 +622,14 @@ class FakeKernel:
             "next_group": self._next_group,
             "tables": {k: (t, v.copy()) for k, (t, v) in self._tables.items()},
             "rng_state": self._rng.get_state(),
+            "param_overrides": dict(self._param_overrides),
         }
         return pickle.dumps(payload, protocol=4)
 
     def restore(self, data: bytes) -> None:
         payload = pickle.loads(data)
-        if payload.get("format") != "neomd-fake-kernel-v1":
+        if payload.get("format") not in ("neomd-fake-kernel-v1",
+                                         "neomd-fake-kernel-v2"):
             raise ValueError("not a FakeKernel snapshot")
         self._positions = np.array(payload["positions"], dtype=np.float64)
         self._velocities = np.array(payload["velocities"], dtype=np.float64)
@@ -612,6 +639,8 @@ class FakeKernel:
         self._tables = {k: (t, v.copy())
                         for k, (t, v) in payload.get("tables", {}).items()}
         self._rng.set_state(payload["rng_state"])
+        # v1 payloads predate steered MD: no overrides is the correct state
+        self._param_overrides = dict(payload.get("param_overrides", {}))
 
 
 KernelFactory.register_adapter("fake", FakeKernel)

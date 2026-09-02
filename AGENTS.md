@@ -1,0 +1,125 @@
+# AGENTS.md
+
+Guidance for coding agents working in this repository. Read this before
+changing architecture or physics. Deep background lives in
+[docs/v2-migration-plan.md](docs/v2-migration-plan.md) (decisions §1,
+discipline §8, flip record §9) and [docs/v2-improvements.md](docs/v2-improvements.md)
+(settled debates at the end).
+
+## What this is
+
+NeoDynamics: a molecular-dynamics SDK on OpenMM (generic MD + well-tempered
+metadynamics + steered MD). Since v0.2.0 (the 2026-08-27 flip) the v2
+architecture under `src/neomd/` is the only active codebase.
+`src/neomd_legacy/` is frozen v1 — bug fixes only, kept for one deprecation
+release together with the `neomd2` script alias.
+
+## Architecture (as-built)
+
+- **Facade**: `md_run` (`run.py`) is the single entry point with progressive
+  disclosure — `md_run(dir)` (L0) → scalar kwargs (L1) → full plan dict (L2).
+  The round-trip law holds: all spellings compile to an identical `Plan`
+  (pinned by test). `compile()` and direct `drive()` share one kernel-spec
+  builder, `run.build_kernel_spec`.
+- **Plan** (`plan.py`): immutable experiment snapshot — validate once
+  (collect-all, raising `PlanValidationErrors`), derive once, freeze, sha256
+  fingerprint. Errors carry yaml key path + did-you-mean. `neomd validate
+  plan.yaml [--check-files]` reports every problem, writes nothing, exits 2.
+- **KernelPort** (`kernel/port.py`): the closed operation surface at the
+  physics seam, plus optional capability protocols (`BiasOps`,
+  `BiasParamOps`, `GroupEnergy`, `StructureWriter`) negotiated via
+  `provides()`. Three adapters: `openmm` (production, the only core file
+  importing openmm), `fake` (deterministic textbook Langevin, the CI
+  workhorse), `replay` (golden-tape playback; must be imported before
+  factory use).
+- **Knowledge triples** (`restraints.py` + `colvars.py`, methods in
+  `methods/`): one module per restraint/CV/method holding schema + force
+  expression + observables, injected via `registry.register()`. Force-group
+  ids come from the one allocator `port.pick_free_force_group`. Methods are
+  dispatched by `drive()` through the prepare contract:
+  `entry.prepare(...) -> PreparedMethod` (biases installed, resume planned,
+  tapes built) and the DRIVER runs the loop with the reporting it owns
+  (`driver.run_prepared_method` — restraint tape + the method's
+  switch-gated tapes, `_TAPE_SWITCHES`); methods never see restraint
+  wiring (smd reuses the restraint triples' `make_bias` for its forces —
+  one definition point, ramps substitute the spec values per update
+  boundary; its `smd.tsv` tape is switched by `output.report_smd`,
+  default on, and trimmed on resume like every other tape).
+- **Driver / resume / artifacts**: `driver.py` (stepping loop, progress,
+  periodic scheduling) and `resume.py` (THE resume owner: restore + trim
+  every tape to the checkpoint step; probes never decide append/truncate
+  themselves). `manifest.py` records fingerprints and the epoch chain
+  (`resume:<step>` epochs). `probes.py`/`sinks.py` own all artifact writing.
+- **System**: `system.py` holds the openmm-free `SystemBundle`;
+  `prepare.py` is the preparation workflow. Every OpenMM private-API touch
+  lives in `openmm_privates.py` behind a pinned-version gate
+  (`UpstreamVersionError` outside openmm 8.6.x) — add new private touches
+  there, never inline.
+- **Tools** (`tools/`): external-process adapters (antechamber, orca,
+  ligand, convert, fix_protein, template_xml). Subprocess-isolated tmpdirs;
+  `os.chdir` is forbidden.
+- **`migrate_v1.py`**: one-shot v1 YAML → Plan translator. A tool, never on
+  the runtime import path; do not grow it into a compatibility layer.
+
+## Commands
+
+```bash
+pixi run test          # pytest -m 'not golden and not legacy'  (~6 min, the CI gate)
+pixi run test-golden   # golden-sample parity vs v1 tapes, bit-exact (~3 min)
+pixi run test-legacy   # frozen v1 live tests (excluded from CI after the flip)
+neomd run|prepare|migrate|validate|version
+```
+
+Tests live in `tests/v2/` (unit + e2e, fake kernel — millisecond tier) and
+`tests/golden/` (recording/trimming/compare harness). Within CI, golden
+comparisons are bit-exact; across environments use statistical tolerance
+(`NEO_GOLDEN_TOLERANT=1`).
+
+## Settled decisions — do not relitigate
+
+These were converged on through explicit review rounds (grilling + a
+three-study architecture review). Challenge them only with new evidence,
+and update the docs if one changes.
+
+1. **v1 hard freeze**: `neomd_legacy` gets bug fixes only; new features land
+   in v2.
+2. **Physics is ported verbatim**: force expressions, unit conventions, and
+   default parameters are copied from v1 — that's physics, not architecture.
+   No drive-by "cleanup" of expressions or defaults.
+3. **KernelPort stays.** Three adapters, each with an irreplaceable job:
+   fake (milliseconds + bit-stability + openmm-free CI), replay (plays back
+   recorded v1 tapes), openmm (production). A CPU platform is not a
+   substitute. The valid criticism was the leaky surface, and that is fixed
+   (improvements item 2), not a reason to remove the seam.
+4. **Force-group ids are opaque ints** — never compared across kernels.
+5. **Dual-track restraint reporting stays**: kernel-compiled forces for
+   physics + numpy `evaluate` for report geometry. Forced by fake/replay
+   (no OpenMM CV evaluation there); pinned bit-exact by tests.
+6. **No permanent compatibility layers**: `migrate_v1.py` stays one-shot;
+   the new artifact formats (`colvar.tsv`, `hills.npz`, `smd.tsv`)
+   intentionally break gethill/hills_ana readers — acknowledged, rewrite
+   lands in 2.x.
+7. **qmmm is excluded** until rebuilt as a 2.x plugin with two real adapters
+   (production QM backend + mock), per the two-adapters discipline.
+8. **Multi-leg orchestration** (`min → eq → prod` in one invocation) is
+   deliberately deferred to 2.x.
+9. **Golden samples catch behavior changes; they do not prove physical
+   correctness.** The fake kernel implements only textbook Langevin and
+   must not grow OpenMM corner-case mimicry.
+10. **Version bumps of OpenMM are explicit events**: pin in `pixi.toml`,
+    re-verify the `openmm_privates.py` gate, re-record golden tapes once.
+
+## Working discipline
+
+- **The interface is the test surface**: tests for new code cross public
+  interfaces only (`md_run`, `compile`, `register`, port operations);
+  probing internals is forbidden.
+- **Deletion test**: for each module, ask "if I deleted it, where would the
+  complexity go?" A module that fails this is a candidate for merging.
+- **Validation collects everything**: new validation goes through the
+  collect-all path with key-path + did-you-mean rendering, never
+  fail-on-first.
+- **Keep the source-scan guarantees green**: no `kernel.simulation`
+  reach-through outside `kernel/`; no openmm private-API access outside
+  `openmm_privates.py`. Extend those scans if you add adjacent seams.
+- Version is derived by versioningit from git tags — do not hardcode.

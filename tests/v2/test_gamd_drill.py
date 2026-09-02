@@ -149,19 +149,19 @@ def test_import_outside_package_self_registers():
         try:
             entry = registry.get("method", "gamd")
             assert entry is module.GAMD_METHOD
-            assert callable(entry.run)
+            assert callable(entry.prepare)
             assert entry.schema["optional"]["gamd_set"]  # documented + caveat
             # the triple really lives OUTSIDE the core package
             module_file = pathlib.Path(module.__file__).resolve()
             assert module_file.is_relative_to(DRILL)
             assert not module_file.is_relative_to(CORE)
             # the import added exactly one method, nothing else changed
-            assert set(registry.registered("method")) == {"metadynamics", "gamd"}
+            assert set(registry.registered("method")) == {"metadynamics", "smd", "gamd"}
         finally:
             registry.unregister("method", "gamd")
     finally:
         sys.path.remove(str(SRC))
-    assert set(registry.registered("method")) == {"metadynamics"}
+    assert set(registry.registered("method")) == {"metadynamics", "smd"}
 
 
 # ===========================================================================

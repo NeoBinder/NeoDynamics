@@ -16,6 +16,10 @@ see :func:`provides`) and must degrade when a kernel does not provide them:
 
     BiasOps          via ``kernel.bias_ops()`` — live table-bias manipulation
                      (well-tempered metadynamics); None when unsupported
+    BiasParamOps     ``set_bias_param(name, value)`` — live updates of one
+                     installed bias's GLOBAL parameter (steered MD's ramp
+                     push, v1 ``context.setParameter``); absent when the
+                     kernel cannot update parameters mid-run
     GroupEnergy      ``group_energy(groups)`` — per-force-group energy reads
                      (the restraint reporter's bias-energy column)
     StructureWriter  ``write_structure(path)`` — final positions as a
@@ -65,6 +69,7 @@ import numpy as np
 __all__ = [
     "BiasIR",
     "BiasOps",
+    "BiasParamOps",
     "GroupEnergy",
     "StructureWriter",
     "CVIR",
@@ -354,6 +359,27 @@ class BiasOps(Protocol):
 
     def update_table(self, label: str, values: np.ndarray) -> None:
         """Replace the table values of bias ``label`` (flattened, same layout as TableSpec.initial)."""
+        ...
+
+
+@runtime_checkable
+class BiasParamOps(Protocol):
+    """OPTIONAL capability: live updates of one installed bias's global
+    parameter.
+
+    Steered MD (``methods/smd.py``) ramps restraint parameters mid-run (the
+    v1 ``run_smd`` loop pushed piecewise-linearly interpolated values with
+    ``simulation.context.setParameter(f'{parameter}{force_name}', current)``).
+    ``name`` is the bias's global-parameter name — exactly the key the
+    knowledge triple put into ``BiasIR.params`` (e.g. ``"k<pull>"``) — and
+    ``value`` the kernel-canonical float (``port.to_canonical`` space: nm,
+    kJ/mol, radians).  Kernels that cannot change parameters mid-run do not
+    provide this capability; methods must ask ``provides(kernel,
+    BiasParamOps)`` and refuse cleanly.
+    """
+
+    def set_bias_param(self, name: str, value: float) -> None:
+        """Set one installed-bias global parameter (canonical units)."""
         ...
 
 

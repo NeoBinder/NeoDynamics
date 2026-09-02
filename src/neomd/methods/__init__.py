@@ -10,8 +10,9 @@ through ``neomd.register("method", ...)`` or the entry-point scan.
 Built-in methods:
 
     metadynamics   well-tempered metadynamics (v1 metadynamics/engine.py)
+    smd            steered MD, parameter-ramp steering (v1 SMD commit 179ae35)
 """
 
-from . import metadynamics
+from . import metadynamics, smd
 
-__all__ = ["metadynamics"]
+__all__ = ["metadynamics", "smd"]

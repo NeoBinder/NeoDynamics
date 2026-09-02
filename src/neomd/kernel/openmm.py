@@ -455,6 +455,19 @@ class OpenMMKernel:
         """Live table-bias manipulation (port.BiasOps)."""
         return _OpenMMBiasOps(self)
 
+    def set_bias_param(self, name: str, value: float) -> None:
+        """Live update of one installed-bias global parameter
+        (port.BiasParamOps).
+
+        v1 ``run_smd`` pushed the interpolated ramp values with
+        ``simulation.context.setParameter(f'{parameter}{force_name}',
+        current_param)`` (generic/pipeline.py) — the same call one
+        abstraction level up.  ``value`` is kernel-canonical (nm / kJ/mol /
+        radians), matching how ``_compile_centroid``'s Quantity
+        constructors land in the Context's md unit system.
+        """
+        self.simulation.context.setParameter(name, float(value))
+
     def _compile_centroid(self, force: openmm.CustomCentroidBondForce,
                           groups: list[list[int]], params: dict[str, Param],
                           periodic: bool) -> openmm.CustomCentroidBondForce:

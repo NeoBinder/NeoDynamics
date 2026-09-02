@@ -1,24 +1,25 @@
 """neomd-gamd-drill — the GAMD plugin drill (v2 migration plan §5 item 2.9).
 
 GAMD itself is a Non-Goal (plan §2): this package exists only to validate
-the v2 extension rack from OUTSIDE the core.  It mirrors the shape of the
-in-tree method triple ``neomd.methods.metadynamics`` — a ``Method(schema,
-run)`` whose ``run(kernel=..., plan=..., sink=..., logger=...) -> result``
-is what ``driver.drive()`` dispatches through
-``registry.get("method", name).run(...)`` — while carrying placeholder
-physics only:
+the v2 extension rack from OUTSIDE the core.  It mirrors the shape of
+the in-tree method triple ``neomd.methods.metadynamics`` — a
+``Method(schema, prepare)`` whose ``prepare(kernel=..., plan=...,
+sink=..., logger=...) -> PreparedMethod`` is what ``driver.drive()``
+dispatches through ``registry.get("method", name).prepare(...)`` — while
+carrying placeholder physics only:
 
 * ONE bias is installed through ``kernel.install_bias``: a
   ``CustomCentroidBondForce`` whose energy expression is the constant
   ``"0.0*k_drill"`` (zero by construction — no GAMD boost potential, just
   proof that a plugin can hand a BiasIR to any kernel);
-* the loop runs through ``driver.run_md`` with an ``on_step`` hook that
-  counts a boost "update" every ``frequency`` steps (the Wave-2 method seam
-  metadynamics uses for hill deposition);
+* the loop is run by the DRIVER (``driver.run_prepared_method``) with the
+  drill's ``on_step`` hook counting a boost "update" every ``frequency``
+  steps (the Wave-2 method seam metadynamics uses for hill deposition);
 * a drill artifact ``gamd_drill.log`` is appended through the run ``sink``
   after every update;
-* the return value mirrors the metadynamics ``MethodResult`` attribute
-  contract (``steps_done`` / ``fgroup`` / ``positions_sha256`` plus the
+* the ``finish`` half of the contract returns a value mirroring the
+  metadynamics ``MethodResult`` attribute contract
+  (``steps_done`` / ``fgroup`` / ``positions_sha256`` plus the
   drill-specific ``n_updates``).
 
 Import side effect (the plugin contract): importing this module registers
@@ -73,18 +74,18 @@ DEFAULT_SETTINGS = {
 
 @dataclass(frozen=True)
 class Method:
-    """One method knowledge triple: schema + run (registry kind "method").
+    """One method knowledge triple: schema + prepare (registry kind "method").
 
     The drill's own mirror of ``neomd.methods.metadynamics.Method`` — the
     registry stores whatever object it is handed and the driver only touches
-    ``entry.run(...)``, so a plugin does NOT need the in-tree dataclass.  The
-    attribute contract is identical:
+    ``entry.prepare(...)``, so a plugin does NOT need the in-tree dataclass.
+    The attribute contract is identical:
 
-    ``run(kernel=..., plan=..., sink=..., logger=...) -> result``
+    ``prepare(kernel=..., plan=..., sink=..., logger=...) -> PreparedMethod``
     """
 
     schema: dict
-    run: Callable
+    prepare: Callable
 
 
 @dataclass(frozen=True)
@@ -125,14 +126,15 @@ def _settings(plan) -> dict:
     return settings
 
 
-def _run(kernel, plan, sink=None, logger=None, on_progress=None) -> GAMDResult:
+def _prepare(kernel, plan, sink=None, logger=None):
     """Registry entry point — drive() calls this for method 'gamd'.
 
-    ``on_progress`` is the driver's manifest recorder; the drill keeps no
-    appendable artifact of its own, so it simply forwards it to run_md for
-    the plan's default probes.
+    Returns a :class:`~neomd.driver.PreparedMethod`: the drill's boost
+    logger rides the ``on_step`` seam and the DRIVER runs the loop with the
+    reporting it owns (the drill pins no registry tape — its log is written
+    here, outside the probe list).
     """
-    from neomd.driver import CHECKPOINT_FILENAME, _default_probes, run_md
+    from neomd.driver import CHECKPOINT_FILENAME, PreparedMethod
 
     log = LOG if logger is None else logger
     settings = _settings(plan)
@@ -173,20 +175,22 @@ def _run(kernel, plan, sink=None, logger=None, on_progress=None) -> GAMDResult:
             with sink.text_writer(LOG_FILENAME) as handle:
                 handle.write(f"{int(step)}\t{len(updates)}\n")
 
-    result = run_md(kernel, plan, _default_probes(plan, sink),
-                    on_step=on_step,
-                    on_step_interval=frequency,
-                    logger=log,
-                    on_progress=on_progress)
+    def finish(result):
+        # v1 save_last: checkpoint at run end (mirrors the metadynamics triple)
+        if sink is not None:
+            sink.write_bytes(CHECKPOINT_FILENAME, kernel.snapshot())
+        return GAMDResult(
+            steps_done=result.steps_done,
+            fgroup=fgroup,
+            n_updates=len(updates),
+            positions_sha256=result.positions_sha256,
+        )
 
-    # v1 save_last: checkpoint at run end (mirrors the metadynamics triple)
-    if sink is not None:
-        sink.write_bytes(CHECKPOINT_FILENAME, kernel.snapshot())
-    return GAMDResult(
-        steps_done=result.steps_done,
-        fgroup=fgroup,
-        n_updates=len(updates),
-        positions_sha256=result.positions_sha256,
+    return PreparedMethod(
+        on_step=on_step,
+        on_step_interval=frequency,
+        fgroups={LABEL: [fgroup]},
+        finish=finish,
     )
 
 
@@ -213,7 +217,7 @@ SCHEMA = {
 }
 
 #: the knowledge triple this distribution contributes to the rack
-GAMD_METHOD = Method(schema=SCHEMA, run=_run)
+GAMD_METHOD = Method(schema=SCHEMA, prepare=_prepare)
 
 # -- the plugin contract: importing this module self-registers ----------------
 register("method", LABEL, GAMD_METHOD)

@@ -362,7 +362,7 @@ def test_unknown_colvar_type_gives_did_you_mean():
 def test_registry_lists_metadynamics_method():
     entry = registry.get("method", "metadynamics")
     assert "colvars" in entry.schema["required"]
-    assert callable(entry.run)
+    assert callable(entry.prepare)
 
 
 def test_drive_dispatches_metadynamics_on_fake(tmp_path):
