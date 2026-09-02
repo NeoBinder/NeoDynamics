@@ -74,9 +74,11 @@ neomd run|prepare|migrate|validate|version
 ```
 
 Tests live in `tests/v2/` (unit + e2e, fake kernel — millisecond tier) and
-`tests/golden/` (recording/trimming/compare harness). Within CI, golden
-comparisons are bit-exact; across environments use statistical tolerance
-(`NEO_GOLDEN_TOLERANT=1`).
+`tests/golden/` (recording/trimming/compare harness). Golden tapes are
+bit-stable only on the microarchitecture that recorded them, so CI runs the
+statistical tier (`NEO_GOLDEN_TOLERANT=1`: max 1e-3 / mean 1e-4 kJ/mol,
+stats rtol 1e-3, no coordinate-hash identity); bit-exact comparison is for
+re-runs on the recording machine.
 
 CI (`.github/workflows/ci.yml`) runs `pixi run test`, `pixi run test-golden`,
 and the 3HTB smoke on every PR; pre-commit.ci enforces

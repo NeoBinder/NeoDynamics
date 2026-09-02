@@ -43,6 +43,14 @@ jobs:
 
       - name: Run golden-sample tests
         run: pixi run test-golden
+        env:
+          # The tapes are bit-stable only on the microarchitecture that
+          # recorded them; the hosted runner fleet is heterogeneous, and
+          # float summation order flips the last printed digit of the total
+          # energy (~1e-8 relative). The statistical tier keeps every
+          # numeric bound (max 1e-3, mean 1e-4 kJ/mol) and drops only
+          # string/bit-identity and coordinate-frame hashes.
+          NEO_GOLDEN_TOLERANT: "1"
 
   # 3HTB end-to-end smoke under neomd (migration plan §5 item 3.2).
   #

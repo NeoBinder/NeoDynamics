@@ -2,7 +2,8 @@
 
 Tier selection for one scenario:
 
-  * **bit-exact** (default; the CI tier, where pixi.lock pins the environment):
+  * **bit-exact** (default; used when re-running on the machine that recorded
+    the tape, where the pinned pixi.lock environment applies):
     the tape platform is ``cpu`` and the current OpenMM version string equals
     the one recorded in the tape -> every energy string, every coordinate-frame
     hash, and every COLVAR/restraint stat must match exactly.
