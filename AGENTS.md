@@ -34,7 +34,10 @@ release together with the `neomd2` script alias.
   factory use).
 - **Knowledge triples** (`restraints.py` + `colvars.py`, methods in
   `methods/`): one module per restraint/CV/method holding schema + force
-  expression + observables, injected via `registry.register()`. Force-group
+  expression + observables, injected via `registry.register()` (9 restraint
+  types incl. `distances` — N pairs packed into one force per side via the
+  port's multi-bond `BiasIR.bonds`/`BondIR`; per-bond values are not
+  live-settable). Force-group
   ids come from the one allocator `port.pick_free_force_group`. Methods are
   dispatched by `drive()` through the prepare contract:
   `entry.prepare(...) -> PreparedMethod` (biases installed, resume planned,
@@ -123,3 +126,48 @@ and update the docs if one changes.
   reach-through outside `kernel/`; no openmm private-API access outside
   `openmm_privates.py`. Extend those scans if you add adjacent seams.
 - Version is derived by versioningit from git tags — do not hardcode.
+
+## Development workflow — worktree isolation, land on main after confirmation
+
+Every development task (feature, fix, experiment) follows this process;
+no gate is skipped.
+
+- **The main checkout only lands work.** It stays on `main` and clean: the
+  only permitted operations there are `git pull --ff-only`, landing a
+  finished branch, and pushing `main`. Never edit code or branch directly
+  in the main checkout.
+- **One worktree per task.** Before touching code, create an isolated
+  worktree and do all coding, building, running and testing inside it:
+
+  ```bash
+  git worktree add .worktrees/<name> -b feat/<name>   # fix/<name> for fixes
+  ```
+
+  Worktrees live in the repo-internal `.worktrees/` directory, git-ignored
+  so they never enter the main checkout's `git status`. Because they are
+  inside the repo, a `git clean -fdx` in the main checkout would wipe them
+  along with any uncommitted work — never clean across `.worktrees/`.
+  Intermediate commits are local checkpoints only — the branch is squashed
+  into one commit when it lands. One worktree serves exactly one task.
+- **Completion gate — stop and wait for user confirmation.** When the work
+  is done (code complete, tests pass per the Commands section, self-checked),
+  stop: no merge, no squash to `main`, no push, no worktree removal until
+  the user explicitly confirms. Report: what changed and why, how it was
+  verified (commands actually run + results), the worktree path and branch
+  name, and the README/AGENTS.md changes this task made (or state that no
+  documentation update was needed).
+- **Landing (only after confirmation).** `git pull --ff-only` in the main
+  checkout; if the branch now conflicts with `main`, merge `main` into the
+  branch inside the worktree and resolve first; then
+  `git merge --squash feat/<name>` and one commit whose message covers the
+  whole branch. Before pushing, audit the final diff against the remote tip
+  path by path: no secrets, `.env*`, personal data, internal addresses,
+  build artifacts or temporary files. Push, then
+  `git worktree remove .worktrees/<name>` (keep it only for an explicit
+  follow-up).
+- **Documentation discipline.** Behavior changes (commands, scripts,
+  environment variables, directory conventions, public contracts) update
+  `README.md` and `AGENTS.md` inside the same worktree, as part of the same
+  task. Stale documentation spotted along the way (renamed commands, removed
+  variables) is corrected or deleted in that same task — documentation rot
+  and omission are the same offense.

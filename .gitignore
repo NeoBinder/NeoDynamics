@@ -172,12 +172,20 @@ idea/
 *_dev.yaml
 *version.txt
 *.pkl
-*swap-window
-*_dev.yaml
 *_bak
 *_test
+
+# local environment files
+.env*
+!.env.example
 
 # pixi environments
 .pixi
 *.egg-info
 .codegraph
+
+# in-repo development worktrees
+.worktrees/
+
+# agent workspaces
+.zcode/
