@@ -13,7 +13,12 @@ jobs:
       # CPU-only, single-threaded for reproducible golden-sample comparisons
       OPENMM_CPU_THREADS: "1"
     steps:
+      # full history + tags: the version comes from versioningit off git
+      # tags; the default shallow checkout has none and the editable build
+      # of NeoDynamics fails with "could not find a version"
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # `environments: default` + `locked: true`: only install the default
       # environment from the committed pixi.lock. Never solve/install the
@@ -59,7 +64,10 @@ jobs:
       # thread count inside their subprocess (see tests/v2/test_3htb_e2e.py)
       OPENMM_CPU_THREADS: "1"
     steps:
+      # full history + tags for versioningit, same as the `test` job
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # same stub rationale as in the `test` job; `pixi run -e test` below
       # revalidates the workspace lock the same way
