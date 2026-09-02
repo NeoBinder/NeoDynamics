@@ -74,3 +74,28 @@ method tapes) and runs the loop.
 A driver-owned output key gating one method tape's inclusion in a run
 (`driver._TAPE_SWITCHES`): `report_smd` → `smd.tsv`, default on. The
 method still builds the tape; the driver decides whether it runs.
+
+### Restraints & boxes
+
+**Multi-bond bias (`BondIR`)**:
+One `CustomCentroidBondForce` holding N bonds with per-bond parameters
+(`BiasIR.bonds`); each bond evaluates the same expression with its own
+values. Exists for the group economy: N distance pairs cost ONE force
+group per side, not N.
+_Avoid_: multi-restraint force (the restraint is one entry; the force is
+the packing detail)
+
+**distances restraint**:
+A `restraint:` entry whose `params` is a list of per-pair entries
+(`grp1`/`grp2`/`restr_k`/`min_nm`/`max_nm`/`order`), packed into one
+min-wall + one max-wall force. v1 179ae35 behavior, ported post-flip.
+A `0.0` bound is a real bound here (`is not None` check), unlike the
+single `distance` type where 0.0 means absent.
+_Avoid_: distance (singular — that is the one-pair type)
+
+**Runtime-box header**:
+`last.pdbx` carries the periodic box the context holds at write time, not
+the input file's header box; a fresh start takes its initial box from the
+structure file's header, falling back to the System default. Vacuum
+systems never gain a box record. v1 8d04b0c semantics.
+_Avoid_: box correction (implies a transformation), CRYST1 fix

@@ -59,9 +59,13 @@ def _create_simulation(neosystem, config, platform_config):
         get_integrator(config),
         **platform_config,
     )
-    # please double check the box vectors is correct
-    simulation.context.setPeriodicBoxVectors(
-        *neosystem.system.getDefaultPeriodicBoxVectors())
+    # use the box recorded in the complex file header (topology);
+    # fall back to the system's default box if the complex has no box
+    # (v1 upstream 8d04b0c fix, applied to the frozen legacy copy)
+    box_vectors = neosystem.get_default_periodicbox_vectors()
+    if box_vectors is None:
+        box_vectors = neosystem.system.getDefaultPeriodicBoxVectors()
+    simulation.context.setPeriodicBoxVectors(*box_vectors)
     if checkpoint:
         simulation.loadCheckpoint(checkpoint)
     elif state:
@@ -194,6 +198,12 @@ class OpenmmEngine(BaseEngine):
     def save_last(self, output_dir):
         # quick save
         positions = self.get_positions()
+        # write the real runtime box (from context) into the topology,
+        # so the output pdbx header always matches the wrapped coordinates
+        # (v1 upstream 8d04b0c fix, applied to the frozen legacy copy)
+        self.simulation.topology.setPeriodicBoxVectors(
+            self.simulation.context.getState().getPeriodicBoxVectors()
+        )
         with open(os.path.join(output_dir, "last.pdbx"), "w") as f:
             app.PDBxFile.writeFile(
                 self.simulation.topology,

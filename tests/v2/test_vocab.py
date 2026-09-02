@@ -73,10 +73,11 @@ def v1_fix_max_angle(min_angle, max_angle):
 def test_registered_vocabularies_at_import():
     assert set(registered("cv")) == {
         "distance", "dihedral", "angle", "min_distances", "distance_ref"}
-    # the full v1 surface since Phase 2 item 2.1 (tests/v2/test_restraints8.py)
+    # the full v1 surface: Phase 2 item 2.1 (tests/v2/test_restraints8.py)
+    # plus the post-flip 179ae35 `distances` type (same test file)
     assert set(registered("restraint")) == {
         "distance", "dihedral", "angle", "funnel", "dist_ref_position",
-        "rmsd", "xyz_box", "vec_restraint"}
+        "rmsd", "xyz_box", "vec_restraint", "distances"}
     # built-in methods since Phase 2 item 2.2 (tests/v2/test_metadynamics.py)
     assert set(registered("method")) == {"metadynamics", "smd"}
     # built-in probe presets register through the rack (improvements minor

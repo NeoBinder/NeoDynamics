@@ -31,6 +31,8 @@ import numpy as np
 import pytest
 
 import neomd.restraints  # noqa: F401  (import = registration)
+from neomd.kernel import KernelSpec, SystemData
+from neomd.kernel.fake import FakeKernel
 from neomd.kernel.port import Param
 from neomd.registry import get, registered
 
@@ -39,9 +41,10 @@ ALA2_PDB = DATA / "ala2" / "ala2.pdb"
 ALA2_SYSTEM_XML = (DATA / "ala2" / "system.xml").read_text()
 ALA2_ATOMS = 22
 
-#: the 8 v1 restraint types, all registered by neomd.restraints at import
-ALL_EIGHT = {"distance", "dihedral", "angle", "funnel",
-             "dist_ref_position", "rmsd", "xyz_box", "vec_restraint"}
+#: the 9 v1 restraint types (8 Phase-1/2 + the post-flip 179ae35 `distances`)
+ALL_NINE = {"distance", "dihedral", "angle", "funnel",
+            "dist_ref_position", "rmsd", "xyz_box", "vec_restraint",
+            "distances"}
 
 
 # ---------------------------------------------------------------------------
@@ -155,8 +158,8 @@ def write_minimal_pdbx(path, rows_angstrom, model_nums=None):
 # registration + unknown-type errors
 # ===========================================================================
 
-def test_all_eight_v1_types_registered_at_import():
-    assert set(registered("restraint")) == ALL_EIGHT
+def test_all_nine_v1_types_registered_at_import():
+    assert set(registered("restraint")) == ALL_NINE
 
 
 def test_unknown_restraint_type_did_you_mean():
@@ -626,3 +629,87 @@ def test_rmsd_integration_openmm_kernel(tmp_path):
     final = kernel.energy_forces().potential
     assert np.isfinite(final)
     assert not np.array_equal(kernel.positions(), reference)
+
+
+# ===========================================================================
+# distances (v1 179ae35 constructor.generate_restraint_distances — the
+# post-flip port: N pairs packed into ONE force per side, per-bond params)
+# ===========================================================================
+
+def v1_distances_min_func():
+    """v1 179ae35 constructor.py generate_dist_min."""
+    return "(k/2)*(max(dis1 - distance(g1,g2), 0)^order)"
+
+
+def v1_distances_max_func():
+    """v1 179ae35 constructor.py generate_dist_max."""
+    return "(k/2)*(max(distance(g1,g2) - dis2, 0)^order)"
+
+
+def distances_spec():
+    return {"type": "distances", "params": [
+        {"grp1": "0,1", "grp2": "2", "restr_k": 500.0,
+         "min_nm": 0.2, "max_nm": 0.6},
+        {"grp1": "3", "grp2": "4", "restr_k": 300.0, "min_nm": 0.25},
+        {"grp1": "5", "grp2": "6", "restr_k": 100.0, "max_nm": 0.4},
+    ]}
+
+
+def test_distances_packs_pairs_into_one_force_per_side():
+    irs = get("restraint", "distances").make_bias("d1", distances_spec())
+    assert len(irs) == 2  # one min force + one max force — NOT one per pair
+    low, high = irs
+    assert low.energy == v1_distances_min_func()
+    assert high.energy == v1_distances_max_func()
+    for ir in irs:
+        assert ir.kind == "CustomCentroidBondForce"
+        assert ir.periodic is True  # v1 default
+        assert ir.label == "d1"
+        assert ir.groups == []  # the atom groups live on the bonds
+    assert len(low.bonds) == 2  # entries 1+2 carry min_nm
+    assert low.bonds[0].groups == [[0, 1], [2]]
+    assert low.bonds[0].params == {"k": 500.0, "dis1": 0.2, "order": 2}
+    assert low.bonds[1].params == {"k": 300.0, "dis1": 0.25, "order": 2}
+    assert len(high.bonds) == 2  # entries 1+3 carry max_nm
+    assert high.bonds[0].params == {"k": 500.0, "dis2": 0.6, "order": 2}
+    assert high.bonds[1].params == {"k": 100.0, "dis2": 0.4, "order": 2}
+    # BiasIR.params declares the per-bond parameter TYPES (units + order);
+    # the values shown are the first bond's, compilation reads BondIR.params
+    assert low.params == {"k": Param(500.0, "kJ/mol"),
+                          "dis1": Param(0.2, "nm"),
+                          "order": Param(2, "dimensionless")}
+
+
+def test_distances_zero_bound_is_a_real_bound():
+    # v1 179ae35 used `!= None` here — a 0.0 bound emits a bond, unlike the
+    # single `distance` type's truthiness check where 0.0 means "absent"
+    spec = {"type": "distances", "params": [
+        {"grp1": "0", "grp2": "1", "restr_k": 10.0, "min_nm": 0.0}]}
+    irs = get("restraint", "distances").make_bias("z", spec)
+    assert len(irs) == 1 and len(irs[0].bonds) == 1
+    assert irs[0].bonds[0].params["dis1"] == 0.0
+
+
+def test_distances_observables_one_distance_column_per_pair():
+    # v2 deviation (documented in restraints.py): v1's reporter SKIPPED
+    # distances; the dual-track design reports one distance per pair
+    obs = get("restraint", "distances").observables("d1", distances_spec())
+    assert obs == {
+        "pair1": {"quantity": "distance", "groups": [[0, 1], [2]]},
+        "pair2": {"quantity": "distance", "groups": [[3], [4]]},
+        "pair3": {"quantity": "distance", "groups": [[5], [6]]},
+    }
+
+
+def test_distances_fake_energy_matches_hand_computation():
+    kernel = FakeKernel(KernelSpec(kind="fake", seed=1, system_data=SystemData(
+        positions=np.array([[0.0, 0, 0], [1.0, 0, 0], [0.2, 0, 0]]),
+        masses=np.full(3, 12.0), box_vectors=None)))
+    irs = get("restraint", "distances").make_bias("d", {
+        "type": "distances", "params": [
+            {"grp1": "0", "grp2": "1", "restr_k": 10.0, "min_nm": 0.5},
+            {"grp1": "0", "grp2": "2", "restr_k": 10.0, "min_nm": 0.5}]})
+    group, = [kernel.install_bias(ir) for ir in irs]
+    # pair1: d=1.0 above the 0.5 floor -> 0; pair2: d=0.2, violation 0.3
+    # -> (10/2)*0.3^2 = 0.45 kJ/mol summed over the force's two bonds
+    assert kernel.group_energy([group]) == pytest.approx(0.45)

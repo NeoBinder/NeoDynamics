@@ -5,11 +5,12 @@ engine knew about building a simulation was moved here *verbatim in spirit*:
 
 * ``_create_simulation`` (v1 src/neomd/generic/engine.py:53-74):
   deserialize the System, load topology+positions (PDBxFile for .pdbx/.cif,
-  PDBFile for .pdb), build the integrator, apply the periodic-box correction
-  ``context.setPeriodicBoxVectors(*system.getDefaultPeriodicBoxVectors())``
-  ("please double check the box vectors is correct", v1), then the resume
-  branches in v1 order: ``checkpoint`` wins over ``state``, else
-  ``setPositions`` + ``setVelocitiesToTemperature``.
+  PDBFile for .pdb), build the integrator, set the context box from the
+  COMPLEX FILE HEADER (the loaded topology), falling back to the System's
+  default box when the file carries none (v1 8d04b0c; earlier v1 used the
+  System default unconditionally — "please double check the box vectors is
+  correct"), then the resume branches in v1 order: ``checkpoint`` wins over
+  ``state``, else ``setPositions`` + ``setVelocitiesToTemperature``.
 * ``get_integrator`` (same v1 file, lines 14-26): LangevinIntegrator with
   temperature in K, ``friction_coeff / picoseconds``, ``dt * picoseconds``,
   ``setRandomNumberSeed(spec.seed)``; any other ``integrator_name`` raises
@@ -169,6 +170,17 @@ def _apply_system_modifications(system: openmm.System, spec: KernelSpec) -> None
     if spec.particle_masses:
         for index, mass in spec.particle_masses.items():
             system.setParticleMass(int(index), float(mass))
+    if spec.dummy_exceptions:
+        # v1 179ae35 neosystem.py: addException(index, partner, 0, 1, 0) —
+        # chargeProduct 0, sigma 1 nm, epsilon 0 (a zeroed pair interaction)
+        nonbonded = [force for force in system.getForces()
+                     if force.getName() == "NonbondedForce"]
+        if len(nonbonded) != 1:
+            raise ValueError(
+                f"system_modification dummy_atom_Nonbond_Exception needs "
+                f"exactly one NonbondedForce, found {len(nonbonded)}")
+        for particle, partner in spec.dummy_exceptions:
+            nonbonded[0].addException(particle, partner, 0, 1, 0)
 
 
 class OpenMMKernel:
@@ -212,9 +224,14 @@ class OpenMMKernel:
                 self._integrator,
                 **self._platform_kwargs,
             )
-            # v1: "please double check the box vectors is correct"
-            simulation.context.setPeriodicBoxVectors(
-                *self.system.getDefaultPeriodicBoxVectors())
+            # v1 8d04b0c: prefer the box recorded in the complex file header
+            # (the loaded topology); fall back to the System's default box
+            # when the complex has none.  Resume paths are unaffected —
+            # checkpoint/state loads overwrite the box with the recorded one.
+            box_vectors = self._structure.topology.getPeriodicBoxVectors()
+            if box_vectors is None:
+                box_vectors = self.system.getDefaultPeriodicBoxVectors()
+            simulation.context.setPeriodicBoxVectors(*box_vectors)
             resume = self.spec.resume or {}
             checkpoint = resume.get("checkpoint")
             state = resume.get("state")
@@ -384,6 +401,8 @@ class OpenMMKernel:
 
     def _compile_bias(self, bias: BiasIR) -> openmm.Force:
         if bias.kind == "CustomCentroidBondForce":
+            if bias.bonds is not None:
+                return self._compile_centroid_bonds(bias)
             if not bias.groups:
                 raise ValueError(
                     f"bias {bias.label!r}: CustomCentroidBondForce needs groups")
@@ -480,6 +499,37 @@ class OpenMMKernel:
         force.setUsesPeriodicBoundaryConditions(periodic)
         return force
 
+    def _compile_centroid_bonds(self, bias: BiasIR) -> openmm.CustomCentroidBondForce:
+        """Multi-bond CustomCentroidBondForce — v1 179ae35
+        ``generate_CustomCentroidBondForce`` list-of-dicts path (the
+        ``distances`` restraint): ONE force holds every bond; ``params``
+        become per-bond parameters and each bond carries its own values.
+        Identical atom groups are deduplicated, exactly like v1's grps_dic.
+        """
+        if not bias.bonds:
+            raise ValueError(f"bias {bias.label!r}: empty bond list")
+        num_groups = len(bias.bonds[0].groups)
+        force = openmm.CustomCentroidBondForce(num_groups, bias.energy)
+        for name in bias.params:  # declaration order == addBond value order
+            force.addPerBondParameter(name)
+        group_ids: dict[tuple[int, ...], int] = {}
+        for bond in bias.bonds:
+            if len(bond.groups) != num_groups:
+                raise ValueError(
+                    f"bias {bias.label!r}: every bond needs {num_groups} "
+                    f"group(s), got {len(bond.groups)}")
+            ids = []
+            for grp in bond.groups:
+                key = tuple(grp)
+                if key not in group_ids:
+                    group_ids[key] = force.getNumGroups()
+                    force.addGroup(grp)
+                ids.append(group_ids[key])
+            force.addBond(ids, [float(bond.params[name])
+                                for name in bias.params])
+        force.setUsesPeriodicBoundaryConditions(bias.periodic)
+        return force
+
     def _compile_cv(self, cv: CVIR) -> openmm.Force:
         """Compile one CVIR into the inner force of a CustomCVForce.
 
@@ -537,10 +587,20 @@ class OpenMMKernel:
         has no structure-writing operation, so kernels without it (the fake)
         simply skip the artifact.  ``keepIds=True`` keeps the input topology's
         atom/residue ids verbatim (v1's runbooks bridged legs through exactly
-        this call).
+        this call).  The RUNTIME context box is written into the topology
+        before the file is serialized (v1 8d04b0c ``save_last`` fix), so the
+        output header always matches the coordinates — an NPT run's barostat
+        may have moved the box away from the input file's header (periodic
+        systems only; vacuum keeps the input topology's absent box).
         """
-        positions = self.simulation.context.getState(
-            getPositions=True).getPositions()
+        state = self.simulation.context.getState(getPositions=True)
+        positions = state.getPositions()
+        if self.system.usesPeriodicBoundaryConditions():
+            # periodic systems: carry the RUNTIME box into the header (v1
+            # 8d04b0c save_last fix).  Vacuum systems keep the input
+            # topology's (absent) box — no zero CRYST1 record is invented.
+            self._structure.topology.setPeriodicBoxVectors(
+                state.getPeriodicBoxVectors())
         with open(path, "w") as handle:
             app.PDBxFile.writeFile(
                 self._structure.topology, positions, handle, keepIds=True)

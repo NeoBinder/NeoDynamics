@@ -329,13 +329,21 @@ class TestLigandProcessorMain:
         assert mol.GetNumBonds() == 8
         assert mol.GetNumConformers() == 1
 
-    def test_pos_smiles2sdf_fix_ch_flag(self, cco_sdf, tmp_path):
-        out = tmp_path / "fixed.sdf"
-        main(["pos_smiles2sdf", "-i", cco_sdf, "-s", "CCO", "-o", str(out),
-              "--fix_CH"])
+    def test_pos_smiles2sdf_ignore_pos_ids_and_no_fix_ch(self, cco_sdf,
+                                                          tmp_path):
+        # v1 179ae35: --fix_CH dropped (fix_CH_angle now runs inside the
+        # mol_smiles_to_pos_mol loop); --ignore_pos_ids excludes pose atoms
+        # from the MCS match (atom 3 = the O, 1-based like the CLI)
+        out = tmp_path / "ignored.sdf"
+        main(["pos_smiles2sdf", "-i", cco_sdf, "-s", "CC", "-o", str(out),
+              "--ignore_pos_ids", "3"])
         mol = Chem.MolFromMolFile(str(out), removeHs=False)
         assert mol is not None
-        assert mol.GetNumAtoms() == 9
+        assert mol.GetNumAtoms() == 8  # the CC topology (2 C + 6 H)
+
+        with pytest.raises(SystemExit):
+            main(["pos_smiles2sdf", "-i", cco_sdf, "-s", "CCO",
+                  "-o", str(tmp_path / "x.sdf"), "--fix_CH"])
 
     def test_pos_smiles2sdf_from_pdb(self, cco_pdb, tmp_path):
         out = tmp_path / "from_pdb.sdf"

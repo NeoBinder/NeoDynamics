@@ -303,6 +303,39 @@ class TestPrepareSystemProteinOnly:
         with pytest.raises(ConfigValueError, match="output_dir"):
             prepare_system({"protein": {"path": _boxed_peptide(tmp_path)}})
 
+    def test_center_model_false_keeps_the_input_frame(self, tmp_path):
+        # v1 179ae35: centering is gated by additional.center_model (default
+        # on); off -> the prepared frame keeps the input placement instead of
+        # the box center
+        peptide = _boxed_peptide(tmp_path)
+        common = {
+            "protein": {"path": peptide},
+            "ff_setting": {
+                "base_ff": "amber14/protein.ff14SB.xml",
+                "water_model": "amber14/tip3p.xml",
+            },
+            "additional": {"add_hydrogens": True, "add_solv_ions": False},
+        }
+        centered = tmp_path / "prep-centered"
+        plain = tmp_path / "prep-plain"
+        prepare_system({**common, "output_dir": str(centered)})
+        prepare_system({**common, "output_dir": str(plain),
+                        "additional": {**common["additional"],
+                                       "center_model": False}})
+
+        def _mean_positions(pdbx):
+            structure = app.PDBxFile(str(pdbx))
+            return np.mean(np.array(
+                structure.positions.value_in_unit(unit.nanometer)), axis=0)
+
+        input_mean = np.mean(np.array(
+            app.PDBFile(peptide).positions.value_in_unit(unit.nanometer)),
+            axis=0)
+        assert np.allclose(_mean_positions(centered / "solv.pdbx"),
+                           np.full(3, 1.5), atol=0.05)  # the 3 nm cube center
+        assert np.allclose(_mean_positions(plain / "solv.pdbx"),
+                           input_mean, atol=0.05)
+
 
 # ---------------------------------------------------------------------------
 # prepare_system — the DEFAULT GAFF route (regression: instance, not class)

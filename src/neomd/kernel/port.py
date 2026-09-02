@@ -68,6 +68,7 @@ import numpy as np
 
 __all__ = [
     "BiasIR",
+    "BondIR",
     "BiasOps",
     "BiasParamOps",
     "GroupEnergy",
@@ -224,11 +225,33 @@ class BiasIR:
     groups: list[list[int]] = field(default_factory=list)  # atom-index groups (centroid forces)
     torsion: tuple[int, int, int, int] | None = None  # 4 atom indices (CustomTorsionForce)
     periodic: bool = True
+    #: multi-bond mode (only kind == "CustomCentroidBondForce", v1 179ae35
+    #: ``distances``): when set, ONE force holds every bond in the list and
+    #: ``params`` declares PER-BOND parameters (their types/units and the
+    #: declaration order; the values are ignored) — each bond evaluates the
+    #: same ``energy`` expression with its own parameter values, and identical
+    #: atom groups are deduplicated on compilation.  ``groups`` is unused in
+    #: this mode.  Per-bond values are NOT live-settable (BiasParamOps
+    #: addresses the global-parameter spelling only).
+    bonds: "list[BondIR] | None" = None
     #: only for kind == "CustomCVForce": the single collective variable inside
     cv: "CVIR | None" = None
     #: only for kind == "CustomCVTableForce": the tabulated metadynamics bias
     table: "TableSpec | None" = None
     label: str = ""  # restraint/CV name, for errors and manifests
+
+
+@dataclass(frozen=True)
+class BondIR:
+    """One bond of a multi-bond CustomCentroidBondForce (BiasIR.bonds).
+
+    ``params`` carries the per-bond VALUES in kernel-canonical floats (nm /
+    kJ/mol / radians — plain numbers, no Param wrapper); its keys must be
+    exactly the parent BiasIR.params names.
+    """
+
+    groups: list[list[int]]  # this bond's atom-index groups (2 for distances)
+    params: dict[str, float]  # per-bond values, canonical units
 
 
 @dataclass(frozen=True)
@@ -336,6 +359,11 @@ class KernelSpec:
     #: adapter implements them, other kernels may ignore them.
     barostat: dict | None = None  # {"pressure": bar, "frequency": steps, "temperature": K, "seed": int}
     particle_masses: dict[int, float] | None = None  # {particle index: dalton}
+    #: zero-interaction NonbondedForce exceptions (v1 179ae35
+    #: ``system_modification`` ``dummy_atom_Nonbond_Exception``), flattened
+    #: ``(particle, partner)`` pairs; applied pre-Context by the openmm
+    #: adapter, ignored by kernels without a NonbondedForce
+    dummy_exceptions: tuple[tuple[int, int], ...] | None = None
 
 
 @runtime_checkable

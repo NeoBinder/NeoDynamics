@@ -55,7 +55,7 @@ from typing import Callable
 
 import numpy as np
 
-from neomd.kernel.port import BiasIR, CVIR, Param
+from neomd.kernel.port import BiasIR, BondIR, CVIR, Param
 from neomd.registry import register
 
 __all__ = ["Restraint", "ObservableSpec"]
@@ -803,3 +803,106 @@ register("restraint", "dist_ref_position", _DIST_REF_POSITION_ENTRY)
 register("restraint", "xyz_box", _XYZ_BOX_ENTRY)
 register("restraint", "vec_restraint", _VEC_RESTRAINT_ENTRY)
 register("restraint", "rmsd", _RMSD_ENTRY)
+
+
+# ===========================================================================
+# Post-flip port — distances (v1 179ae35 constructor.generate_restraint_distances)
+#
+# Multiple one-sided distance restraints packed into ONE CustomCentroidBondForce
+# per side (min wall / max wall) with PER-BOND parameters — one force group
+# per side, not per pair; that group economy is the whole point of the type
+# (32 force groups is a hard openmm budget).  Expressions are the v1 strings
+# verbatim, WITHOUT name suffixes: per-bond parameters are bond-local, so
+# there is no cross-restraint collision to guard against.
+#
+# Deviation (documented): v1's reporter SKIPPED distances entries (no columns
+# at all); v2's dual-track design reports geometry for every restraint, so
+# each pair yields one distance observable (pair1..pairN sub-columns).
+#
+# v1 quirk kept verbatim: the bound check is ``is not None`` here (a 0.0
+# bound is a real bound), unlike the single ``distance`` type's truthiness
+# check where 0.0 means "absent".
+# ===========================================================================
+
+_DISTANCES_MIN_FUNC = "(k/2)*(max(dis1 - distance(g1,g2), 0)^order)"
+_DISTANCES_MAX_FUNC = "(k/2)*(max(distance(g1,g2) - dis2, 0)^order)"
+
+
+def _make_bias_distances(name: str, spec: dict) -> list[BiasIR]:
+    min_bonds: list[BondIR] = []
+    max_bonds: list[BondIR] = []
+    for entry in spec["params"]:
+        grps = [_index_list(entry["grp1"], "grp1"),
+                _index_list(entry["grp2"], "grp2")]
+        k = float(entry["restr_k"])
+        order = entry.get("order", 2)
+        if entry.get("min_nm") is not None:
+            min_bonds.append(BondIR(groups=grps, params={
+                "k": k, "dis1": float(entry["min_nm"]), "order": order}))
+        if entry.get("max_nm") is not None:
+            max_bonds.append(BondIR(groups=grps, params={
+                "k": k, "dis2": float(entry["max_nm"]), "order": order}))
+
+    return_ls = []
+    if min_bonds:
+        return_ls.append(BiasIR(
+            kind="CustomCentroidBondForce",
+            energy=_DISTANCES_MIN_FUNC,
+            params={  # per-bond parameter TYPES (units + declaration order);
+                # the values shown are the first bond's — compilation reads
+                # the per-bond values from BondIR.params
+                "k": Param(min_bonds[0].params["k"], "kJ/mol"),
+                "dis1": Param(min_bonds[0].params["dis1"], "nm"),
+                "order": Param(min_bonds[0].params["order"], "dimensionless"),
+            },
+            bonds=min_bonds,
+            periodic=spec.get("is_periodic", True),
+            label=name,
+        ))
+    if max_bonds:
+        return_ls.append(BiasIR(
+            kind="CustomCentroidBondForce",
+            energy=_DISTANCES_MAX_FUNC,
+            params={
+                "k": Param(max_bonds[0].params["k"], "kJ/mol"),
+                "dis2": Param(max_bonds[0].params["dis2"], "nm"),
+                "order": Param(max_bonds[0].params["order"], "dimensionless"),
+            },
+            bonds=max_bonds,
+            periodic=spec.get("is_periodic", True),
+            label=name,
+        ))
+    return return_ls
+
+
+def _observables_distances(name: str, spec: dict) -> ObservableSpec:
+    observables = {}
+    for i, entry in enumerate(spec["params"], start=1):
+        observables[f"pair{i}"] = {
+            "quantity": "distance",
+            "groups": [
+                _index_list(entry["grp1"], "grp1"),
+                _index_list(entry["grp2"], "grp2"),
+            ],
+        }
+    return observables
+
+
+_DISTANCES_ENTRY = Restraint(
+    schema={
+        "required": {
+            "params": ("list of per-pair entries: {grp1: " + _IDX +
+                       ", grp2: " + _IDX + ", restr_k: float (kJ/mol per "
+                       "nm^order), min_nm and/or max_nm: float (nm)}; one "
+                       "bond per entry, all bonds share ONE force per side"),
+        },
+        "optional": {
+            "order": ("int (per entry)", 2),
+            "is_periodic": ("bool", True),
+        },
+    },
+    make_bias=_make_bias_distances,
+    observables=_observables_distances,
+)
+
+register("restraint", "distances", _DISTANCES_ENTRY)

@@ -472,6 +472,7 @@ def _make_system(
         "add_hydrogens": True,
         "add_solv_ions": True,
         "ion_Strength": 0.1,
+        "center_model": True,  # v1 179ae35: centering is now optional
         **additional_config,
     }
 
@@ -523,10 +524,13 @@ def _make_system(
                 )
             )
             res.name = resvariant[index]
-    box_center_vec = 0.5 * box_vectors[0] + 0.5 * box_vectors[1] + 0.5 * box_vectors[2]
-    move_vec = box_center_vec - modeller.positions.mean()
-    for i in range(len(modeller.positions)):
-        modeller.positions[i] += move_vec
+    # v1 179ae35: gate the model centering on additional_config's
+    # center_model (default on) — some workflows need the input frame kept
+    if additional_config.get("center_model"):
+        box_center_vec = 0.5 * box_vectors[0] + 0.5 * box_vectors[1] + 0.5 * box_vectors[2]
+        move_vec = box_center_vec - modeller.positions.mean()
+        for i in range(len(modeller.positions)):
+            modeller.positions[i] += move_vec
     if additional_config.get("add_solv_ions"):
         modeller.addSolvent(
             _need_forcefield(),
@@ -557,8 +561,9 @@ def prepare_system(config: Mapping, *, forcefield: ForceFieldBuilder | None = No
       (``system_from_gromacs`` / ``system_from_amber``);
     * otherwise ``make_system`` orchestration: protein (custom bonds) ->
       ligand placement -> box -> custom addH -> addHydrogens (variants +
-      custom_resname_dict validation) -> centering -> addSolvent ->
-      builder.build (createSystem), and writes ``solv.pdbx``,
+      custom_resname_dict validation) -> centering (gated by
+      ``additional_config["center_model"]``, default on — v1 179ae35) ->
+      addSolvent -> builder.build (createSystem), and writes ``solv.pdbx``,
       ``ligand.json`` (when ligands) and ``system.xml``.
 
     ``forcefield``: a :class:`ForceFieldBuilder` (the tools seam); default

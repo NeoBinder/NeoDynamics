@@ -431,6 +431,32 @@ def test_drive_eq_full_plan_with_restraint(tmp_path):
         assert float(row[2]) > 0.0  # the bias energy (fake group_energy)
 
 
+def test_drive_distances_restraint_one_force_group_per_side(tmp_path):
+    """v1 179ae35 `distances`: N pairs -> ONE force per side (the 32-group
+    budget economy), one pair column per entry + the energy column in
+    restraint.tsv (v2 reporting deviation, documented in restraints.py)."""
+    plan = Plan.from_dict(fake_config(
+        restraint={"d1": {"type": "distances", "params": [
+            {"grp1": "0", "grp2": "1", "restr_k": 500.0, "min_nm": 0.2},
+            {"grp1": "0", "grp2": "2", "restr_k": 300.0, "max_nm": 0.4},
+        ]}},
+        output={"output_dir": str(tmp_path), "report_interval": 25,
+                "report_restraint": True, "state_interval": 25,
+                "trajectory_interval": 0, "checkpoint_interval": 50},
+        steps=100))
+    factory, captured = fake_capture_factory()
+    outcome = drive(plan, kernel_factory=factory, sink=LocalDirSink(tmp_path))
+
+    # two one-sided entries -> TWO forces total (min force + max force),
+    # one force group each — not one group per pair
+    assert outcome.fgroups == {"d1": [31, 30]}
+    assert set(captured["kernel"].bias_values()) == {"d1"}
+
+    lines = (tmp_path / "restraint.tsv").read_text().splitlines()
+    assert lines[0] == "# step\td1__pair1\td1__pair2\td1__energy"
+    assert [row.split("\t")[0] for row in lines[1:]] == ["25", "50", "75", "100"]
+
+
 def test_drive_restraint_probe_off_without_report_restraint(tmp_path):
     """report_restraint absent -> derived restraint_interval 0 -> no
     restraint.tsv even though a restraint is installed."""

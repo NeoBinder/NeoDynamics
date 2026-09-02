@@ -34,7 +34,9 @@ import math
 import pathlib
 
 import numpy as np
+import openmm
 import pytest
+from openmm import app, unit
 
 from neomd.kernel import (
     BiasIR,
@@ -574,3 +576,135 @@ def test_cv_is_angular_covers_both_sniffed_patterns():
                               expression="distance(g1,g2)")) is False
     assert cv_is_angular(CVIR(kind="RMSDForce",
                               expression="rmsd")) is False
+
+
+# ===========================================================================
+# periodic-box sources + the last-structure header (v1 8d04b0c fixes)
+# ===========================================================================
+
+def _box_array(box_vectors) -> np.ndarray:
+    """(3, 3) nm array from a topology/context box (Quantity or Vec3s)."""
+    box = box_vectors
+    if hasattr(box, "value_in_unit"):
+        box = box.value_in_unit(unit.nanometer)
+    return np.array([[c.x, c.y, c.z] for c in box], dtype=np.float64)
+
+
+def _write_solv_with_box(path, diag_nm) -> None:
+    """The solv fixture rewritten with a DIFFERENT header box (the v1 8d04b0c
+    scenario: complex-file header and system.xml default disagreeing)."""
+    structure = app.PDBxFile(str(SOLV_PDBX))
+    structure.topology.setPeriodicBoxVectors([
+        openmm.Vec3(diag_nm[0], 0, 0),
+        openmm.Vec3(0, diag_nm[1], 0),
+        openmm.Vec3(0, 0, diag_nm[2]),
+    ])
+    with open(path, "w") as handle:
+        app.PDBxFile.writeFile(structure.topology, structure.positions,
+                               handle, keepIds=True)
+
+
+def test_openmm_fresh_start_box_prefers_the_structure_header(tmp_path):
+    # v1 8d04b0c: the complex file's header box wins over the System's
+    # default box (they disagree here: default is ~3.28/3.29/3.19 nm)
+    reboxed = tmp_path / "reboxed.pdbx"
+    _write_solv_with_box(reboxed, [4.5, 4.5, 4.5])
+    kernel = KernelFactory.create(openmm_spec(system_xml=SOLV_SYSTEM_XML,
+                                          topology_file=str(reboxed)))
+    box = kernel.box_vectors()
+    assert box is not None
+    assert np.allclose(box, np.diag([4.5, 4.5, 4.5]))
+    default = _box_array(
+        openmm.XmlSerializer.deserialize(SOLV_SYSTEM_XML)
+        .getDefaultPeriodicBoxVectors())
+    assert not np.allclose(box, default)  # the header really is the source
+
+
+def test_openmm_write_structure_records_the_runtime_box(tmp_path):
+    # v1 8d04b0c save_last fix: last.pdbx carries the context's CURRENT box
+    # (a checkpoint-restored one here), not the input file's header box
+    original = KernelFactory.create(openmm_spec(system_xml=SOLV_SYSTEM_XML,
+                                           topology_file=str(SOLV_PDBX)))
+    restored_box = original.box_vectors()
+    other_header = tmp_path / "other-box.pdbx"
+    _write_solv_with_box(other_header, [4.5, 4.5, 4.5])
+
+    kernel = KernelFactory.create(openmm_spec(system_xml=SOLV_SYSTEM_XML,
+                                          topology_file=str(other_header)))
+    kernel.restore(original.snapshot())
+    assert np.allclose(kernel.box_vectors(), restored_box)  # checkpoint wins
+
+    out = tmp_path / "last.pdbx"
+    kernel.write_structure(str(out))
+    written_box = _box_array(app.PDBxFile(str(out)).topology
+                             .getPeriodicBoxVectors())
+    assert np.allclose(written_box, restored_box)  # runtime box, not 4.5
+
+
+# ===========================================================================
+# distances bias — openmm per-bond compilation vs the fake evaluation
+# ===========================================================================
+
+def test_openmm_distances_bias_matches_the_fake_evaluation():
+    import neomd.restraints  # noqa: F401  (import = registration)
+    from neomd import registry
+
+    spec = {"type": "distances", "is_periodic": False, "params": [
+        {"grp1": "0", "grp2": "5", "restr_k": 100.0, "max_nm": 0.05},
+        {"grp1": "10", "grp2": "21", "restr_k": 100.0, "min_nm": 0.0},
+    ]}
+    irs = registry.get("restraint", "distances").make_bias("d", spec)
+
+    real = KernelFactory.create(openmm_spec())
+    groups_real = [real.install_bias(ir) for ir in irs]
+    # max_nm=0.05 keeps the max wall permanently engaged -> nonzero energy
+    assert real.group_energy(groups_real) > 0.0
+
+    fake = FakeKernel(KernelSpec(
+        kind="fake", seed=7, temperature=298.0,
+        system_data=SystemData(positions=real.positions(),
+                               masses=real.masses, box_vectors=None)))
+    groups_fake = [fake.install_bias(ir) for ir in irs]
+    assert fake.group_energy(groups_fake) == pytest.approx(
+        real.group_energy(groups_real), rel=1e-8, abs=1e-10)
+
+
+# ===========================================================================
+# dummy_atom_Nonbond_Exception (v1 179ae35 system_modification)
+# ===========================================================================
+
+def test_openmm_dummy_exceptions_zero_the_pair_interaction():
+    # v1 179ae35: {index: {"dummy_atom_Nonbond_Exception": [partners]}}
+    # -> NonbondedForce.addException(i, j, 0, 1, 0) — a zeroed pair
+    system = openmm.XmlSerializer.deserialize(ALA2_SYSTEM_XML)
+    nonbonded = [f for f in system.getForces()
+                 if f.getName() == "NonbondedForce"][0]
+    excluded = {tuple(sorted((nonbonded.getExceptionParameters(k)[0],
+                              nonbonded.getExceptionParameters(k)[1])))
+                for k in range(nonbonded.getNumExceptions())}
+    # a pair amber did NOT already exclude (bonded 1-2/1-3/1-4 sets)
+    particle, partner = next(pair for pair in ((0, 21), (0, 10), (5, 21),
+                                               (7, 15), (2, 19))
+                             if pair not in excluded)
+
+    plain = KernelFactory.create(openmm_spec())
+    excepted = KernelFactory.create(openmm_spec(
+        dummy_exceptions=((particle, partner),)))
+    difference = (plain.energy_forces().potential
+                  - excepted.energy_forces().potential)
+
+    # the removed interaction, computed from the System's own parameters:
+    # Coulomb 138.935456 q_i q_j / r + 4*sqrt(eps_i eps_j)*((sig/r)^12-(sig/r)^6)
+    q0, s0, e0 = (p.value_in_unit(v) for p, v in zip(
+        nonbonded.getParticleParameters(particle),
+        (unit.elementary_charge, unit.nanometer, unit.kilojoule_per_mole)))
+    q1, s1, e1 = (p.value_in_unit(v) for p, v in zip(
+        nonbonded.getParticleParameters(partner),
+        (unit.elementary_charge, unit.nanometer, unit.kilojoule_per_mole)))
+    positions = plain.positions()
+    r = float(np.linalg.norm(positions[particle] - positions[partner]))
+    sigma = 0.5 * (s0 + s1)
+    expected = (138.935456 * q0 * q1 / r
+                + 4.0 * (e0 * e1) ** 0.5
+                * ((sigma / r) ** 12 - (sigma / r) ** 6))
+    assert difference == pytest.approx(expected, rel=1e-6, abs=1e-9)

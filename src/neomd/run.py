@@ -192,6 +192,36 @@ def _particle_masses(system_modification) -> dict[int, float] | None:
     return masses or None
 
 
+def _dummy_exceptions(system_modification) -> tuple[tuple[int, int], ...] | None:
+    """Flattened ``(particle, partner)`` pairs from raw ``system_modification``
+    entries — v1 179ae35 ``neosystem.py``: ``{index:
+    {"dummy_atom_Nonbond_Exception": [partners...]}}`` adds one
+    zero-interaction NonbondedForce exception per pair.  Both the mapping and
+    list spellings accepted by ``_particle_masses`` are normalized the same
+    way.
+    """
+    if not system_modification:
+        return None
+    if isinstance(system_modification, Mapping):
+        entries = system_modification.items()
+    else:
+        entries = (
+            (entry.get("index"), entry)
+            for entry in system_modification
+            if isinstance(entry, Mapping)
+        )
+    pairs: list[tuple[int, int]] = []
+    for index, info in entries:
+        if not isinstance(info, Mapping):
+            continue
+        partners = info.get("dummy_atom_Nonbond_Exception")
+        if partners is None:
+            continue
+        for partner in partners:
+            pairs.append((int(index), int(partner)))
+    return tuple(pairs) or None
+
+
 def build_kernel_spec(plan: Plan, *, kind: str = "openmm",
                       platform: str = "cpu") -> KernelSpec:
     """Compile the plan into a :class:`~neomd.kernel.port.KernelSpec`.
@@ -244,6 +274,8 @@ def build_kernel_spec(plan: Plan, *, kind: str = "openmm",
         resume=resume,
         barostat=barostat,
         particle_masses=_particle_masses(
+            getattr(plan, "system_modification", None)),
+        dummy_exceptions=_dummy_exceptions(
             getattr(plan, "system_modification", None)),
     )
 

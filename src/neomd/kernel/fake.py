@@ -454,7 +454,12 @@ class FakeKernel:
         return float(np.linalg.norm(self._minimum_image(coms[i] - coms[j])))
 
     def _bias_quantity(self, bias: BiasIR, positions: np.ndarray) -> float:
-        """Human-report value of the bias geometry (nm / degrees)."""
+        """Human-report value of the bias geometry (nm / degrees).
+
+        Multi-bond forces (BiasIR.bonds, the ``distances`` restraint) report
+        their FIRST bond's value — the per-pair reporting track is the
+        observables spec, this is the fake's single-scalar debug view.
+        """
         if bias.kind == "CustomCVForce":
             if bias.cv is None:
                 raise ValueError(f"bias {bias.label!r}: CustomCVForce needs cv (CVIR)")
@@ -464,8 +469,14 @@ class FakeKernel:
                 raise ValueError(f"bias {bias.label!r}: CustomTorsionForce needs torsion")
             return math.degrees(_dihedral_rad(
                 *[positions[i] for i in bias.torsion]))
-        n_groups = len(bias.groups)
-        coms = self._centroids(bias.groups, positions)
+        if bias.bonds is not None:
+            if not bias.bonds:
+                raise ValueError(f"bias {bias.label!r}: empty bond list")
+            groups = bias.bonds[0].groups
+        else:
+            groups = bias.groups
+        n_groups = len(groups)
+        coms = self._centroids(groups, positions)
         if n_groups == 2:
             return self._distance(coms, 0, 1)
         if n_groups == 3:
@@ -500,6 +511,17 @@ class FakeKernel:
     def _bias_energy(self, bias: BiasIR, positions: np.ndarray) -> float:
         coms: np.ndarray | None = None
         if bias.kind == "CustomCentroidBondForce":
+            if bias.bonds is not None:
+                # multi-bond mode (v1 179ae35 distances): one force, N bonds,
+                # per-bond parameters — the same expression summed over bonds
+                total = 0.0
+                for bond in bias.bonds:
+                    coms = self._centroids(bond.groups, positions)
+                    env = {name: float(bond.params[name])
+                           for name in bias.params}
+                    env.update(self._com_variables(coms))
+                    total += _evaluate_expression(bias.energy, env, coms)
+                return total
             if not bias.groups:
                 raise ValueError(
                     f"bias {bias.label!r}: CustomCentroidBondForce needs groups")
@@ -577,11 +599,18 @@ class FakeKernel:
         env = {name: self._param_overrides.get(name,
                                                _convert_param(p.value, p.unit))
                for name, p in params.items()}
-        if coms is not None:  # centroid coordinates (v1 xyz_box-style x1/y1/z1)
-            for i, com in enumerate(coms, start=1):
-                env[f"x{i}"] = float(com[0])
-                env[f"y{i}"] = float(com[1])
-                env[f"z{i}"] = float(com[2])
+        if coms is not None:
+            env.update(self._com_variables(coms))
+        return env
+
+    @staticmethod
+    def _com_variables(coms: np.ndarray) -> dict[str, float]:
+        # centroid coordinates (v1 xyz_box-style x1/y1/z1)
+        env: dict[str, float] = {}
+        for i, com in enumerate(coms, start=1):
+            env[f"x{i}"] = float(com[0])
+            env[f"y{i}"] = float(com[1])
+            env[f"z{i}"] = float(com[2])
         return env
 
     def _cv_variables(self, cv: CVIR) -> dict[str, float]:

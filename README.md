@@ -169,7 +169,7 @@ flowchart LR
     FAC --> FK["fake kernel<br/>(deterministic CI)"]
     FAC --> RP["replay kernel<br/>(golden tapes)"]
     OM & FK & RP -.-> PORT["KernelPort<br/>closed operation surface"]
-    REG["registry: knowledge triples<br/>8 restraints · 5 CVs · methods · probes"] -.-> DRV
+    REG["registry: knowledge triples<br/>9 restraints · 5 CVs · methods · probes"] -.-> DRV
     MR --> DRV["driver.drive()<br/>boundary-chunked loop"]
     RES["resume.py<br/>restore + trim"] -.-> DRV
     DRV --> PRB["probes + sinks"] --> ART["manifest.json · output.state/dcd/ckpt<br/>last.ckpt/pdbx · colvar.tsv · hills.npz · fes.tsv"]
@@ -203,9 +203,10 @@ before `KernelFactory.create(kind="replay")`.
 
 One module per restraint / collective variable / method / probe, each
 holding **schema + force expression + observables**, injected via
-`registry.register(kind, name, entry)`. Built-ins: 8 restraint types
+`registry.register(kind, name, entry)`. Built-ins: 9 restraint types
 (`distance`, `dihedral`, `angle`, `funnel`, `dist_ref_position`, `xyz_box`,
-`vec_restraint`, `rmsd`), 5 CVs (`distance`, `dihedral`, `angle`,
+`vec_restraint`, `rmsd`, and `distances` — many pairs packed into one force
+per side, the v1 179ae35 group-economy type), 5 CVs (`distance`, `dihedral`, `angle`,
 `min_distances`, `distance_ref`), the well-tempered `metadynamics` and
 steered-MD (`smd`) methods, and 6 probe presets. Physics expressions are
 ported verbatim from v1 — that is physics, not architecture.
@@ -218,7 +219,7 @@ ported verbatim from v1 — that is physics, not architecture.
 | `output.state` | `StateProbe` | energy log, OpenMM StateDataReporter format |
 | `output.dcd` | `TrajectoryProbe` | CHARMM-compatible DCD trajectory (append-aware, trimmable) |
 | `output.ckpt` | `CheckpointProbe` + final write | kernel checkpoint incl. RNG state |
-| `last.ckpt`, `last.pdbx` | driver, at leg end | final snapshot (+ final structure when the kernel provides `StructureWriter`) |
+| `last.ckpt`, `last.pdbx` | driver, at leg end | final snapshot (+ final structure when the kernel provides `StructureWriter`; the pdbx header carries the RUNTIME periodic box — v1 8d04b0c fix — and fresh starts take the initial box from the structure file's header) |
 | `restraint.tsv` | `RestraintProbe` | restraint observables + `__energy` via `GroupEnergy` |
 | `smd.tsv` | `SmdProbe` (steered MD) | per-entry geometric observable + current ramp values + `__energy` (switch: `output.report_smd`) |
 | `colvar.tsv` | `ColvarProbe` (metadynamics) | CV values in natural units (e.g. degrees) |
@@ -353,7 +354,7 @@ NeoDynamics/
 │   ├── probes.py / sinks.py   # all artifact writing (LocalDirSink, MemorySink, DCD writer)
 │   ├── system.py / prepare.py # openmm-free SystemBundle + preparation workflow
 │   ├── openmm_privates.py     # ALL private-API touches behind an openmm 8.6.x gate
-│   ├── restraints.py          # 8 restraint knowledge triples
+│   ├── restraints.py          # 9 restraint knowledge triples
 │   ├── colvars.py             # 5 collective-variable triples
 │   ├── registry.py            # the extension rack (restraint/cv/method/probe)
 │   ├── methods/metadynamics.py# well-tempered metadynamics
@@ -365,12 +366,14 @@ NeoDynamics/
 ├── tests/golden/              # golden-tape harness + 9 committed v1 tapes
 ├── examples/                  # 3HTB_complex walkthrough, ala_meta, gamd_drill plugin
 ├── docs/                      # v2 migration plan, improvements log, DAG board, ADR
-└── bin/                       # thin v1 compatibility wrappers
+└── bin/                       # thin v1 compatibility wrappers + standalone
+                                # v1 analysis tools (protein/trajectory/
+                                # parse_ff_params — heavy deps, own env)
 ```
 
 ## Documentation
 
-- [AGENTS.md](AGENTS.md) — working discipline and settled architecture decisions
+- [AGENTS.md](AGENTS.md) — development workflow (worktree), working discipline and settled architecture decisions
 - [docs/v2-migration-plan.md](docs/v2-migration-plan.md) — the full strangler-migration record (decisions, phases, flip day)
 - [docs/v2-improvements.md](docs/v2-improvements.md) — post-flip improvement items and settled debates
 - [docs/v2-dag.md](docs/v2-dag.md) — execution board and post-flip verification numbers
