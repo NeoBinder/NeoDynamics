@@ -1,0 +1,18 @@
+# pre-commit.ci enforces this config on every PR (it runs `--all-files`).
+# The hooks are deliberately check-only: the tree intentionally carries frozen
+# v1 code (src/neomd_legacy) and example data files with trailing whitespace /
+# missing trailing newlines, so mutating hygiene hooks (trailing-whitespace,
+# end-of-file-fixer, …) would churn frozen content and are NOT to be added.
+# Run locally: uvx pre-commit run --all-files
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v0.9.5
+    hooks:
+      - id: check-ast
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: check-added-large-files
+        # tests/data/system.xml (~616 KB) is an intentional committed fixture
+        args: [--maxkb=2048]

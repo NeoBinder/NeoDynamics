@@ -19,7 +19,14 @@ jobs:
       # environment from the committed pixi.lock. Never solve/install the
       # `dev` environment here — its pypi deps include a path dependency on
       # ../NeoTopology which does not exist in a CI checkout.
-      - uses: pixi-project/setup-pixi-action@v0
+      #
+      # pixi still validates the whole workspace lock (canonicalizing the dev
+      # feature's ../NeoTopology path dependency) on every --locked install
+      # and on plain `pixi run`; an empty stub directory satisfies that check.
+      - name: Stub the dev path dependency
+        run: mkdir -p ../NeoTopology
+
+      - uses: prefix-dev/setup-pixi@v0
         with:
           pixi-version: v0.77.1
           environments: default
@@ -54,7 +61,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pixi-project/setup-pixi-action@v0
+      # same stub rationale as in the `test` job; `pixi run -e test` below
+      # revalidates the workspace lock the same way
+      - name: Stub the dev path dependency
+        run: mkdir -p ../NeoTopology
+
+      - uses: prefix-dev/setup-pixi@v0
         with:
           pixi-version: v0.77.1
           environments: test

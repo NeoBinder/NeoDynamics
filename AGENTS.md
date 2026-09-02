@@ -78,6 +78,12 @@ Tests live in `tests/v2/` (unit + e2e, fake kernel — millisecond tier) and
 comparisons are bit-exact; across environments use statistical tolerance
 (`NEO_GOLDEN_TOLERANT=1`).
 
+CI (`.github/workflows/ci.yml`) runs `pixi run test`, `pixi run test-golden`,
+and the 3HTB smoke on every PR; pre-commit.ci enforces
+`.pre-commit-config.yaml` (check-only hooks — the tree intentionally carries
+frozen v1 code and example data, so no mutating hygiene hooks; run locally
+with `uvx pre-commit run --all-files`).
+
 ## Settled decisions — do not relitigate
 
 These were converged on through explicit review rounds (grilling + a
