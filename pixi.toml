@@ -12,6 +12,7 @@ numpy = "*"
 default = { solve-group = "default" }
 test = { features = ["test"], solve-group = "default" }
 dev = { features = ["dev"], solve-group = "dev" }
+docs = { features = ["docs"], solve-group = "default" }
 
 [tasks]
 test = "pytest tests/ -m 'not golden and not legacy'"
@@ -27,6 +28,17 @@ openmm = "8.6.*"
 openmmforcefields = ">=0.16,<0.17"
 openff-toolkit = ">=0.19,<0.20"
 pytest = "*"
+
+# docs site (issue #17): the docs environment carries mkdocs-material on top
+# of the default features (the package itself included — docs-gen introspects
+# the live registry vocabularies). The two tasks live in the feature so
+# `pixi run docs-build` / `pixi run docs-gen` auto-select the docs environment.
+[feature.docs.dependencies]
+mkdocs-material = "*"
+
+[feature.docs.tasks]
+docs-build = "mkdocs build --strict"
+docs-gen = "python docs/generate_reference.py"
 
 [feature.test.dependencies]
 pytest = "*"

@@ -3,7 +3,7 @@
 - Status: **Flipped** (Phase 4 executed 2026-08-27: src/neomd -> src/neomd_legacy, src/neomd2 -> src/neomd, tags v1-final + v0.2.0)
 - Date: 2026-08-27
 - Decision process: four grilling rounds (16 decisions), see the decision table in §1
-- Related docs: [ADR-0001 Same-Repository Strangler Migration](adr/0001-neomd-strangler-migration.md)
+- Related docs: [ADR-0001 Same-Repository Strangler Migration](adr/0001-neomd2-strangler-migration.md)
 
 ---
 

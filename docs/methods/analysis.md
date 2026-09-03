@@ -35,7 +35,7 @@ FES）。issue #16 指出生产使用还缺五类能力：
 ## 使用
 
 README 的
-["Analyzing runs"](../../README.md#analyzing-runs) 一节给出命令组摘要，命令组：
+["Analyzing runs"](https://github.com/NeoBinder/NeoDynamics#analyzing-runs) 一节给出命令组摘要，命令组：
 
 ```bash
 neomd analysis fes run_dir --out fes.tsv          # WT FES（与运行自身的 fes.tsv

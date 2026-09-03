@@ -1,0 +1,91 @@
+name: Docs
+
+# Documentation site (issue #17): strict mkdocs build on PRs touching the
+# docs / mkdocs / the package that feeds the generated reference, and
+# GitHub Pages deployment on every push to main (plus manual dispatch).
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/**
+      - mkdocs.yml
+      - src/neomd/**
+      - pixi.toml
+      - pixi.lock
+      - .github/workflows/docs.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - docs/**
+      - mkdocs.yml
+      - src/neomd/**
+      - pixi.toml
+      - pixi.lock
+      - .github/workflows/docs.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# one deployment in flight at a time; a superseded build may be cancelled
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # full history + tags: the docs env installs NeoDynamics editable,
+      # and versioningit derives the version from git tags (same as ci.yml)
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # same stub rationale as ci.yml: pixi revalidates the whole workspace
+      # lock (including the dev feature's ../NeoTopology path dependency)
+      # on every locked install; an empty stub directory satisfies it
+      - name: Stub the dev path dependency
+        run: mkdir -p ../NeoTopology
+
+      - uses: prefix-dev/setup-pixi@v0
+        with:
+          pixi-version: v0.77.1
+          environments: docs
+          locked: true
+          cache: true
+
+      # regenerate the reference from the live package, then fail loudly if
+      # the committed copy drifted (the sync unit test in ci.yml pins this
+      # too; this check makes the drift visible in the docs job as well)
+      - name: Regenerate the configuration reference
+        run: pixi run docs-gen
+
+      - name: Fail on reference drift
+        run: git diff --exit-code -- docs/reference/configuration.md
+
+      - name: Build the site (strict)
+        run: pixi run docs-build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    # PRs build only; pushes to main (and manual dispatches on main) deploy
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
