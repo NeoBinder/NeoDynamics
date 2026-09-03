@@ -61,6 +61,12 @@ release together with the `neomd2` script alias.
 - **Tools** (`tools/`): external-process adapters (antechamber, orca,
   ligand, convert, fix_protein, template_xml). Subprocess-isolated tmpdirs;
   `os.chdir` is forbidden.
+- **Analysis** (`analysis/`): openmm-free post-run analysis of the v2
+  artifact formats (colvar.tsv / hills.npz / smd.tsv + the manifest's grid
+  metadata) — WT FES reconstruction (producer conventions, bit-identical
+  ledger replay), convergence windows, block averaging, Tiwary–Parrinello
+  reweighting, multi-walker merge — behind the `neomd analysis` CLI and an
+  importable API other method tracks consume.
 - **`migrate_v1.py`**: one-shot v1 YAML → Plan translator. A tool, never on
   the runtime import path; do not grow it into a compatibility layer.
 

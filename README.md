@@ -64,6 +64,7 @@ neomd run path/to/run_dir --steps 50000 --platform cpu   # --kernel openmm|fake|
 neomd prepare prep_config.yaml                            # system preparation (protein+ligand+solvent)
 neomd migrate old_v1_config.yaml -o plan.yaml             # one-shot v1 YAML -> Plan translation
 neomd validate plan.yaml --check-files                    # report every problem, write nothing
+neomd analysis fes path/to/run_dir                        # post-run analysis (see "Analyzing runs")
 neomd version
 ```
 
@@ -250,6 +251,52 @@ charge fitting), `ligand` (RDKit/openff processing), `convert`, `fix_protein`
 `openmm_privates.py` behind a pinned-version gate (openmm 8.6.x) that raises
 `UpstreamVersionError` otherwise.
 
+## Analyzing runs
+
+Method doc with background, conventions and the analytic double-well test
+suite: [docs/methods/analysis.md](docs/methods/analysis.md).
+
+`neomd analysis` (the `neomd.analysis` subpackage behind it) reads the v2
+artifact formats — `colvar.tsv`, `hills.npz`, `smd.tsv` — plus the run
+manifest, which is where the grid metadata lives. No v1 compatibility and no
+plotting: outputs are tsv/json to stdout or `--out` files. numpy-only,
+deterministic, openmm-free.
+
+```bash
+neomd analysis fes run_dir --out fes.tsv          # WT FES from hills (same
+                                                  # layout as the run's own
+                                                  # fes.tsv; --bins N for a
+                                                  # custom-resolution grid)
+neomd analysis convergence run_dir --blocks 4     # window-split max/mean
+                                                  # |dFES| table (收敛差值)
+neomd analysis block-average run_dir --column phi # mean + statistical error
+                                                  # of a tape column (also
+                                                  # accepts a .tsv directly)
+neomd analysis reweight run_dir --observable phi \ # Tiwary-Parrinello c(t)
+    --cv phi --fes-out rw_fes.tsv                 # reweighting (+ profile)
+neomd analysis merge walker_a walker_b --out merged # multi-walker hills
+                                                    # merge into one run dir
+```
+
+Several `RUN_DIR`s merge on the fly (multi-walker hills) wherever the
+command accepts them. Conventions worth knowing:
+
+- the FES estimator is the producer's own well-tempered relation
+  `FES = -((T+dT)/dT) * bias`, `dT = T*(biasFactor-1)`; the ledger replay is
+  bit-identical to the running method's bias (pinned by tests);
+- `hills.npz` positions are in kernel units (radians for angular CVs) while
+  `colvar.tsv` carries natural units (degrees) — the analysis converts
+  through the same port table the run used;
+- reweighting needs no bias column in the tape: `c(t)` is rebuilt from the
+  hills deposited strictly before each colvar row (the bias that row was
+  actually sampled under — probes fire before hill deposition).
+
+The same surface is importable for programs (`from neomd.analysis import
+fes_from_hills, block_average, reweight_expectation, ...`) — it is the
+shared base the GaMD reweighting, OPES, RBFE (BAR/MBAR) and ML-CV
+convergence work builds on. Flooding-style dynamics analysis is a
+documented follow-up: the new formats do not define the quantity yet.
+
 ## Extending NeoDynamics
 
 Register a knowledge triple — the registry is the public plugin surface
@@ -358,6 +405,9 @@ NeoDynamics/
 │   ├── colvars.py             # 5 collective-variable triples
 │   ├── registry.py            # the extension rack (restraint/cv/method/probe)
 │   ├── methods/metadynamics.py# well-tempered metadynamics
+│   ├── analysis/              # post-run analysis: readers, WT FES, convergence,
+│   │                          # block averaging, TP reweighting, multi-walker
+│   │                          # merge (+ the `neomd analysis` CLI commands)
 │   ├── kernel/                # KernelPort seam: port.py + openmm/fake/replay adapters
 │   ├── tools/                 # external-process adapters (antechamber, orca, ligand, ...)
 │   └── migrate_v1.py          # one-shot v1 YAML → Plan translator (a tool, not runtime)

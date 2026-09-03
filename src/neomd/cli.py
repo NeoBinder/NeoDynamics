@@ -28,6 +28,11 @@ mapping onto a public library call —
                      file-existence / index-bounds / method-schema tier.
                      Reports EVERY problem in one pass, writes nothing,
                      exits 2 on problems ("nothing was executed" footer).
+    analysis RUN_DIR [RUN_DIR ...] ...   (see `neomd analysis -h`)
+                  -> post-run analysis of the v2 artifact formats, mapped
+                     onto the neomd.analysis public API: fes / convergence /
+                     block-average / reweight / merge sub-subcommands;
+                     tsv/json payloads to stdout or --out files
     version       -> neomd.__version__
 
 Exit codes: 0 success; 2 user error — the :class:`~neomd.errors.NeoUserError`
@@ -109,6 +114,14 @@ def build_parser() -> argparse.ArgumentParser:
                           help="also check that input files exist and atom "
                                "indices fall inside the system")
     validate.set_defaults(func=_cmd_validate)
+
+    analysis = sub.add_parser(
+        "analysis",
+        help="analyze run artifacts (hills/colvar/smd tapes: FES, "
+             "convergence, block averaging, reweighting, multi-walker merge)")
+    from .analysis.cli import add_analysis_parser
+
+    add_analysis_parser(analysis)  # sub-subcommands set their own func
 
     version = sub.add_parser("version", help="print the neomd version")
     version.set_defaults(func=_cmd_version)
