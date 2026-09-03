@@ -1,4 +1,4 @@
-"""neomd.ml — the self-developed ML/MM coupling module (ADR-0004, W2-d).
+"""neomd.ml — the self-developed ML/MM coupling module (ADR-0004, W2-d + W3-c).
 
 Decision record (2026-09-02/03): openmm-ml is NOT a dependency.  Only its
 generic layer would be useful and only the mechanical-embedding half of that;
@@ -13,6 +13,9 @@ Layout:
 * :mod:`neomd.ml.spec`     openmm-free core: raw ``ml_region`` -> frozen
                            :class:`~neomd.ml.spec.MLRegion` (shape, defaults,
                            vocabulary shared with plan validation);
+* :mod:`neomd.ml.selection` the residue-selector grammar (W3-c active-site
+                           regions): ``"CHAIN:RESID"`` / ``"CHAIN:NAME"``
+                           resolved against the system topology;
 * :mod:`neomd.ml.embedding` mechanical embedding, ported VERBATIM from
                            openmm-ml 1.7 (MIT, attribution in the header);
 * :mod:`neomd.ml.mock`     the mock NNP — standard openmm custom forces, a
@@ -30,12 +33,21 @@ The openmm adapter (``kernel/openmm.py``) is the only caller of
 :func:`neomd.ml.assemble.assemble_ml_region`.
 """
 
+from .selection import (
+    RESIDUE_SELECTOR_RE,
+    is_residue_selector,
+    match_residue_selector,
+    parse_residue_selector,
+    resolve_residues,
+)
 from .spec import (
     ML_REGION_KEYS,
     MOCK_DEFAULTS,
     MODEL_KEYS,
     MODEL_TYPES,
     MLRegion,
+    flatten_indices,
+    flatten_selectors,
     parse_ml_region,
 )
 
@@ -46,4 +58,11 @@ __all__ = [
     "ML_REGION_KEYS",
     "MODEL_KEYS",
     "MOCK_DEFAULTS",
+    "flatten_indices",
+    "flatten_selectors",
+    "RESIDUE_SELECTOR_RE",
+    "is_residue_selector",
+    "parse_residue_selector",
+    "match_residue_selector",
+    "resolve_residues",
 ]

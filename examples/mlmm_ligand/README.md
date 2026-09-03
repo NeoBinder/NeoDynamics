@@ -7,8 +7,22 @@ charges for the ML↔MM electrostatics; ported verbatim from openmm-ml, see
 ADR-0004) — through the public `md_run`/`compile` facade.
 
 Decision pointer: [docs/adr/0004-mlmm-in-tree-coupling.md](../../docs/adr/0004-mlmm-in-tree-coupling.md).
-Config keys: `ml_region.indices` (ligand particle indices, ligand-only in
-this phase) + `ml_region.model` (`type: torchscript|mock`).
+Config keys: `ml_region.indices` (particle indices, ligand-only — W2-d) or
+`ml_region.residues` (residue selectors, active-site regions — W3-c; the two
+forms are mutually exclusive) + `ml_region.model` (`type: torchscript|mock`).
+
+## Region extent
+
+`--region ligand` (default, W2-d): the JZ4 ligand as a raw index list.
+`--region active-site` (W3-c, ADR-0004 addendum): the ligand **plus two
+pocket residues** (GLN102, LEU133 — crystal contacts 0.26/0.36 nm) spelled
+as residue selectors `["B:JZ4", "A:102", "A:133"]` (grammar: `CHAIN:RESID`
+by author numbering or `CHAIN:NAME` by residue name — `neomd.ml.selection`).
+Cross-boundary bonded terms — the peptide bonds joining GLN102/LEU133 to
+the backbone — **stay in MM** (policy (a), the GROMACS QM/MM convention;
+link-atom capping is future work together with true QM/MM). Selectors
+resolve against the prepared complex topology; an unmatched selector fails
+loudly with a did-you-mean.
 
 ## Files
 
@@ -32,6 +46,9 @@ pixi run -e ml python examples/mlmm_ligand/run_mlmm.py --workdir /tmp/mlmm_demo 
 
 # torch-free tier: the mock NNP (runs in any environment, e.g. -e test)
 pixi run -e test python examples/mlmm_ligand/run_mlmm.py --workdir /tmp/mlmm_demo --mock --ps 2
+
+# W3-c active-site region: ligand + GLN102/LEU133 as residue selectors
+pixi run -e ml python examples/mlmm_ligand/run_mlmm.py --workdir /tmp/mlmm_as --region active-site --ps 2
 ```
 
 Preparation (~20 s, GAFF via antechamber) is skipped on re-runs once
@@ -87,5 +104,8 @@ charge handling; see ADR-0004).
 * `tests/v2/test_mlmm.py` — mock pipeline (default gate, torch-free),
   TorchScript round-trip + openmm-ml cross-validation (ml env /
   import-gated): `pixi run -e ml test-ml`.
+* `tests/v2/test_mlmm_residues.py` — the W3-c residue-selector grammar,
+  boundary-bond policy matrix (which bonded terms survive/die, pinned by
+  an analytic energy read), torch-tier residue round-trip.
 * `tests/v2/test_3htb_e2e.py::test_ml_region_ligand_mock_smoke` — this
   fixture's reduced in-CI smoke.

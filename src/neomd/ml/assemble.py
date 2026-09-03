@@ -10,6 +10,13 @@ ML force is added (the embedding's own XML round-trip happens while the System
 is still pure MM).
 
 Openmm-free at import (engine calls are lazy, mirroring prepare.py).
+
+W3-c: the region may be spelled with ``residues`` selectors (active-site
+regions) — resolved HERE against the topology the adapter passes, so the
+embedding always consumes a resolved atom list no matter which spelling the
+plan used.  Boundary-bond policy (a) — cross-boundary MM bonded terms are
+RETAINED — is the embedding's own by-construction behavior; see its module
+docstring and the ADR-0004 W3-c addendum.
 """
 
 from __future__ import annotations
@@ -23,7 +30,7 @@ __all__ = ["assemble_ml_region"]
 
 
 def assemble_ml_region(system, raw_ml_region, positions,
-                       pick_group: Callable) -> tuple:
+                       pick_group: Callable, topology=None) -> tuple:
     """Apply mechanical embedding + install the NNP force; returns
     ``(new_system, region, installed)`` where ``installed`` is the list of
     ``(force group, Force)`` pairs the model contributed.
@@ -43,8 +50,13 @@ def assemble_ml_region(system, raw_ml_region, positions,
         every ML force the same id): called with the current mixed System,
         returns one free force-group id (the port's ``pick_free_force_group``
         wrapped by the adapter with the current force holders).
+    topology: openmm.app.Topology
+        The loaded complex structure's topology — REQUIRED when the region
+        is spelled with ``residues`` selectors (W3-c), ignored for
+        ``indices``.  The adapter always passes it (it loads the structure
+        before assembly anyway).
     """
-    region: MLRegion = parse_ml_region(raw_ml_region)
+    region: MLRegion = parse_ml_region(raw_ml_region, topology)
 
     def add_ml_forces(mixed_system) -> None:
         def pick() -> int:

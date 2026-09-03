@@ -1,16 +1,12 @@
 # 方法文档索引
 
-每个采样方法一份独立文档（`docs/methods/<method>.md`），收录背景动机
-（含来源 issue）、与 issue 方案的 v2 差异决策、使用（YAML 示例）、
-架构与产物、参考文献。
-
-| 方法 | 文档 | 来源 issue | 状态 |
-|---|---|---|---|
-| gamd | [gamd.md](gamd.md) | #10 | 已实现（`methods/gamd.py`，ADR-0005 BoostOps） |
 每个特性一份独立方法文档；本文件只做索引。
 
-- [mlmm.md](mlmm.md) —— ML/MM 耦合：ml_region + TorchScript/mock NNP 两适配器
-  （issue #12 W2-d，ADR-0004）
+- [gamd.md](gamd.md) —— GaMD 高斯加速 MD：BoostOps 缝、标定预跑、
+  dual/LiGaMD 模式（issue #10，W2-b，ADR-0005）
+- [mlmm.md](mlmm.md) —— ML/MM 耦合：ml_region（indices + W3-c 活性位点
+  residues 选择器）+ TorchScript/mock NNP 两适配器（issue #12 W2-d/W3-c，
+  ADR-0004）
 - [mlcv.md](mlcv.md) —— ML 集体变量期 1：featurize/train/convert CLI
   （issue #9 期 1，W2-c，ADR-0006）
 - [opes.md](opes.md) —— OPES 增强采样方法（KDE bias、kernels.npz 回放；
@@ -21,6 +17,5 @@
   rmsd-as-CV 知识三元组与双轨实现（issue #14 残留，W1-b）
 - [qc.md](qc.md) —— 结构质量校验 `neomd.qc`：openmm-free 几何检查 +
   prepare/min 挂钩 + `qc_report.json` + issue #7 回归（issue #15 + #7，W1-c）
-
 - [boresch.md](boresch.md) —— Boresch 取向锚 restraint triple：3+3 锚原子、
   6 分量取向约束（issue #8 先行切片，W1-d，ADR-0003）

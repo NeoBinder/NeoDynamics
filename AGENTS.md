@@ -97,11 +97,16 @@ release together with the `neomd2` script alias.
   (`UpstreamVersionError` outside openmm 8.6.x) — add new private touches
   there, never inline.
 - **ML/MM** (`ml/`, ADR-0004): `KernelSpec.ml_region` (the barostat-shaped
-  pre-Context assembly spec `{"indices", "model": {"type":
-  "torchscript"|"mock", ...}}`) is assembled by the openmm adapter via
+  pre-Context assembly spec `{"indices" | "residues", "model": {"type":
+  "torchscript"|"mock", ...}}` — the two region forms are mutually
+  exclusive; `residues` selectors (`CHAIN:RESID` / `CHAIN:NAME`,
+  `ml/selection.py`) resolve against the complex topology, W3-c) is
+  assembled by the openmm adapter via
   `ml.assemble` — mechanical embedding ported VERBATIM from openmm-ml 1.7
   (MIT, attribution in `ml/embedding.py`) + the NNP force; never written
-  into system.xml (the NNP Force is not XML-serializable). openmm-ml is NOT
+  into system.xml (the NNP Force is not XML-serializable). Cross-boundary
+  bonded terms of residue regions stay MM (ADR-0004 W3-c addendum).
+  openmm-ml is NOT
   a dependency (registry rejected; import-gated cross-validation only); the
   model file is the interface (nm-in / kJ/mol-out unit contract documented
   in `ml/torchscript.py`); the mock NNP keeps the whole pipeline testable

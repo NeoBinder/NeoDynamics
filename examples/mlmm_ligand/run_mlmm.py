@@ -73,6 +73,14 @@ def parse_args(argv=None):
                         help="working directory (created; reused between runs)")
     parser.add_argument("--mock", action="store_true",
                         help="use the mock NNP (no torch needed; NOT physics)")
+    parser.add_argument("--region", choices=("ligand", "active-site"),
+                        default="ligand",
+                        help="ML region extent: 'ligand' = the JZ4 ligand "
+                             "only (W2-d, spelled as indices); 'active-site' "
+                             "= ligand (chain B) + pocket residues GLN102/LEU133 "
+                             "(W3-c, spelled as residue selectors — the "
+                             "cross-boundary bonded terms stay MM per "
+                             "ADR-0004's W3-c addendum)")
     parser.add_argument("--ps", type=float, default=DEFAULT_PS,
                         help=f"MD leg length in picoseconds "
                              f"(default {DEFAULT_PS})")
@@ -140,8 +148,35 @@ def ligand_indices(complex_path):
 # ---------------------------------------------------------------------------
 
 
-def ml_region(workdir, mock):
+def ml_region(workdir, mock, region="ligand"):
     files = prepared_files(workdir)
+
+    if region == "active-site":
+        # W3-c: residue selectors (ADR-0004 addendum) — the ligand by
+        # resname plus two pocket residues (crystal-contact 0.26/0.36 nm).
+        # The cross-boundary backbone terms of GLN102/LEU133 stay MM.
+        selectors = ["B:JZ4", "A:102", "A:133"]
+        if mock:
+            return {"residues": selectors, "model": {"type": "mock"}}, None
+        import numpy as np
+        from build_toy_model import build  # same directory
+        from openmm import app, unit
+
+        structure = app.PDBxFile(files["complex"])
+        positions = np.asarray(structure.positions.value_in_unit(unit.nanometer),
+                               dtype=np.float64)
+        from neomd.ml.selection import resolve_residues
+        indices = sorted(resolve_residues(selectors, structure.topology))
+        model_path = os.path.join(workdir, "toy_nnp.pt")
+        build(model_path, indices, positions[indices])
+        return ({"residues": selectors,
+                 "model": {"type": "torchscript", "path": model_path,
+                           # the toy computes NO electrostatics and ignores
+                           # the box (same contract note as the ligand form)
+                           "long_range_electrostatics": False,
+                           "periodic": False}},
+                model_path)
+
     indices = ligand_indices(files["complex"])
     if mock:
         return {"indices": indices, "model": {"type": "mock"}}, None
@@ -236,10 +271,14 @@ def main(argv=None) -> int:
     report["stages"]["prepare"] = prep
     print(f"[prepare] {prep}", flush=True)
 
-    region, model_path = ml_region(workdir, args.mock)
-    report["ligand_atoms"] = len(region["indices"])
+    region, model_path = ml_region(workdir, args.mock, args.region)
+    extent = (region.get("residues") or
+              f"{len(region['indices'])} ligand atoms")
+    report["region"] = args.region
+    report["region_extent"] = (list(region["residues"]) if "residues" in region
+                               else len(region["indices"]))
     report["model"] = region["model"]
-    print(f"[ml_region] {len(region['indices'])} ligand atoms, model "
+    print(f"[ml_region] {args.region}: {extent}, model "
           f"{region['model']}", flush=True)
 
     min_report, min_out = run_min_leg(workdir, region, args.min_maxiter)

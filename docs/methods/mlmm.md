@@ -1,7 +1,8 @@
 # ML/MM 耦合（ML-potential region）
 
 - issue：[#12](https://github.com/cyrushu/NeoDynamics/issues/12)（QM/MM 修复与完整化 → ML/MM 切片）
-- 实现状态：W2-d 已落地（ligand-only ML 区；活性位点残基跨界处理为 W3-c）
+- 实现状态：W2-d 已落地（ligand-only ML 区）；W3-c 已落地（活性位点
+  残基 ML 区——见「活性位点残基 ML 区」章节）
 - 决策记录：[ADR-0004](../adr/0004-mlmm-in-tree-coupling.md)
 
 ## 背景与动机
@@ -114,3 +115,65 @@ ml_region:
 - openmm-ml（MIT，机械嵌入移植源，v1.7 / commit `501c3a0`）
 - REANN ML/MM, *JCTC* 2025（<0.5 kcal/mol、80× 加速——issue #12 引用的
   ML/MM 酶位点可用性文献）
+
+## 活性位点残基 ML 区（W3-c 扩展）
+
+ADR-0004 的重开条件之一"跨边界残基 ML 区"由 W3-c 落地（2026-09-03，
+ADR-0004 W3-c 附录）；上文基础章节不变，本节为该分支的扩展内容。
+
+### 背景与动机
+
+W2-d 首期 ML 区限定 ligand-only，把活性位点残基（酶催化口袋、配体
+结合口袋）排除在外——而 issue #12 的原始场景（P450 Cpd I 等酶反应
+位点）恰恰要求把口袋残基划进 ML 区。口袋残基与链上其余部分以肽键
+相连，ML 区第一次出现**跨界共价键**，嵌入层的"删哪些 MM 项"需要
+一条明确的边界政策。
+
+### 决策（ADR-0004 W3-c 附录）
+
+1. **残基选择器 `ml_region.residues`**：接受 `"CHAIN:RESID"`（尾部
+   数字 → 按 residue id 匹配，PDB 作者编号）与 `"CHAIN:NAME"`（尾部
+   非数字 → 按 residue name 匹配，如配体 `"A:JZ4"`）两种拼写，大小写
+   不敏感；`indices` 与 `residues` **互斥**（两种方式同时定义会留下
+   静默过期的索引表）。选择器在 `neomd validate --check-files` 层与
+   openmm 适配器装配时各解析一次（后者是权威——手工构建的
+   `KernelSpec` 也走同一防御门）。语法与解析实现在
+   `neomd/ml/selection.py`（openmm-free，鸭子类型拓扑），未命中的
+   选择器以 did-you-mean 报错。
+2. **跨界键政策（a）——跨界 MM 键合项保留在 MM**：凡键/角/二面角
+   含**任一** MM 原子即保留为 MM 项；只有全 ML 项从 MM 删除、交由
+   NNP。依据：openmm-ml 的 `removeBonds` 本就只删全 ML 键（移植体
+   行为逐字如此），也是 GROMACS QM/MM 共价边界的惯例。后果（诚实
+   认领）：边界 ML 原子对 MM 伙伴仍带 MM 键合项，交界处自身化学由
+   双方各自描述（机械嵌入、无 link atom、无电荷再分布）；
+   `constraints: HBonds` 下 ML 区内 X-H 约束不删（约束无能量、
+   不双计，但该自由度保持刚性）。link-atom 加帽与边界参数重拟合
+   **列为后续工作**，与真 QM/MM 一并决策（届时另立 ADR）。
+3. **非键例外同原逻辑**：ML-ML 对加零化例外；跨界 MM-MM/ML-MM 的
+   预存 1-2 例外原样保留（不双计证明见
+   `tests/v2/test_mlmm_residues.py` 的边界矩阵测试——存活/删除项
+   与解析能量双向钉死：装配后力项集合 + 专用双残基 fixture 上的
+   解析能量读数（plain + mixed）两路验证）。
+4. **真 QM/MM（ORCA / link atom / 电荷位移）维持暂缓**（卷首决策），
+   重启时另立 ADR；本附录不为其预留任何接口。
+
+### 使用
+
+```yaml
+ml_region:
+  residues: ["B:JZ4", "A:102", "A:133"]  # CHAIN:RESID（作者编号）或
+                                         # CHAIN:NAME（如配体）；
+                                         # indices 与之互斥
+  model: { ... }                          # 同基础章节
+```
+
+演示：`examples/mlmm_ligand/run_mlmm.py --region active-site`——
+JZ4 配体 + 口袋残基（GLN102、LEU133，按晶体坐标 0.26/0.36 nm 选定）
+为 ML 区，min + MD 两腿；mock 层默认门内可跑，torch 层在 `ml` 环境
+跑 toy 模型（`pixi run -e ml`，含残基区 round-trip 测试）。
+
+### 参考与 ADR
+
+- [ADR-0004 W3-c 附录：活性位点残基 ML 区（跨界键处理）]
+  (../adr/0004-mlmm-in-tree-coupling.md)（文末附录）
+- GROMACS QM/MM 共价边界惯例（跨界键合项保留 MM 侧）

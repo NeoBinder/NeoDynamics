@@ -299,7 +299,8 @@ def _apply_system_modifications(system: openmm.System, spec: KernelSpec) -> None
             nonbonded[0].addException(particle, partner, 0, 1, 0)
 
 
-def _assemble_ml_region(system: openmm.System, spec: KernelSpec, positions):
+def _assemble_ml_region(system: openmm.System, spec: KernelSpec, positions,
+                        structure_topology):
     """ML/MM assembly (ADR-0004): mechanical embedding + the NNP force.
 
     Delegated to ``neomd.ml.assemble`` (the coupling module's adapter-side
@@ -312,6 +313,11 @@ def _assemble_ml_region(system: openmm.System, spec: KernelSpec, positions):
     never serialized again — which is the whole reason ml_region lives
     adapter-side and never touches system.xml at the prepare layer.  Runs
     pre-Context (called from ``__init__``), like the v1 modification order.
+
+    ``structure_topology``: the loaded complex structure's topology — the
+    W3-c ``residues`` selectors resolve against it HERE (the definitive
+    resolution; ``neomd validate --check-files`` is the early echo of the
+    same grammar against the same file).
     """
 
     def pick_group(target: openmm.System) -> int:
@@ -324,7 +330,8 @@ def _assemble_ml_region(system: openmm.System, spec: KernelSpec, positions):
     from ..ml.assemble import assemble_ml_region
 
     new_system, _region, _installed = assemble_ml_region(
-        system, spec.ml_region, positions, pick_group)
+        system, spec.ml_region, positions, pick_group,
+        topology=structure_topology)
     return new_system
 
 
@@ -341,11 +348,13 @@ class OpenMMKernel:
         if spec.ml_region:
             # ML/MM (ADR-0004): mechanical embedding + NNP force, pre-Context.
             # The structure is loaded first — the mock NNP's tethers anchor to
-            # the INPUT geometry.  The embedding returns a NEW System (its XML
+            # the INPUT geometry, and the residues selectors resolve against
+            # its topology.  The embedding returns a NEW System (its XML
             # round-trip); everything downstream (contexts, install_bias group
             # allocation) sees the assembled one.
             self.system = _assemble_ml_region(
-                self.system, spec, self._structure.positions)
+                self.system, spec, self._structure.positions,
+                self._structure.topology)
         # eager validation of integrator/platform without creating a Context
         self._integrator = _make_integrator(spec)
         self._platform_kwargs = _platform_config(spec)

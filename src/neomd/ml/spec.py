@@ -10,11 +10,15 @@ The plan-level validation (collect-all, yaml key path + did-you-mean) lives in
 assembly boundary as a defensive second gate (a hand-built ``KernelSpec``
 bypasses the Plan validator — the adapter must not trust its input).
 
-Shape (ADR-0004)::
+Shape (ADR-0004 + the W3-c addendum)::
 
     ml_region:
-      indices: [i, j, ...]        # 0-based particle indices, ligand-only (W2-d)
-      model:
+      indices: [i, j, ...]        # form 1: 0-based particle indices
+      residues: ["A:29", "A:JZ4"] # form 2: residue selectors (W3-c; active-
+                                 # site regions) — resolved against the
+                                 # system topology at check-files/assembly
+                                 # time (grammar: ml.selection)
+      model:                      # EXACTLY ONE of indices/residues
         type: torchscript | mock
         path: model.pt            # torchscript only; the model file IS the
                                   # interface (no per-model registry)
@@ -23,6 +27,11 @@ Shape (ADR-0004)::
         tether_k: 500.0           # mock only (kJ/mol/nm^2)
         repulsion_k: 1.0          # mock only (kJ/mol)
         repulsion_sigma: 0.15     # mock only (nm)
+
+The two region forms are MUTUALLY EXCLUSIVE (an explicit W3-c decision — see
+the ADR-0004 addendum): a region defined two ways invites the stale-index-list
+silently surviving a switch to selectors.  ``residues`` accepts the same
+comma-string spelling as ``indices`` (``"A:JZ4,A:29"`` == the two-item list).
 """
 
 from __future__ import annotations
@@ -31,15 +40,16 @@ from dataclasses import dataclass
 from typing import Mapping
 
 from ..errors import ConfigKeyError, ConfigValueError
+from .selection import is_residue_selector, resolve_residues
 
 __all__ = ["MLRegion", "MODEL_TYPES", "ML_REGION_KEYS", "MODEL_KEYS",
-           "flatten_indices", "parse_ml_region"]
+           "flatten_indices", "flatten_selectors", "parse_ml_region"]
 
 #: accepted model.type values (the vocabulary plan validation reports)
 MODEL_TYPES = ("mock", "torchscript")
 
 #: accepted ml_region keys
-ML_REGION_KEYS = frozenset({"indices", "model"})
+ML_REGION_KEYS = frozenset({"indices", "residues", "model"})
 
 #: accepted model keys (union over model types; per-type required sets below)
 MODEL_KEYS = frozenset({
@@ -96,11 +106,30 @@ def flatten_indices(value) -> list[int]:
     return [-1]
 
 
+def flatten_selectors(value) -> list[str]:
+    """residues spelling (selector str | comma-joined str | list) -> selectors.
+
+    Mirrors :func:`flatten_indices`' tolerance (``"A:JZ4,A:29"`` and
+    ``["A:JZ4", "A:29"]`` mean the same region).  Non-selector entries come
+    back verbatim so the caller's grammar check can report them.
+    """
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    if isinstance(value, (list, tuple)):
+        out: list[str] = []
+        for item in value:
+            out.extend(flatten_selectors(item))
+        return out
+    return [value]  # scalar garbage — reported by the grammar check verbatim
+
+
 @dataclass(frozen=True)
 class MLRegion:
     """Normalized ML region (openmm-free; consumed by the adapter assembly).
 
-    ``indices``: sorted unique 0-based particle indices of the ML region.
+    ``indices``: sorted unique 0-based particle indices of the ML region —
+    verbatim from the ``indices`` spelling, or RESOLVED from the ``residues``
+    selectors against the system topology (W3-c: active-site regions).
     ``model_type``: ``"mock"`` or ``"torchscript"``.
     ``params``: the model section verbatim (path, mock knobs, ...).
     """
@@ -126,45 +155,86 @@ class MLRegion:
         return None if declared is None else bool(declared)
 
 
-def _problem(path: tuple, message: str, key=None, known_keys=None):
+def _problem(path: tuple, message: str, key=None, known_keys=None, value=None):
     """Build the error the way plan.py's validator does (path + did-you-mean)."""
     exc = ConfigKeyError if known_keys is not None else ConfigValueError
-    return exc(message, key=key if key is not None else path[-1],
-               known_keys=known_keys)
+    kwargs = {"key": key if key is not None else path[-1],
+              "known_keys": known_keys}
+    if value is not None:
+        kwargs["value"] = value
+    return exc(message, **kwargs)
 
 
-def parse_ml_region(raw) -> MLRegion:
+def parse_ml_region(raw, topology=None) -> MLRegion:
     """Raw ml_region mapping -> :class:`MLRegion` (raises on any bad shape).
 
     The FIRST problem raises (this is the defensive boundary gate, not the
     collect-all pass — collect-all belongs to Plan validation, which normal
     runs always pass through first).
+
+    ``topology``: required to RESOLVE the ``residues`` form (anything with
+    the ``openmm.app.Topology`` atom surface — the adapter passes the loaded
+    complex structure's topology); the ``indices`` form ignores it.
     """
     if not isinstance(raw, Mapping):
         raise _problem(("ml_region",),
-                       f"ml_region must be a mapping with 'indices' and "
-                       f"'model', got {type(raw).__name__}")
+                       f"ml_region must be a mapping with 'indices' or "
+                       f"'residues' and 'model', got {type(raw).__name__}")
     for key in raw:
         if key not in ML_REGION_KEYS:
             raise _problem(("ml_region", key),
                            f"unknown ml_region key {key!r}",
                            key=key, known_keys=ML_REGION_KEYS)
-    if "indices" not in raw or "model" not in raw:
-        missing = "indices" if "indices" not in raw else "model"
-        raise _problem(("ml_region", missing),
-                       f"ml_region requires {missing!r}",
-                       key=missing, known_keys=ML_REGION_KEYS)
-
-    indices = flatten_indices(raw["indices"])
-    if not indices or indices[0] < 0:
+    has_indices, has_residues = "indices" in raw, "residues" in raw
+    has_model = "model" in raw
+    if not (has_indices or has_residues) or not has_model:
+        # 'indices' or 'residues' (either form) AND 'model' — rendered in
+        # that grammar, with a missing piece as the key-path leaf
+        region_part = "'indices' or 'residues' (the ML region's atoms)"
+        if not (has_indices or has_residues) and not has_model:
+            message, leaf = f"ml_region requires {region_part}, and 'model'", "indices"
+        elif not has_model:
+            message, leaf = "ml_region requires 'model'", "model"
+        else:
+            message, leaf = f"ml_region requires {region_part}", "indices"
+        raise _problem(("ml_region", leaf), message,
+                       key=leaf, known_keys=ML_REGION_KEYS)
+    if has_indices and has_residues:
         raise _problem(
-            ("ml_region", "indices"),
-            "ml_region.indices must be a non-empty list of 0-based particle "
-            "indices (ints, or the comma-string spelling)")
-    if any(i < 0 for i in indices):
-        raise _problem(("ml_region", "indices"),
-                       "ml_region.indices must be non-negative")
-    indices = tuple(sorted(set(indices)))
+            ("ml_region",),
+            "ml_region takes EITHER 'indices' OR 'residues', not both — a "
+            "region defined two ways invites a stale list silently surviving "
+            "a switch of spelling (ADR-0004 W3-c addendum)",
+            known_keys=ML_REGION_KEYS)
+
+    if has_indices:
+        indices = flatten_indices(raw["indices"])
+        if not indices or indices[0] < 0:
+            raise _problem(
+                ("ml_region", "indices"),
+                "ml_region.indices must be a non-empty list of 0-based particle "
+                "indices (ints, or the comma-string spelling)")
+        if any(i < 0 for i in indices):
+            raise _problem(("ml_region", "indices"),
+                           "ml_region.indices must be non-negative")
+        resolved = tuple(sorted(set(indices)))
+    else:
+        selectors = flatten_selectors(raw["residues"])
+        bad = [s for s in selectors if not is_residue_selector(s)]
+        if not selectors or bad:
+            raise _problem(
+                ("ml_region", "residues"),
+                "ml_region.residues must be a non-empty list of 'CHAIN:RESID' "
+                "/ 'CHAIN:NAME' selectors (e.g. \"A:29\", \"A:JZ4\"; the "
+                "comma-string spelling is accepted)", value=bad[0] if bad else None)
+        if topology is None:
+            raise _problem(
+                ("ml_region", "residues"),
+                "ml_region.residues must be resolved against the system "
+                "topology — this entry point received none (resolution "
+                "happens at neomd validate --check-files and at the openmm "
+                "adapter's assembly)")
+        resolved = tuple(resolve_residues(selectors, topology))
 
     model = raw["model"]
     if not isinstance(model, Mapping) or not isinstance(model.get("type"), str):
@@ -201,4 +271,4 @@ def parse_ml_region(raw) -> MLRegion:
             ("ml_region", "model", "long_range_electrostatics"),
             "ml_region.model.long_range_electrostatics must be a boolean",
             key="long_range_electrostatics")
-    return MLRegion(indices=indices, model_type=model_type, params=params)
+    return MLRegion(indices=resolved, model_type=model_type, params=params)

@@ -388,7 +388,10 @@ class KernelSpec:
     #: adapter, ignored by kernels without a NonbondedForce
     dummy_exceptions: tuple[tuple[int, int], ...] | None = None
     #: ML/MM region (ADR-0004), the raw plan section verbatim:
-    #: ``{"indices": [...], "model": {"type": "torchscript"|"mock", ...}}``.
+    #: ``{"indices": [...], "residues": [...], "model": {"type":
+    #: "torchscript"|"mock", ...}}`` — EXACTLY ONE of indices/residues (the
+    #: W3-c residue selectors resolve against the loaded complex topology at
+    #: the openmm adapter's assembly).
     #: Like barostat/dummy_exceptions this is a PRE-CONTEXT System-assembly
     #: instruction — but the openmm adapter assembles it through
     #: ``neomd.ml.assemble`` (mechanical embedding + NNP force) and NEVER

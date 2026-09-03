@@ -269,10 +269,11 @@ def build_kernel_spec(plan: Plan, *, kind: str = "openmm",
       adapter takes pressure/frequency from it and defaults temperature to
       the plan temperature, exactly like v1 defaulted it from the config;
     * ``particle_masses`` from ``system_modification`` (see above).
-    * ``ml_region`` (ADR-0004) is the RAW section verbatim — the openmm
-      adapter assembles the mechanical embedding + NNP force from it BEFORE
-      creating a Context (it must never reach system.xml: the NNP Force is
-      not XML-serializable); the fake kernel ignores it.
+    * ``ml_region`` (ADR-0004 + W3-c) is the RAW section verbatim — the
+      openmm adapter assembles the mechanical embedding + NNP force from it
+      BEFORE creating a Context (it must never reach system.xml: the NNP
+      Force is not XML-serializable); ``residues`` selectors resolve there
+      against the loaded complex topology; the fake kernel ignores it.
     """
     from .kernel.port import KernelSpec
 

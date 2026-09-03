@@ -23,6 +23,27 @@ region's internal energy:
   (wrapped in ``-excludeForce`` CustomCVForce);
 * CustomNonbondedForce objects get ML-ML exclusions.
 
+THE BOUNDARY-BOND POLICY (W3-c, active-site residue regions; decided in the
+ADR-0004 W3-c addendum — literature-standard, and this port's own by
+construction): bonded terms that STRADDLE the ML/MM boundary — bonds, angles
+or torsions with ANY atom in MM — are RETAINED as MM terms.  Consequences,
+stated honestly:
+
+* boundary ML atoms still carry their MM bonded terms toward MM partners
+  (e.g. the peptide bond joining an ML residue to the protein backbone),
+  while their ML-internal terms are NNP-computed — the junction's own
+  chemistry is described by neither side's electronic structure (mechanical
+  embedding: no link atoms, no charge redistribution; the ML atoms' MM
+  charges are untouched).  This is the openmm-ml behavior verbatim (its
+  ``removeBonds`` likewise removes only all-ML terms) and the GROMACS
+  QM/MM convention for covalent boundaries;
+* Constraints are NOT removed by ``removeBonds`` (also the source verbatim):
+  with ``constraints: HBonds`` an ML region containing protein keeps its
+  X-H constraints — no energy double-count (constraints are workless), but
+  those internal DOFs stay rigid rather than NNP-flexible;
+* link-atom capping and re-fit boundary parameters are FUTURE WORK, to be
+  decided together with true QM/MM (a new ADR, per the dev plan).
+
 Documented deviations from the source (each is a seam, not physics):
 
 1. the source's two ``MLPotentialImpl`` seams become plain parameters:

@@ -635,14 +635,16 @@ def _validate_restraint_spec_keys(name: str, spec: Mapping, entry,
 
 
 def _validate_ml_region_section(data: Mapping, ctx: _Context, problem) -> None:
-    """The ``ml_region`` section (ML/MM coupling, ADR-0004).
+    """The ``ml_region`` section (ML/MM coupling, ADR-0004 + W3-c addendum).
 
-    Shape: ``{"indices": [...], "model": {"type": "mock"|"torchscript", ...}}``
-    — indices accept the restraint spellings (int / list / comma-string).
+    Shape: ``{"indices": [...], "model": ...}`` or ``{"residues": [...],
+    "model": ...}`` — EXACTLY ONE region form (indices = raw particles;
+    residues = active-site selectors resolved later against the topology).
     Every problem is collected in one pass like everywhere else; the
-    vocabulary (keys, model types, per-type required keys) is owned by
-    ``neomd.ml.spec`` (single source of truth; the checks degrade away when
-    unimportable, like the smd RAMP_KEYS precedent).
+    vocabulary (keys, model types, per-type required keys, selector grammar)
+    is owned by ``neomd.ml.spec`` / ``neomd.ml.selection`` (single source of
+    truth; the checks degrade away when unimportable, like the smd
+    RAMP_KEYS precedent).
     """
     ml_region = data.get("ml_region")
     if not ml_region:
@@ -650,12 +652,14 @@ def _validate_ml_region_section(data: Mapping, ctx: _Context, problem) -> None:
     if not isinstance(ml_region, Mapping):
         return  # the _MAPPING_KEYS pass already reported the shape problem
     try:
+        from .ml.selection import is_residue_selector
         from .ml.spec import (
             ML_REGION_KEYS,
             MODEL_KEYS,
             MODEL_TYPES,
             REQUIRED_MODEL_KEYS,
             flatten_indices,
+            flatten_selectors,
         )
     except ImportError:  # pragma: no cover - the package ships both
         return
@@ -669,35 +673,80 @@ def _validate_ml_region_section(data: Mapping, ctx: _Context, problem) -> None:
                 known_keys=ML_REGION_KEYS,
             )
 
-    # indices: non-empty, non-negative 0-based particle indices (the
-    # ml.spec flattener accepts the comma-string spelling like the
-    # restraint group keys do)
-    raw_indices = ml_region.get("indices")
-    if raw_indices in (None, "", [], ()):
+    # the region: either 'indices' (raw 0-based particle indices, the
+    # restraint spellings accepted) or 'residues' (CHAIN:RESID / CHAIN:NAME
+    # selectors — resolved at --check-files / assembly time), never both
+    has_indices = "indices" in ml_region
+    has_residues = "residues" in ml_region
+    if has_indices and has_residues:
         problem(
             ConfigValueError,
-            "ml_region requires 'indices' (the ML region's 0-based particle "
-            "indices; ligand-only in this phase)",
-            ("ml_region", "indices"),
+            "ml_region takes EITHER 'indices' OR 'residues', not both — a "
+            "region defined two ways invites a stale list silently "
+            "surviving a switch of spelling",
+            ("ml_region",),
         )
-    else:
-        indices = flatten_indices(raw_indices)
-        if not indices or indices[0] < 0:
+    if not has_indices and not has_residues:
+        problem(
+            ConfigValueError,
+            "ml_region requires 'indices' (0-based particle indices) or "
+            "'residues' (CHAIN:RESID / CHAIN:NAME selectors)",
+            ("ml_region",),
+        )
+
+    if has_indices:
+        raw_indices = ml_region.get("indices")
+        if raw_indices in (None, "", [], ()):
             problem(
                 ConfigValueError,
-                "ml_region.indices must be 0-based particle indices (ints, a "
-                "list of ints, or the comma-string spelling)",
+                "ml_region.indices must be a non-empty list of 0-based "
+                "particle indices (ints, a list of ints, or the comma-string "
+                "spelling)",
                 ("ml_region", "indices"),
-                raw_indices,
             )
         else:
-            for index in indices:
-                if index < 0:
+            indices = flatten_indices(raw_indices)
+            if not indices or indices[0] < 0:
+                problem(
+                    ConfigValueError,
+                    "ml_region.indices must be 0-based particle indices (ints, "
+                    "a list of ints, or the comma-string spelling)",
+                    ("ml_region", "indices"),
+                    raw_indices,
+                )
+            else:
+                for index in indices:
+                    if index < 0:
+                        problem(
+                            ConfigValueError,
+                            f"ml_region.indices must be non-negative, got {index}",
+                            ("ml_region", "indices"),
+                            index,
+                        )
+
+    if has_residues:
+        selectors = flatten_selectors(ml_region.get("residues"))
+        if not selectors or selectors == [""]:
+            problem(
+                ConfigValueError,
+                "ml_region.residues must be a non-empty list of 'CHAIN:RESID' "
+                "(numeric tail, e.g. 'A:29') or 'CHAIN:NAME' (e.g. 'A:JZ4') "
+                "selectors (the comma-string spelling is accepted)",
+                ("ml_region", "residues"),
+                ml_region.get("residues"),
+            )
+        else:
+            # every bad entry is collected, not just the first (a list of
+            # selectors typically has several typos at once)
+            for selector in selectors:
+                if not is_residue_selector(selector):
                     problem(
                         ConfigValueError,
-                        f"ml_region.indices must be non-negative, got {index}",
-                        ("ml_region", "indices"),
-                        index,
+                        f"ml_region.residues entry {selector!r} is not a "
+                        f"'CHAIN:RESID' (numeric tail) or 'CHAIN:NAME' "
+                        f"selector",
+                        ("ml_region", "residues"),
+                        selector,
                     )
 
     # model: mapping with a known type, type-appropriate required keys
@@ -1487,8 +1536,8 @@ def _particle_count_from_system_xml(path: str) -> int | None:
         root = ET.parse(path).getroot()
     except (ET.ParseError, OSError):
         return None
-    return (len(root.findall("./Particles/Particle"))
-            + len(root.findall("./Particle")))
+    count = len(root.findall("./Particle")) + len(root.findall("./Particles/Particle"))
+    return count or None
 
 
 def _flatten_indices(value) -> list[int]:
@@ -1517,6 +1566,91 @@ def _flatten_indices(value) -> list[int]:
             flattened.extend(_flatten_indices(item))
         return flattened
     return []
+
+
+def _complex_topology(path: str):
+    """``openmm.app.Topology`` of a coordinate file, or None when unloadable.
+
+    The SAME loader convention as the openmm adapter's ``_load_structure``
+    (.pdbx/.cif -> PDBxFile, .pdb -> PDBFile), so check-time and run-time
+    residue selection see identical topologies.  openmm is imported lazily
+    HERE — plan.py's module import stays engine-free, and only plans with a
+    ``ml_region.residues`` section ever pay the load.
+    """
+    try:
+        from openmm import app
+    except ImportError:  # pragma: no cover - openmm is a core dependency
+        return None
+    suffix = os.path.splitext(path)[1].lower()
+    loader = app.PDBxFile if suffix in (".pdbx", ".cif") else app.PDBFile
+    try:
+        return loader(path).topology
+    except Exception:
+        return None
+
+
+def _check_ml_residue_selection(data, *, source, base_dir, errors) -> list[int]:
+    """The ``--check-files`` tier for ``ml_region.residues`` (W3-c).
+
+    Resolves every well-formed selector against the complex file's topology,
+    appending one error per unmatched selector (topology-aware did-you-mean;
+    collect-all — several selectors, several typos, one pass).  Returns the
+    resolved atom indices for the particle-bounds check in
+    :func:`check_plan_files` (empty when there is no ``residues`` section,
+    no complex file to resolve against, or nothing well-formed — each
+    already reported by its own pass).
+    """
+    ml_region = data.get("ml_region")
+    if not isinstance(ml_region, Mapping) or "residues" not in ml_region:
+        return []
+    try:
+        from .ml.selection import (
+            match_residue_selector,
+            parse_residue_selector,
+            unmatched_selector_error,
+        )
+        from .ml.spec import flatten_selectors
+    except ImportError:  # pragma: no cover - the package ships both
+        return []
+    from .errors import ConfigValueError
+
+    well_formed = []
+    for selector in flatten_selectors(ml_region.get("residues")):
+        try:
+            parse_residue_selector(selector)
+        except ConfigValueError:
+            continue  # the structural pass already reported the shape
+        well_formed.append(selector)
+    if not well_formed:
+        return []
+
+    input_files = data.get("input_files")
+    complex_value = (input_files.get("complex")
+                     if isinstance(input_files, Mapping) else None)
+    if not isinstance(complex_value, str):
+        return []  # missing complex was already reported (existence pass)
+    resolved_complex = complex_value
+    if base_dir and not os.path.isabs(resolved_complex):
+        resolved_complex = os.path.join(base_dir, resolved_complex)
+    if not os.path.exists(resolved_complex):
+        return []  # ditto
+    topology = _complex_topology(resolved_complex)
+    if topology is None:
+        errors.append(ConfigValueError(
+            f"input_files.complex could not be loaded as a topology — "
+            f"ml_region.residues were not resolved against it: "
+            f"{complex_value!r}",
+            key="complex", value=complex_value, source=source))
+        return []
+
+    resolved: set[int] = set()
+    for selector in well_formed:
+        matched = match_residue_selector(selector, topology)
+        if not matched:
+            errors.append(unmatched_selector_error(selector, topology,
+                                                   source=source))
+        resolved.update(matched)
+    return sorted(resolved)
 
 
 def check_plan_files(data: Mapping, *, source: str | None = None,
@@ -1571,6 +1705,14 @@ def check_plan_files(data: Mapping, *, source: str | None = None,
                     f"{system_path!r} (index bounds not checked)",
                     ("input_files", "system"), system_path)
 
+    # ml_region.residues (W3-c): resolved against the complex file's
+    # topology — the same grammar the adapter resolves at assembly time;
+    # every unmatched selector is reported (collect-all), each with a
+    # did-you-mean over the topology's chains / that chain's residue names.
+    # The resolved indices feed the bounds check below.
+    _resolved_ml_residue_indices = _check_ml_residue_selection(
+        data, source=source, base_dir=base_dir, errors=errors)
+
     if n_particles:
         for section in ("restraint", "colvars", "smd"):
             entries = data.get(section) or {}
@@ -1598,13 +1740,24 @@ def check_plan_files(data: Mapping, *, source: str | None = None,
                 from .ml.spec import flatten_indices as _ml_flatten
             except ImportError:  # pragma: no cover - the package ships both
                 _ml_flatten = _flatten_indices
-            for index in _ml_flatten(ml_region.get("indices")):
+            # only when the indices spelling is present (the residues
+            # spelling resolves through _check_ml_residue_selection below)
+            if ml_region.get("indices") is not None:
+                for index in _ml_flatten(ml_region.get("indices")):
+                    if index < 0 or index >= n_particles:
+                        errors.append(ConfigValueError(
+                            f"ml_region.indices index {index} is out of bounds: "
+                            f"the system has {n_particles} particles "
+                            f"(0..{n_particles - 1})",
+                            key="indices", value=index, source=source))
+            for index in _resolved_ml_residue_indices:
                 if index < 0 or index >= n_particles:
                     errors.append(ConfigValueError(
-                        f"ml_region.indices index {index} is out of bounds: "
-                        f"the system has {n_particles} particles "
-                        f"(0..{n_particles - 1})",
-                        key="indices", value=index, source=source))
+                        f"ml_region.residues resolve to index {index}, out of "
+                        f"bounds: the system has {n_particles} particles "
+                        f"(0..{n_particles - 1}) — complex and system.xml "
+                        f"disagree on particle count",
+                        key="residues", value=index, source=source))
             model = ml_region.get("model")
             if (isinstance(model, Mapping)
                     and model.get("type") == "torchscript"

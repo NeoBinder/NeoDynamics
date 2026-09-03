@@ -144,3 +144,41 @@ ml_region:
 conda-forge 发布 tracking openmm 8.6+ 的 openmm-torch；或 W3-c 落地跨边界
 残基 ML 区（需要 link-atom / 电荷再分布语义，届时嵌入层需扩展）；或真
 QM/ORCA 重启（另立 ADR）。
+
+---
+
+## W3-c 附录：活性位点残基 ML 区（跨界键处理，2026-09-03）
+
+开发计划 W3-c 落地时追加；上文其余章节不变。
+
+### 决策
+
+1. **ML 区从 ligand-only 扩展到残基选择器**：`ml_region.residues`
+   接受 `"CHAIN:RESID"`（尾部数字 → 按 residue id 匹配，PDB 作者编号）
+   与 `"CHAIN:NAME"`（尾部非数字 → 按 residue name 匹配，如配体
+   `"A:JZ4"`）两种拼写，大小写不敏感；`indices` 与 `residues`
+   **互斥**（两种方式同时定义会留下静默过期的索引表）。选择器在
+   `neomd validate --check-files` 层与 openmm 适配器装配时各解析一次
+   （后者是权威——手工构建的 `KernelSpec` 也走同一防御门）。语法与
+   解析实现在 `neomd/ml/selection.py`（openmm-free，鸭子类型拓扑）。
+2. **跨界键政策（a）——跨界 MM 键合项保留在 MM**：凡键/角/二面角
+   含**任一** MM 原子即保留为 MM 项；只有全 ML 项从 MM 删除、交由
+   NNP。依据：openmm-ml 的 `removeBonds` 本就只删全 ML 键（移植体
+   行为逐字如此），也是 GROMACS QM/MM 共价边界的惯例。后果（诚实
+   认领）：边界 ML 原子对 MM 伙伴仍带 MM 键合项，交界处自身化学由
+   双方各自描述（机械嵌入、无 link atom、无电荷再分布）；
+   `constraints: HBonds` 下 ML 区内 X-H 约束不删（约束无能量、
+   不双计，但该自由度保持刚性）。link-atom 加帽与边界参数重拟合
+   **列为后续工作**，与真 QM/MM 一并决策（届时另立 ADR）。
+3. **非键例外同原逻辑**：ML-ML 对加零化例外；跨界 MM-MM/ML-MM 的
+   预存 1-2 例外原样保留（不双计证明见
+   `tests/v2/test_mlmm_residues.py` 的边界矩阵测试——存活/删除项
+   与解析能量双向钉死）。
+4. **真 QM/MM（ORCA / link atom / 电荷位移）维持暂缓**（卷首决策），
+   重启时另立 ADR；本附录不为其预留任何接口。
+
+### 演示
+
+`examples/mlmm_ligand/run_mlmm.py --region active-site`：JZ4 配体 +
+口袋残基（GLN102、LEU133，按晶体坐标 0.26/0.36 nm 选定）为 ML 区，
+min + MD 两腿；mock 层默认门内可跑，torch 层在 `ml` 环境跑 toy 模型。
