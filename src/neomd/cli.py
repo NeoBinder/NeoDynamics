@@ -27,6 +27,10 @@ mapping onto a public library call —
                   -> structural validation always; --check-files adds the
                      file-existence / index-bounds / method-schema tier.
                      Reports EVERY problem in one pass, writes nothing,
+                     exits 2 on problems ("nothing was executed" footer).
+                     Installed plugin distributions are entry-point-scanned
+                     first so ``plugins:`` sections validate against the
+                     live registry (ADR-0002).
                      exits 2 on problems ("nothing was executed" footer);
                      installed plugin distributions are entry-point-scanned
                      first so ``plugins:`` sections validate against the

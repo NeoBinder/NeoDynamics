@@ -696,7 +696,7 @@ class PreparedMethod:
 #: absent entry — or the key missing from the plan — means the tape runs.
 #: ``restraint.tsv`` is not here: the driver already owns it end to end
 #: (derived ``restraint_interval`` mirrors ``output.report_restraint``).
-_TAPE_SWITCHES = {"smd.tsv": "report_smd"}
+_TAPE_SWITCHES = {"smd.tsv": "report_smd", "gamd.tsv": "report_gamd"}
 
 
 def _tape_enabled(plan, filename: str) -> bool:

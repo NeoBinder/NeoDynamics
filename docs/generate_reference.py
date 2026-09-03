@@ -79,6 +79,13 @@ _TOP_LEVEL = {
         "knobs). Assembled by the openmm adapter pre-Context; the fake "
         "kernel ignores it.",
     ),
+    "gamd": (
+        "mapping",
+        "GaMD boost parameters (method `gamd`, ADR-0005): `mode` "
+        "(total|dual|channels), `sigma0`, calibration pre-run knobs "
+        "(`calibration_steps`, `calibration_interval`), `frequency`; "
+        "explicit `channels: [{label, groups}]` for LiGaMD-style setups.",
+    ),
     "opes_set": (
         "mapping",
         "OPES method parameters (method `opes`): `pace` (steps between "

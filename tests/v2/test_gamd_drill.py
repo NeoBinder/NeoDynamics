@@ -5,14 +5,14 @@ OUTSIDE ``src/neomd/``.  These tests validate the four mechanisms the plan
 item and ADR-0002 name, without installing anything into the environment:
 
 1. **registration** — importing ``neomd_gamd_drill`` self-registers the
-   ("method", "gamd") triple AND the ("plugin", "gamd_drill") plan-section
+   ("method", "gamd_drill") triple AND the ("plugin", "gamd_drill") plan-section
    declaration from outside the core package;
 2. **discovery** — ``registry.scan_entry_points()`` imports the plugin
    through a faked ``importlib.metadata`` entry point (group ``"neomd"``),
    and the drill's ``pyproject.toml`` really declares that entry point
    (tomllib field check — the install-free substitute for an editable
    install);
-3. **dispatch** — ``driver.drive()`` on a ``method: "gamd"`` plan finds the
+3. **dispatch** — ``driver.drive()`` on a ``method: "gamd_drill"`` plan finds the
    plugin in the registry and runs it end to end: bias installed through
    ``kernel.install_bias``, boost "updates" counted on the driver's
    ``on_step`` seam, ``gamd_drill.log`` appended through the sink, the
@@ -25,12 +25,11 @@ item and ADR-0002 name, without installing anything into the environment:
    tests/v2/test_plugin_section.py).
 
 Teardown hygiene: ``tests/v2/test_vocab.py`` asserts
-``set(registered("method"))`` is the exact built-in set (metadynamics, smd,
-opes at the time of writing) and
+``set(registered("method")) == {"metadynamics", "smd"}`` and
 ``set(registered("plugin")) == set()`` exactly, and pytest collects this
 module before it (alphabetical order, same process) — every test below
 therefore registers through paths that unregister BOTH ``("method",
-"gamd")`` and ``("plugin", "gamd_drill")`` in a ``finally``.
+"gamd_drill")`` and ``("plugin", "gamd_drill")`` in a ``finally``.
 """
 
 from __future__ import annotations
@@ -51,7 +50,7 @@ import tomllib
 
 import pytest
 
-import neomd.methods  # noqa: F401  (in-tree baseline: registers "metadynamics")
+import neomd.methods  # noqa: F401  (in-tree baseline: registers the built-ins)
 from neomd import registry
 from neomd.driver import drive
 from neomd.errors import ConfigKeyError
@@ -89,7 +88,7 @@ def gamd_config(steps: int = 50, **overrides) -> dict:
     """A minimal valid plan dict dispatching to the drill (fake-kernel inputs
     by default; the openmm test swaps input_files for the ala2 fixture)."""
     config = {
-        "method": "gamd",
+        "method": "gamd_drill",
         "steps": steps,
         "temperature": 298,
         "seed": 2026,
@@ -112,11 +111,11 @@ def gamd():
     sys.path.insert(0, str(SRC))
     try:
         module = importlib.import_module(MODULE)
-        registry.register("method", "gamd", module.GAMD_METHOD)
+        registry.register("method", "gamd_drill", module.GAMD_METHOD)
         registry.register("plugin", module.NAMESPACE, module.PLUGIN_SECTION)
         yield module
     finally:
-        for kind, name in (("method", "gamd"),
+        for kind, name in (("method", "gamd_drill"),
                            ("plugin", module.NAMESPACE)):
             if name in registry.registered(kind):
                 registry.unregister(kind, name)
@@ -152,7 +151,7 @@ def test_import_outside_package_self_registers():
     try:
         module = importlib.import_module(MODULE)
         try:
-            entry = registry.get("method", "gamd")
+            entry = registry.get("method", "gamd_drill")
             assert entry is module.GAMD_METHOD
             assert callable(entry.prepare)
             assert entry.schema["optional"]["plugins.gamd_drill"]
@@ -167,14 +166,14 @@ def test_import_outside_package_self_registers():
             assert not module_file.is_relative_to(CORE)
             # the import added exactly one method + one plugin section
             assert set(registry.registered("method")) == {
-                "metadynamics", "smd", "opes", "gamd"}
+                "metadynamics", "smd", "opes", "gamd", "gamd_drill"}
             assert set(registry.registered("plugin")) == {"gamd_drill"}
         finally:
-            registry.unregister("method", "gamd")
+            registry.unregister("method", "gamd_drill")
             registry.unregister("plugin", "gamd_drill")
     finally:
         sys.path.remove(str(SRC))
-    assert set(registry.registered("method")) == {"metadynamics", "smd", "opes"}
+    assert set(registry.registered("method")) == {"metadynamics", "smd", "opes", "gamd"}
     assert set(registry.registered("plugin")) == set()
 
 
@@ -186,7 +185,7 @@ def test_import_outside_package_self_registers():
 def test_scan_entry_points_loads_plugin(monkeypatch):
     sys.path.insert(0, str(SRC))
     sys.modules.pop(MODULE, None)  # the scan must do the importing itself
-    assert "gamd" not in registry.registered("method")
+    assert "gamd_drill" not in registry.registered("method")
     assert "gamd_drill" not in registry.registered("plugin")
 
     def fake_entry_points(**kwargs):
@@ -200,13 +199,13 @@ def test_scan_entry_points_loads_plugin(monkeypatch):
         loaded = registry.scan_entry_points()
         assert loaded == ["gamd_drill"]
         module = importlib.import_module(MODULE)  # cached by the scan's load()
-        assert registry.get("method", "gamd") is module.GAMD_METHOD
+        assert registry.get("method", "gamd_drill") is module.GAMD_METHOD
         assert registry.get("plugin", "gamd_drill") is module.PLUGIN_SECTION
     finally:
-        registry.unregister("method", "gamd")
+        registry.unregister("method", "gamd_drill")
         registry.unregister("plugin", "gamd_drill")
         sys.path.remove(str(SRC))
-    assert "gamd" not in registry.registered("method")
+    assert "gamd_drill" not in registry.registered("method")
     assert "gamd_drill" not in registry.registered("plugin")
 
 
@@ -277,7 +276,7 @@ def test_facade_scan_lets_compile_build_plugin_plans(monkeypatch):
                            match=r"compile\(kernel='fake'\)"):
             run_module.compile(config, kernel="fake")  # Plan built fine
     finally:
-        for kind, name in (("method", "gamd"), ("plugin", "gamd_drill")):
+        for kind, name in (("method", "gamd_drill"), ("plugin", "gamd_drill")):
             if name in registry.registered(kind):
                 registry.unregister(kind, name)
         sys.path.remove(str(SRC))
@@ -293,7 +292,7 @@ def test_drive_dispatches_plugin_on_fake_kernel(tmp_path, gamd):
     outcome = drive(plan, kernel_factory=lambda spec: FakeKernel(spec),
                     sink=LocalDirSink(tmp_path))
 
-    assert outcome.phases_run == ["gamd"]
+    assert outcome.phases_run == ["gamd_drill"]
     result = outcome.results[0]
     assert isinstance(result, gamd.GAMDResult)  # plugin object, verbatim
     assert result.steps_done == 50
@@ -311,9 +310,9 @@ def test_drive_dispatches_plugin_on_fake_kernel(tmp_path, gamd):
     manifest = RunManifest.read(tmp_path / "manifest.json")
     assert manifest.kernel == "fake"
     assert [epoch.reason for epoch in manifest.epochs] == \
-        ["start", "done:gamd"]
+        ["start", "done:gamd_drill"]
     # dispatch consumes nothing: the registry slot still holds the plugin
-    assert registry.get("method", "gamd") is gamd.GAMD_METHOD
+    assert registry.get("method", "gamd_drill") is gamd.GAMD_METHOD
 
 
 def test_plugins_section_feeds_plugin_settings(gamd):
@@ -362,7 +361,7 @@ def test_drive_dispatches_plugin_on_openmm_ala2(tmp_path, gamd):
     elapsed = time.perf_counter() - started
 
     assert elapsed < 20.0  # budget: small ala2 fixture, CPU platform
-    assert outcome.phases_run == ["gamd"]
+    assert outcome.phases_run == ["gamd_drill"]
     result = outcome.results[0]
     assert result.steps_done == 50
     assert result.n_updates == 5
@@ -374,6 +373,6 @@ def test_drive_dispatches_plugin_on_openmm_ala2(tmp_path, gamd):
     manifest = RunManifest.read(tmp_path / "manifest.json")
     assert manifest.kernel == "openmm"
     assert [epoch.reason for epoch in manifest.epochs] == \
-        ["start", "done:gamd"]
+        ["start", "done:gamd_drill"]
     for name in (LOG_FILENAME, "output.ckpt", "manifest.json"):
         assert (tmp_path / name).exists()

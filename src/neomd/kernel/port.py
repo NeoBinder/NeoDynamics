@@ -24,6 +24,10 @@ see :func:`provides`) and must degrade when a kernel does not provide them:
                      (the restraint reporter's bias-energy column)
     StructureWriter  ``write_structure(path)`` — final positions as a
                      structure file (the ``last.pdbx`` half of v1 save_last)
+    BoostOps         ``install_boost / set_boost_param / boost_potentials`` —
+                     GaMD-style energy-dependent force scaling (ADR-0005):
+                     boost channels over force-group energies whose biased
+                     force is a SCALED system force, not an additive bias
 
 Adapter notes:
 
@@ -61,10 +65,15 @@ Unit conventions inside neomd (all adapters convert at the boundary):
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 from typing import Iterable, Protocol, runtime_checkable
 
 import numpy as np
+
+#: boost channel labels are spliced into integrator global-variable names —
+#: restrict them to lowercase ASCII identifiers (ADR-0005)
+_BOOST_LABEL = re.compile(r"^[a-z][a-z0-9_]*$")
 
 __all__ = [
     "BiasIR",
@@ -73,6 +82,9 @@ __all__ = [
     "BiasParamOps",
     "GroupEnergy",
     "StructureWriter",
+    "BoostChannelIR",
+    "BoostReading",
+    "BoostOps",
     "CVIR",
     "GridSpec",
     "Param",
@@ -457,6 +469,108 @@ class StructureWriter(Protocol):
     """
 
     def write_structure(self, path) -> None:
+        ...
+
+
+# ---------------------------------------------------------------------------
+# the GaMD boost seam (ADR-0005)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class BoostChannelIR:
+    """One GaMD boost channel: an energy-dependent force rescaling.
+
+    GaMD's boost potential ΔV(P) = ½·k·(E−P)² (applied while P < E, else 0)
+    depends on the boosted region's OWN potential energy P, so the biased
+    force is a SCALED system force, F* = −(1+ΔV′(P))·∇P = −(1−k(E−P))·∇P —
+    not expressible as an additive BiasIR.  A channel names its boost target:
+    the summed energy of ``groups``; ``groups == ()`` is the TOTAL channel
+    (all system force groups, i.e. everything except the groups
+    ``install_bias`` allocated — additive biases are not physics).
+
+    Physics (Miao/Feher/McCammon JCTC 2015; LiGaMD Miao 2020): the effective
+    harmonic constant is k = k0/(Vmax−Vmin) with 0 < k0 ≤ 1, which bounds the
+    force scaling s = 1 − k(E−P) to [0, 1] (forces never flip).  Multiple
+    channels (dual boost, LiGaMD) rescale each force group ADDITIVELY:
+    s(g) = 1 + Σ_{c∋g} ΔV_c′(P_c) — the exact gradient of
+    V*(x) = Σ_g V_g + Σ_c ΔV_c(P_c) (gamd-openmm's multiplicative variant is
+    not the gradient of any potential; reweighting consistency demands forces
+    and ΔV come from one V*, so it is rejected — ADR-0005).
+
+    Units: ``threshold`` (E) in kJ/mol; ``k`` in 1/(kJ/mol).
+    """
+
+    label: str  # channel name, [a-z][a-z0-9_]* — it is spliced into integrator expressions
+    groups: tuple[int, ...]  # force-group ids whose summed energy is P; () = total
+    threshold: float = 1e99  # E, kJ/mol (zero-strength default with k=0)
+    k: float = 0.0  # effective harmonic constant, 1/(kJ/mol); 0 = no boost
+
+    def __post_init__(self) -> None:
+        if _BOOST_LABEL.match(self.label) is None:
+            raise ValueError(
+                f"boost channel label must be a lowercase ASCII identifier "
+                f"([a-z][a-z0-9_]*), got {self.label!r} (it is spliced into "
+                f"integrator global-variable names)")
+        groups = tuple(int(g) for g in self.groups)
+        if len(set(groups)) != len(groups):
+            raise ValueError(
+                f"boost channel {self.label!r}: duplicate force groups "
+                f"{self.groups}")
+        if self.k < 0.0:
+            raise ValueError(
+                f"boost channel {self.label!r}: k must be >= 0, got {self.k}")
+        # frozen dataclass: field normalization goes through object.__setattr__
+        object.__setattr__(self, "groups", groups)
+
+
+@dataclass(frozen=True)
+class BoostReading:
+    """What one boost channel applied at the most recent step.
+
+    ``boost``: ΔV (kJ/mol, >= 0); ``energy``: the channel's target energy P
+    (kJ/mol) the scaling was computed from (the step's STARTING potential,
+    the integrator convention); ``scale``: the channel's own force scaling
+    1 − k(E−P) (in [0, 1] while boosting, else 1.0).
+    """
+
+    boost: float
+    energy: float
+    scale: float
+
+
+@runtime_checkable
+class BoostOps(Protocol):
+    """OPTIONAL capability: GaMD-style energy-dependent force scaling.
+
+    Negotiated like the other capabilities (``provides(kernel, BoostOps)``).
+    The method installs named boost channels BEFORE any dynamics (the same
+    pre-Context discipline as ``install_bias``; openmm builds a boost-capable
+    Langevin CustomIntegrator at that point — the Context integrator cannot
+    be swapped later), typically at ZERO strength, then pushes calibrated
+    (threshold, k) values live as they become known — the BiasParamOps
+    pattern applied to channels.  ``install_boost`` must come AFTER every
+    ``install_bias`` (drive()'s natural order: restraints are installed
+    before the method's prepare): kernels refuse later bias installs rather
+    than silently excluding their forces from the scaled update.
+
+    Dual-boost channel discovery is a duck-typed companion method
+    (``torsion_force_groups() -> tuple[int, ...]``, like GroupEnergy):
+    the openmm kernel reports/isolates the system's torsion forces, the
+    fake reports installed torsion biases.  Kernels without it report no
+    torsion groups — methods degrade or refuse cleanly.
+    """
+
+    def install_boost(self, channels: Iterable[BoostChannelIR]) -> None:
+        """Install (replace) the set of boost channels, typically zero-strength."""
+        ...
+
+    def set_boost_param(self, label: str, name: str, value: float) -> None:
+        """Live-update one channel parameter (``"threshold"`` | ``"k"``)."""
+        ...
+
+    def boost_potentials(self) -> dict:
+        """label -> BoostReading of the most recent step ({} before any)."""
         ...
 
 

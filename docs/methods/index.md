@@ -1,5 +1,12 @@
 # 方法文档索引
 
+每个采样方法一份独立文档（`docs/methods/<method>.md`），收录背景动机
+（含来源 issue）、与 issue 方案的 v2 差异决策、使用（YAML 示例）、
+架构与产物、参考文献。
+
+| 方法 | 文档 | 来源 issue | 状态 |
+|---|---|---|---|
+| gamd | [gamd.md](gamd.md) | #10 | 已实现（`methods/gamd.py`，ADR-0005 BoostOps） |
 每个特性一份独立方法文档；本文件只做索引。
 
 - [mlmm.md](mlmm.md) —— ML/MM 耦合：ml_region + TorchScript/mock NNP 两适配器

@@ -27,8 +27,10 @@ release together with the `neomd2` script alias.
   plan.yaml [--check-files]` reports every problem, writes nothing, exits 2.
 - **KernelPort** (`kernel/port.py`): the closed operation surface at the
   physics seam, plus optional capability protocols (`BiasOps`,
-  `BiasParamOps`, `GroupEnergy`, `StructureWriter`) negotiated via
-  `provides()`. Three adapters: `openmm` (production, the only core file
+  `BiasParamOps`, `GroupEnergy`, `StructureWriter`, `BoostOps` —
+  GaMD-style energy-dependent force scaling, ADR-0005, with the
+  duck-typed dual-boost companion `torsion_force_groups()`) negotiated
+  via `provides()`. Three adapters: `openmm` (production, the only core file
   importing openmm), `fake` (deterministic textbook Langevin, the CI
   workhorse), `replay` (golden-tape playback; must be imported before
   factory use).
@@ -77,6 +79,13 @@ release together with the `neomd2` script alias.
   `prepare()` through the unchanged `prepare(kernel, plan, ...)`. The facade
   (`md_run`, `compile` on a dict, `neomd validate`) entry-point-scans before
   any Plan is built (see `examples/gamd_drill/`).
+- **GaMD** (`methods/gamd.py`, issue #10 / ADR-0005): zero-strength
+  `install_boost` in prepare → method-side calibration pre-run (the
+  integrator's own P globals via `boost_potentials()`) → live
+  (threshold, k) push through `set_boost_param`; `gamd.tsv` is the boost
+  trace (GamdProbe, switch `output.report_gamd`, trimmed on resume);
+  resume re-pushes `gamd_calibration.json` instead of re-calibrating;
+  reweighting rides `neomd.analysis` (w = exp(βΔV)).
 - **Driver / resume / artifacts**: `driver.py` (stepping loop, progress,
   periodic scheduling) and `resume.py` (THE resume owner: restore + trim
   every tape to the checkpoint step; probes never decide append/truncate

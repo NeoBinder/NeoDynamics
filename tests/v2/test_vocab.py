@@ -83,8 +83,8 @@ def test_registered_vocabularies_at_import():
         "distance", "dihedral", "angle", "funnel", "dist_ref_position",
         "rmsd", "xyz_box", "vec_restraint", "distances", "boresch"}
     # built-in methods since Phase 2 item 2.2 (tests/v2/test_metadynamics.py,
-    # tests/v2/test_smd.py) and W2-a (tests/v2/test_opes.py)
-    assert set(registered("method")) == {"metadynamics", "smd", "opes"}
+    # tests/v2/test_smd.py), W2-a (test_opes.py) and W2-b (test_gamd.py)
+    assert set(registered("method")) == {"metadynamics", "smd", "opes", "gamd"}
     # the plugin plan-schema rack is EMPTY in the core tree (ADR-0002: a
     # plugins: section validates only against REGISTERED plugins, and the
     # empty rack must mean "nothing installed", never "not imported yet")
@@ -94,7 +94,8 @@ def test_registered_vocabularies_at_import():
     import neomd.probes  # noqa: F401  (import = preset registration)
 
     assert set(registered("probe")) == {
-        "state", "trajectory", "checkpoint", "colvar", "restraint", "smd"}
+        "state", "trajectory", "checkpoint", "colvar", "restraint", "smd",
+        "gamd"}
 
 
 def test_registered_returns_a_copy():

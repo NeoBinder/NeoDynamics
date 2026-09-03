@@ -22,6 +22,7 @@ key path and a did-you-mean suggestion.
 | `continue_md` | no | bool | Resume the run from its checkpoint: the single resume owner restores the kernel and trims every tape to the checkpoint step. Derived default: false. |
 | `debug` | no | bool or mapping | Debug switches. |
 | `forcefield` | no | mapping | Forcefield settings (dead/unreachable in v1; a real whitelisted key in v2). |
+| `gamd` | no | mapping | GaMD boost parameters (method `gamd`, ADR-0005): `mode` (total\|dual\|channels), `sigma0`, calibration pre-run knobs (`calibration_steps`, `calibration_interval`), `frequency`; explicit `channels: [{label, groups}]` for LiGaMD-style setups. |
 | `input_files` | yes | mapping | Input paths for the run (see the `input_files` table below). |
 | `integrator` | no | mapping | Langevin integrator settings. `dt` (picoseconds, > 0) is required; `friction_coeff` defaults to 1.0 at kernel-spec build time. |
 | `meta_set` | no | mapping | Method settings carried inside one whitelisted mapping — also the documented ride-along for plugin settings. Metadynamics reads `biasFactor` (> 1.0), `height` (kJ/mol) and `frequency` (steps between hills) from it. |
@@ -81,6 +82,17 @@ sampling methods register through the extension rack (`neomd.methods`).
 | `md` | Plain molecular dynamics — also the default when `method` is absent. |
 | `min` | Energy minimization (kernel minimizer; `min_params` settings). |
 | `prod` | Production MD (same loop as `md`; the name marks intent). |
+
+### `method: gamd`
+
+| Key | Required | Description | Default |
+|---|---|---|---|
+| `gamd` | yes | mapping: mode (total \| dual), sigma0 (kJ/mol, default 6.0), calibration_steps, calibration_interval, frequency (gamd.tsv cadence), channels (optional explicit [{label, groups}] — LiGaMD group definitions) | — |
+| `steps` | yes | int, the FINAL step of the whole run — the calibration pre-run advances the same counter (plan-level key) | — |
+| `temperature` | yes | number, kelvin (plan-level key) | — |
+| `continue_md` | no | bool; restore output.ckpt, trim gamd.tsv and push the saved gamd_calibration.json parameters (the calibration pre-run never re-runs) | None |
+| `gamd.channels` | no | explicit channel definitions [{label, groups}] over force-group ids (LiGaMD: point at the ligand dihedral / ligand-nonbonded groups of a system that separates them into their own force groups) | None |
+| `output.report_gamd` | no | bool, default true — the gamd.tsv boost trace switch (driver._TAPE_SWITCHES) | None |
 
 ### `method: metadynamics`
 

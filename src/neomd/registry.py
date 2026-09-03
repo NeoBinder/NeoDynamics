@@ -49,7 +49,7 @@ class PluginSection:
 
     A plugin distribution registers one section per namespace it wants in
     the plan, next to its other rack entries — e.g. the gamd drill does
-    ``register("method", "gamd", ...)`` and
+    ``register("method", "gamd_drill", ...)`` and
     ``register("plugin", "gamd_drill", PluginSection(...))`` so plans may
     carry a ``plugins.gamd_drill.*`` mapping.  The declaration mirrors the
     method SCHEMA shape: ``required``/``optional`` are key -> description

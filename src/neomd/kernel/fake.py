@@ -13,6 +13,18 @@ Physics (documented simplifications):
   ``numpy.random.RandomState(spec.seed)`` — the same stream continues as the
   Langevin noise source, so trajectories are bit-stable for a given seed
   (float64 arithmetic is deterministic).
+* boost channels (port.BoostOps, ADR-0005) implement GaMD in the same loop:
+  with channels installed, the fake propagates its OWN (geometric bias)
+  potential's forces — per force group, via the central finite-difference
+  gradient ``minimize`` already uses — rescaled per channel by
+  ``s(g) = 1 - sum_c k_c*(E_c - P_c)`` over channels targeting g (the exact
+  gradient of ``V* = sum_g V_g + sum_c dV_c(P_c)``; the F = 0 simplification
+  above holds only when NO boost is installed).  Channel target energies are
+  the summed energies of their force groups (``()`` = every installed bias);
+  the applied ``dV/P/s`` of the most recent step is readable through
+  ``boost_potentials()`` (the reweighting trace).  ``install_boost`` must
+  come after every ``install_bias`` — later bias installs are refused, so a
+  stale channel set can never silently mis-scale new forces.
 * ``spec.ml_region`` is IGNORED (ADR-0004's documented choice, "fake 忽略"):
   the fake has no MM forces to embed and propagates zero forces, so a
   numerical mock-NNP copy here would guard nothing — the torch-free ML/MM
@@ -73,6 +85,8 @@ import numpy as np
 from .port import (
     CVIR,
     BiasIR,
+    BoostChannelIR,
+    BoostReading,
     EnergyReport,
     KernelFactory,
     KernelSpec,
@@ -355,6 +369,10 @@ class FakeKernel:
         #: (steered MD); _param_variables consults this first, bypassing
         #: to_canonical so a deg override is not converted twice
         self._param_overrides: dict[str, float] = {}
+        #: boost channels (port.BoostOps, ADR-0005): label -> mutable params
+        self._boost: dict[str, dict] = {}
+        #: label -> BoostReading of the most recent step ({} before any)
+        self._boost_last: dict[str, BoostReading] = {}
 
     # ------------------------------------------------------------------
     # state observation
@@ -402,11 +420,127 @@ class FakeKernel:
     def step(self, n: int) -> None:
         for _ in range(n):
             noise = self._rng.standard_normal(self._positions.shape)
-            # F/m = 0 (free particles); textbook Euler-Maruyama update
-            self._velocities = (self._velocities * (1.0 - self._gamma * self._dt)
-                                + self._noise_scale[:, None] * noise)
+            if self._boost:
+                # GaMD: F* = sum_g s(g) * F_g (own-potential forces, scaled)
+                force = self._boost_force()
+                self._velocities = (
+                    self._velocities * (1.0 - self._gamma * self._dt)
+                    + self._noise_scale[:, None] * noise
+                    + (force / self._masses[:, None]) * self._dt)
+            else:
+                # F/m = 0 (free particles); textbook Euler-Maruyama update
+                self._velocities = (self._velocities * (1.0 - self._gamma * self._dt)
+                                    + self._noise_scale[:, None] * noise)
             self._positions = self._positions + self._velocities * self._dt
             self._step += 1
+
+    # ------------------------------------------------------------------
+    # boost channels (port.BoostOps, ADR-0005)
+    # ------------------------------------------------------------------
+
+    def install_boost(self, channels) -> None:
+        """Install (replace) the GaMD boost channels, verbatim IR params.
+
+        Typically installed at zero strength (k=0) and calibrated later via
+        :meth:`set_boost_param`.  Must come after every ``install_bias``:
+        later bias installs are refused (see :meth:`install_bias`).
+        """
+        installed = {}
+        for channel in channels:
+            if not isinstance(channel, BoostChannelIR):
+                raise TypeError(
+                    f"install_boost takes BoostChannelIR objects, got "
+                    f"{type(channel).__name__}")
+            if channel.label in installed:
+                raise ValueError(
+                    f"duplicate boost channel label {channel.label!r}")
+            installed[channel.label] = {
+                "groups": tuple(channel.groups),
+                "threshold": float(channel.threshold),
+                "k": float(channel.k),
+            }
+        self._boost = installed
+        self._boost_last = {}
+
+    def set_boost_param(self, label: str, name: str, value: float) -> None:
+        if label not in self._boost:
+            raise KeyError(
+                f"no boost channel labeled {label!r} "
+                f"(installed: {sorted(self._boost) or 'none'})")
+        if name not in ("threshold", "k"):
+            raise ValueError(
+                f"boost param name must be 'threshold' or 'k', got {name!r}")
+        if name == "k" and value < 0.0:
+            raise ValueError(f"boost k must be >= 0, got {value}")
+        self._boost[label][name] = float(value)
+
+    def boost_potentials(self) -> dict:
+        return dict(self._boost_last)
+
+    def torsion_force_groups(self) -> tuple[int, ...]:
+        """Duck-typed dual-boost discovery (mirrors the openmm adapter):
+        the force groups of installed torsion biases.  The fake has no
+        system forces, so its whole potential lives in the installed
+        biases — a dihedral restraint IS the dihedral energy a dual-boost
+        channel targets.  Both v2 torsion spellings match: a plain
+        ``CustomTorsionForce`` and the dihedral-restraint triple's
+        4-group ``CustomCentroidBondForce`` whose expression calls
+        ``dihedral(g1..g4)``.  Group ids stay opaque (they are only ever
+        handed back to ``install_boost``)."""
+        def is_torsion(bias: BiasIR) -> bool:
+            if bias.kind == "CustomTorsionForce":
+                return True
+            return (bias.kind == "CustomCentroidBondForce"
+                    and bias.groups is not None and len(bias.groups) == 4
+                    and "dihedral(" in bias.energy)
+
+        return tuple(sorted(group for group, bias in self._biases
+                            if is_torsion(bias)))
+
+    def _channel_energy(self, channel: dict, positions: np.ndarray) -> float:
+        """P of one channel: summed energy of its groups (all biases if ())."""
+        if not channel["groups"]:
+            return self._bias_potential(positions)
+        selected = set(channel["groups"])
+        return sum(self._bias_energy(bias, positions)
+                   for group, bias in self._biases if group in selected)
+
+    def _boost_force(self) -> np.ndarray:
+        """F* for one step + the per-channel readings (the ADR-0005 math).
+
+        Channel energies are evaluated at the step's STARTING positions
+        (the integrator convention); each force group of the potential is
+        then rescaled additively by every channel targeting it.
+        """
+        factors: dict[str, float] = {}  # label -> k*(E-P) while P < E, else 0
+        readings: dict[str, BoostReading] = {}
+        for label, channel in self._boost.items():
+            energy = self._channel_energy(channel, self._positions)
+            depth = channel["threshold"] - energy
+            if channel["k"] > 0.0 and depth > 0.0:
+                boost = 0.5 * channel["k"] * depth * depth
+                factors[label] = channel["k"] * depth
+            else:  # no boost: above threshold or zero strength
+                boost = 0.0
+                factors[label] = 0.0
+            readings[label] = BoostReading(
+                boost=boost, energy=energy, scale=1.0 - factors[label])
+        self._boost_last = readings
+
+        # group the installed biases by their (additive) scale, one
+        # finite-difference gradient per distinct scale value
+        by_scale: dict[float, set[int]] = {}
+        for group, _bias in self._biases:
+            scale = 1.0 - sum(factor for label, factor in factors.items()
+                              if not self._boost[label]["groups"]
+                              or group in self._boost[label]["groups"])
+            by_scale.setdefault(scale, set()).add(group)
+        force = np.zeros_like(self._positions)
+        eps = 1e-6  # nm (the minimize() gradient resolution)
+        for scale, groups in by_scale.items():
+            force -= scale * self._numerical_gradient(  # force = -grad(E)
+                self._positions, eps, groups)
+        return force
 
     def minimize(self, tolerance: float = 10.0, max_iterations: int = 10000) -> None:
         """Deterministic steepest descent on the geometric bias potentials.
@@ -436,7 +570,17 @@ class FakeKernel:
             else:
                 break  # cannot improve any further at usable resolution
 
-    def _numerical_gradient(self, positions: np.ndarray, eps: float) -> np.ndarray:
+    def _numerical_gradient(self, positions: np.ndarray, eps: float,
+                            groups: set | None = None) -> np.ndarray:
+        """Central-difference gradient of the bias potential (all biases, or
+        only the force groups in ``groups`` — the boost force needs the
+        per-group pieces to rescale them independently)."""
+        selected = None if groups is None else set(groups)
+
+        def energy(pos):
+            return sum(
+                self._bias_energy(bias, pos) for group, bias in self._biases
+                if selected is None or group in selected)
         grad = np.zeros_like(positions)
         flat = positions.reshape(-1)
         gflat = grad.reshape(-1)
@@ -444,8 +588,8 @@ class FakeKernel:
             xp, xm = flat.copy(), flat.copy()
             xp[i] += eps
             xm[i] -= eps
-            gflat[i] = (self._bias_potential(xp.reshape(-1, 3))
-                        - self._bias_potential(xm.reshape(-1, 3))) / (2.0 * eps)
+            gflat[i] = (energy(xp.reshape(-1, 3))
+                        - energy(xm.reshape(-1, 3))) / (2.0 * eps)
         return grad
 
     # ------------------------------------------------------------------
@@ -453,6 +597,13 @@ class FakeKernel:
     # ------------------------------------------------------------------
 
     def install_bias(self, bias: BiasIR) -> int:
+        if self._boost:
+            # ADR-0005 ordering: the boost rescales force groups by explicit
+            # membership — a bias installed after it would silently escape
+            # the scaled update.  Refuse loudly instead.
+            raise RuntimeError(
+                "cannot install_bias after install_boost (boost channels "
+                "target an explicit force-group set); install biases first")
         group = self._pick_force_group()
         self._biases.append((group, bias))
         self._next_group += 1  # install counter (snapshot-format field)
@@ -744,6 +895,13 @@ class FakeKernel:
             "tables": {k: (t, v.copy()) for k, (t, v) in self._tables.items()},
             "rng_state": self._rng.get_state(),
             "param_overrides": dict(self._param_overrides),
+            "boost": {
+                "channels": [(label, params["groups"], params["threshold"],
+                              params["k"])
+                             for label, params in self._boost.items()],
+                "last": {label: (r.boost, r.energy, r.scale)
+                         for label, r in self._boost_last.items()},
+            },
         }
         return pickle.dumps(payload, protocol=4)
 
@@ -762,6 +920,15 @@ class FakeKernel:
         self._rng.set_state(payload["rng_state"])
         # v1 payloads predate steered MD: no overrides is the correct state
         self._param_overrides = dict(payload.get("param_overrides", {}))
+        # v2 payloads without boost channels predate GaMD (ADR-0005): none
+        boost = payload.get("boost") or {}
+        self._boost = {
+            label: {"groups": tuple(groups), "threshold": float(threshold),
+                    "k": float(k)}
+            for label, groups, threshold, k in boost.get("channels", [])}
+        self._boost_last = {
+            label: BoostReading(boost=float(b), energy=float(e), scale=float(s))
+            for label, (b, e, s) in boost.get("last", {}).items()}
 
 
 KernelFactory.register_adapter("fake", FakeKernel)

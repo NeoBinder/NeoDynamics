@@ -51,6 +51,7 @@ __all__ = [
     "ColvarProbe",
     "RestraintProbe",
     "SmdProbe",
+    "GamdProbe",
     "ProbeScheduler",
     "ProbePreset",
 ]
@@ -60,6 +61,7 @@ _DCD_FILENAME = "output.dcd"
 _CKPT_FILENAME = "output.ckpt"
 _COLVAR_FILENAME = "colvar.tsv"
 _SMD_FILENAME = "smd.tsv"
+_GAMD_FILENAME = "gamd.tsv"
 
 #: v1 header line, byte-identical to openmm StateDataReporter with v1's flags
 #: (step/time/potential/kinetic/total/temperature/volume/speed/remainingTime,
@@ -727,6 +729,76 @@ class SmdProbe:
 
 
 # ---------------------------------------------------------------------------
+# GaMD tape (methods/gamd.py's artifact — brand-new format)
+# ---------------------------------------------------------------------------
+
+
+class GamdProbe:
+    """Appends GaMD boost rows to ``gamd.tsv`` (new v2 format, ADR-0005).
+
+    One row per observation; per boost channel, in installation order, the
+    three columns of :class:`~neomd.kernel.port.BoostReading`:
+    ``<label>__boost`` (ΔV, kJ/mol — the reweighting trace, w = exp(βΔV)
+    through :mod:`neomd.analysis`), ``<label>__energy`` (the channel's
+    target energy P at the step's starting configuration, kJ/mol) and
+    ``<label>__scale`` (the channel's force scaling 1 − k(E−P)).  Readings
+    come from the negotiated :class:`~neomd.kernel.port.BoostOps`
+    capability (``boost_potentials()`` — the integrator's own globals, the
+    same numbers the dynamics used); a kernel without it makes the probe
+    refuse to construct (GaMD cannot run there at all).
+
+    Layout: header ``# step <label>__boost <label>__energy <label>__scale
+    ...``; ``append=True`` resumes without rewriting the header.
+    """
+
+    def __init__(
+        self,
+        sink: ArtifactSink,
+        interval: int,
+        labels: Sequence[str],
+        append: bool = False,
+    ):
+        if not labels:
+            raise ValueError("GamdProbe needs at least one boost channel label")
+        self.sink = sink
+        self.interval = _check_interval(interval)
+        self.labels = [str(label) for label in labels]
+        self.append = bool(append)
+        self._wrote_header = False
+        self._last_step: int | None = None
+
+    def progress(self):
+        if self._last_step is None:
+            return None
+        return (_GAMD_FILENAME, self._last_step)
+
+    def _header(self) -> str:
+        parts = ["# step"]
+        for label in self.labels:
+            parts.extend((f"{label}__boost", f"{label}__energy",
+                          f"{label}__scale"))
+        return "\t".join(parts)
+
+    def observe(self, view: RunView) -> None:
+        readings = view.kernel.boost_potentials()
+        row = [str(view.step)]
+        for label in self.labels:
+            reading = readings.get(label)
+            if reading is None:
+                raise RuntimeError(
+                    f"kernel reported no reading for boost channel "
+                    f"{label!r} (channels: {sorted(readings) or 'none'})")
+            row.extend((str(reading.boost), str(reading.energy),
+                        str(reading.scale)))
+        with self.sink.text_writer(_GAMD_FILENAME) as fh:
+            if not self._wrote_header and not self.append:
+                fh.write(self._header() + "\n")
+                self._wrote_header = True
+            fh.write("\t".join(row) + "\n")
+        self._last_step = int(view.step)
+
+
+# ---------------------------------------------------------------------------
 # scheduling
 # ---------------------------------------------------------------------------
 
@@ -825,4 +897,9 @@ register("probe", "smd", ProbePreset(
     artifact=_SMD_FILENAME,
     make=lambda **kw: SmdProbe(**kw),
     description="steered-MD ramp values + observables + bias energies to smd.tsv",
+))
+register("probe", "gamd", ProbePreset(
+    artifact=_GAMD_FILENAME,
+    make=lambda **kw: GamdProbe(**kw),
+    description="GaMD boost traces (dV/P/scale per channel) to gamd.tsv",
 ))

@@ -12,6 +12,8 @@ NeoDynamics is NeoBinder's open-source project for molecular dynamics built
 on top of [OpenMM](https://openmm.org/). The package contains:
 
 - OpenMM pipelines for generic MD (`min` / `eq` / `md` / `prod`),
+  well-tempered metadynamics, steered MD and GaMD (QM/MM and ML-powered MD
+  are planned as 2.x plugins — see the extension section below)
   well-tempered metadynamics, steered MD, OPES and ML/MM coupling with any
   TorchScript NNP (ADR-0004; QM/MM and GaMD are planned as 2.x plugins —
   see the extension section below)
@@ -134,6 +136,19 @@ with `output.report_smd: false`) alongside the usual artifacts, and a
 static `restraint:` section (e.g. holding the protein) is reported to
 `restraint.tsv` as in any MD run.
 
+GaMD swaps in `method: gamd` and a `gamd:` section (`mode: total` or
+`dual`, `sigma0` kJ/mol, and the calibration pre-run length/interval —
+`steps` is the FINAL step, calibration runs inside it; explicit
+`channels: [{label, groups}]` cover LiGaMD-style setups). The boost is an
+energy-dependent force rescaling installed through the kernel's `BoostOps`
+capability (ADR-0005) at zero strength; the calibration pre-run picks the
+literature threshold/harmonic pair, writes `gamd_calibration.json` and
+pushes it live. The run writes `gamd.tsv` (per-channel ΔV / target energy /
+force scale; switch: `output.report_gamd`) — the reweighting trace
+(`w = exp(βΔV)` through `neomd.analysis`). Resume never re-calibrates: it
+trims `gamd.tsv` and re-pushes the saved parameters. Background
+(issue #10), the ADR-0005 decision record, a runnable YAML plan and the
+architecture notes live in [docs/methods/gamd.md](docs/methods/gamd.md).
 The `boresch` restraint type — a v2-native orientation restraint holding a
 ligand to a receptor through 6 components over 3+3 anchor atoms (Boresch
 2003), the standard RBFE anchor, packed like `distances` into one force
@@ -217,8 +232,8 @@ then a sha256 **fingerprint**. `Plan` equality *is* fingerprint equality.
 
 | Adapter | Role | Needs OpenMM? | Negotiated capabilities |
 |---|---|---|---|
-| `openmm` | production runs | yes — the only core module importing openmm | `BiasOps`, `GroupEnergy`, `StructureWriter` |
-| `fake` | deterministic textbook Langevin; millisecond, openmm-free CI workhorse | no (numpy) | `BiasOps`, `GroupEnergy` |
+| `openmm` | production runs | yes — the only core module importing openmm | `BiasOps`, `GroupEnergy`, `BoostOps`, `StructureWriter` |
+| `fake` | deterministic textbook Langevin; millisecond, openmm-free CI workhorse | no (numpy) | `BiasOps`, `GroupEnergy`, `BoostOps` |
 | `replay` | plays back recorded v1 golden tapes for parity tests | no | — (unsupported columns report `nan`) |
 
 The port is a closed operation surface (step, minimize, positions/energies,
@@ -236,6 +251,13 @@ holding **schema + force expression + observables**, injected via
 spellings, dual-track kernels and hand-computed geometry pins:
 [docs/methods/cv-library.md](docs/methods/cv-library.md). Built-ins: 10 restraint types
 (`distance`, `dihedral`, `angle`, `funnel`, `dist_ref_position`, `xyz_box`,
+`vec_restraint`, `rmsd`, and `distances` — many pairs packed into one force
+per side, the v1 179ae35 group-economy type), 5 CVs (`distance`, `dihedral`, `angle`,
+`min_distances`, `distance_ref`), the well-tempered `metadynamics`,
+steered-MD (`smd`) and GaMD (`gamd`, energy-dependent force scaling via
+the port's `BoostOps` capability) methods, and 7 probe presets. Physics
+expressions are ported verbatim from v1 — that is physics, not
+architecture.
 `vec_restraint`, `rmsd`, `distances` — many pairs packed into one force
 per side, the v1 179ae35 group-economy type — and `boresch`, the
 v2-native orientation restraint for RBFE: 6 components over 3+3 anchor
@@ -266,6 +288,8 @@ expressions are ported verbatim — that is physics, not architecture; the W1-b 
 | `kernels.npz` | opes | kernel ledger `{steps, positions, sigmas, heights, logweights}` (pre-compression deposits; the resume replay state) |
 | `fes.tsv` | metadynamics / opes | free-energy surface at run end |
 | `fes.tsv` | metadynamics | free-energy surface at run end |
+| `gamd.tsv` | `GamdProbe` (GaMD) | per-channel ΔV / target energy / force scale — the reweighting trace (switch: `output.report_gamd`) |
+| `gamd_calibration.json` | GaMD | per-channel Vmax/Vmin/σV samples and the selected (threshold, k) |
 | `qc_report.json` | `neomd.qc` (hooks below) | structure quality report: every finding with atom indices, measured value, threshold, per-check + overall verdict |
 
 All writing goes through `ArtifactSink` implementations (`LocalDirSink` for
@@ -320,6 +344,7 @@ the usual collect-all diagnostics (key path + did-you-mean).
 Set `continue_md: true` and the same plan re-runs from its checkpoint:
 `resume.plan_resume` is the single owner that restores the kernel and trims
 *every* tape (`output.state`, `output.dcd`, `colvar.tsv`, `restraint.tsv`,
+`hills.npz`, `smd.tsv`, `gamd.tsv`) to the resume step, then the probes re-open them in
 `hills.npz`, `kernels.npz`, `smd.tsv`) to the resume step, then the probes re-open them in
 append mode. Probes never decide append/truncate themselves. A resumed SMD
 run snaps its ramp push to the enclosing 5000-step boundary, so the
@@ -338,6 +363,10 @@ charge fitting), `ligand` (RDKit/openff processing), `convert`, `fix_protein`
 `openmm_privates.py` behind a pinned-version gate (openmm 8.6.x) that raises
 `UpstreamVersionError` otherwise.
 
+## Analyzing runs
+
+`neomd analysis` (the `neomd.analysis` subpackage behind it) reads the v2
+artifact formats — `colvar.tsv`, `hills.npz`, `smd.tsv`, `gamd.tsv` — plus the run
 ## ML/MM coupling
 
 One plan section turns a region (ligand-only in this phase) into an

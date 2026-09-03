@@ -537,8 +537,8 @@ def test_drive_with_memory_sink_skips_manifest_but_keeps_probes():
 def test_drive_rejects_unknown_method():
     # "metadynamics" is a registered method now (Wave 2); the rejection path
     # is exercised with a genuinely unknown name — KeyError + did-you-mean.
-    plan = fake_plan(method="gamd", steps=10)  # 2.x plugin, not registered yet
-    with pytest.raises(KeyError, match="no method named 'gamd'"):
+    plan = fake_plan(method="ligamd", steps=10)  # genuinely unknown name
+    with pytest.raises(KeyError, match="no method named 'ligamd'"):
         drive(plan, kernel_factory=lambda spec: FakeKernel(spec))
 
 
@@ -630,13 +630,13 @@ def test_drive_openmm_ala2_with_restraint(tmp_path):
 
 def test_builtin_probes_register_through_the_rack():
     """The registry's "probe" kind is real: importing neomd.probes registers
-    the six built-in presets (artifact + factory), and the factories build
+    the built-in presets (artifact + factory), and the factories build
     the documented classes (the driver constructs through these entries)."""
     import neomd.probes  # noqa: F401
     from neomd import registry
 
     presets = registry.registered("probe")
-    assert sorted(presets) == ["checkpoint", "colvar", "restraint",
+    assert sorted(presets) == ["checkpoint", "colvar", "gamd", "restraint",
                                "smd", "state", "trajectory"]
     sink = MemorySink()
     assert isinstance(presets["state"].make(

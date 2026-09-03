@@ -81,6 +81,8 @@ from openmm import app, unit
 from .port import (
     CVIR,
     BiasIR,
+    BoostChannelIR,
+    BoostReading,
     EnergyReport,
     KernelFactory,
     KernelSpec,
@@ -122,6 +124,108 @@ def _make_integrator(spec: KernelSpec) -> openmm.Integrator:
     else:
         raise NotImplementedError("integrator not defined")
     integrator.setRandomNumberSeed(spec.seed)
+    return integrator
+
+
+#: R in kJ/(mol K), bit-identical to openmm's own constant (the same value
+#: neomd.methods.metadynamics pins; taken from openmm.unit so the kernel
+#: and the methods layer cannot drift)
+_R_KJ_MOL_K = unit.MOLAR_GAS_CONSTANT_R.value_in_unit(
+    unit.kilojoule_per_mole / unit.kelvin)
+
+#: force types whose energy is "the dihedrals" for the dual-boost channel
+#: (GaMD Miao 2016).  install_bias forces are excluded by identity — a
+#: torsion RESTRAINT is an additive bias, not system dihedral physics.
+_TORSION_FORCE_TYPES = (openmm.PeriodicTorsionForce, openmm.CustomTorsionForce)
+
+
+def _make_boost_integrator(spec: KernelSpec, channels: dict,
+                           force_groups) -> openmm.CustomIntegrator:
+    """The boost-capable Langevin CustomIntegrator (ADR-0005).
+
+    ``channels``: label -> concrete tuple of force-group ids (the port's
+    ``BoostChannelIR.groups`` with ``()`` already resolved to the system's
+    non-bias groups).  The update form follows the gamd-openmm route
+    (Copeland/Miao et al., JPCB 2022): every step reads each channel's
+    per-group energies into integrator globals, computes the boost depth
+    factor ``b_c = k_c*(E_c - P_c)`` (clamped to [0, 1] — the k0 <= 1
+    calibration bound keeps forces from flipping, the clamp guards the
+    numerical edge), and applies the velocity update per force group with
+    the ADDITIVE scaling ``s(g) = 1 - sum_{c containing g} b_c`` — the
+    exact gradient of ``V* = sum_g V_g + sum_c dV_c(P_c)`` (gamd-openmm's
+    multiplicative s_P*s_D variant is not the gradient of any potential
+    and breaks reweighting consistency; rejected in ADR-0005).
+
+    OpenMM constraint (empirical, 8.6): a single CustomIntegrator
+    computation step cannot depend on more than one force group — so each
+    ``energy{g}`` read and each per-group force accumulation is its own
+    step, and channels/globals are combined in later globals-only steps.
+
+    NOT bit-equivalent to ``openmm.LangevinIntegrator`` (different Langevin
+    splitting; documented ADR-0005 deviation — GaMD is new physics with no
+    golden baseline to break).  The un-boosted (k=0) limit is plain
+    Langevin dynamics: b_c = 0, every s(g) = 1.
+    """
+    friction = float(spec.integrator.get("friction_coeff", 1.0))
+    dt = float(spec.integrator.get("dt", 0.002))
+    integrator = openmm.CustomIntegrator(dt)
+    integrator.setRandomNumberSeed(spec.seed)
+    integrator.addGlobalVariable("kT", _R_KJ_MOL_K * float(spec.temperature))
+    integrator.addGlobalVariable("friction", friction)
+    integrator.addGlobalVariable("vscale", 1.0)
+    for label, (groups, threshold, k) in channels.items():
+        integrator.addGlobalVariable(f"k_{label}", float(k))
+        integrator.addGlobalVariable(f"E_{label}", float(threshold))
+        integrator.addGlobalVariable(f"P_{label}", 0.0)
+        integrator.addGlobalVariable(f"b_{label}", 0.0)
+        integrator.addGlobalVariable(f"dV_{label}", 0.0)
+    # groups any channel rescales -> their scale global
+    scaled: dict[int, list[str]] = {}
+    for label, (groups, _threshold, _k) in channels.items():
+        for group in groups:
+            scaled.setdefault(int(group), []).append(label)
+    for group in sorted(scaled):
+        integrator.addGlobalVariable(f"s{group}", 1.0)
+
+    # -- per-channel target energies P_c (one step per force group) -------
+    for label, (groups, *_rest) in channels.items():
+        if not groups:
+            integrator.addComputeGlobal(f"P_{label}", "0.0")
+            continue
+        first, *rest = groups
+        integrator.addComputeGlobal(f"P_{label}", f"energy{first}")
+        for group in rest:
+            integrator.addComputeGlobal(f"P_{label}",
+                                        f"P_{label} + energy{group}")
+
+    # -- Langevin scale + per-channel boost factors + dV trace ------------
+    integrator.addComputeGlobal("vscale", "exp(-friction*dt)")
+    for label in channels:
+        integrator.addComputeGlobal(
+            f"b_{label}",
+            f"min(1, max(0, k_{label}*(E_{label} - P_{label})))")
+        # dV = 0.5*(E-P)*b: exactly 0.5*k*(E-P)^2 in the (calibrated,
+        # unclamped) operating range, 0 when b = 0 (P >= E or k = 0 —
+        # NOTE openmm's step() is NOT 0 at 0, so it cannot encode this),
+        # and linear in (E-P) only inside the out-of-range b=1 clamp guard
+        integrator.addComputeGlobal(
+            f"dV_{label}", f"0.5*(E_{label} - P_{label})*b_{label}")
+    for group, labels in sorted(scaled.items()):
+        terms = "".join(f" - b_{label}" for label in labels)
+        integrator.addComputeGlobal(f"s{group}", f"1.0{terms}")
+
+    # -- the Langevin update: per-group scaled forces, then friction+noise
+    integrator.addUpdateContextState()
+    for group in sorted(int(g) for g in force_groups):
+        if group in scaled:
+            integrator.addComputePerDof("v", f"v + dt*s{group}*f{group}/m")
+        else:  # additive-bias groups (and untargeted system groups): scale 1
+            integrator.addComputePerDof("v", f"v + dt*f{group}/m")
+    integrator.addComputePerDof(
+        "v", "vscale*v + sqrt(kT*(1-vscale^2)/m)*gaussian")
+    integrator.addComputePerDof("x", "x + dt*v")
+    integrator.addConstrainPositions()
+    integrator.addConstrainVelocities()
     return integrator
 
 
@@ -251,6 +355,9 @@ class OpenMMKernel:
         self._tables: dict[str, tuple] = {}
         self._dof_cache: int | None = None
         self._simulation: app.Simulation | None = None
+        #: boost channels (port.BoostOps, ADR-0005): label ->
+        #: (concrete group tuple, threshold E, k); None-ish empty = no boost
+        self._boost: dict[str, tuple] = {}
 
     @property
     def simulation(self) -> app.Simulation:
@@ -414,6 +521,13 @@ class OpenMMKernel:
     # ------------------------------------------------------------------
 
     def install_bias(self, bias: BiasIR) -> int:
+        if self._boost:
+            # ADR-0005 ordering: the boost integrator's per-group update
+            # chain is frozen at install_boost time — a bias installed
+            # after it would silently escape the scaled update.  Refuse.
+            raise RuntimeError(
+                "cannot install_bias after install_boost (boost channels "
+                "target an explicit force-group set); install biases first")
         force = self._compile_bias(bias)
         group = self._pick_force_group()
         force.setForceGroup(group)
@@ -697,6 +811,135 @@ class OpenMMKernel:
             return force
         raise NotImplementedError(
             f"cv kind {cv.kind!r} is not defined (cv {cv.label!r})")
+
+    # ------------------------------------------------------------------
+    # boost channels (port.BoostOps, ADR-0005)
+    # ------------------------------------------------------------------
+
+    def install_boost(self, channels) -> None:
+        """Install (replace) the GaMD boost channels, verbatim IR params.
+
+        Builds the boost-capable CustomIntegrator (see
+        :func:`_make_boost_integrator`) and REPLACES ``self._integrator``
+        — the same pre-Context discipline as ``install_bias`` (a Context's
+        integrator cannot be swapped once built, so a live Context is an
+        error).  ``groups == ()`` resolves to the SYSTEM force groups
+        (every group carrying forces except the ones ``install_bias``
+        allocated — additive biases are not the physical system's energy).
+        Must come after every ``install_bias`` (see the guard there).
+        """
+        if self._simulation is not None:
+            raise RuntimeError(
+                "install_boost must run before the Context exists (the "
+                "Context integrator cannot be swapped; ADR-0005)")
+        bias_groups = {group for group, _force in self._installed}
+        force_groups = {force.getForceGroup()
+                        for force in self.system.getForces()}
+        system_groups = tuple(sorted(force_groups - bias_groups))
+        installed: dict[str, tuple] = {}
+        for channel in channels:
+            if not isinstance(channel, BoostChannelIR):
+                raise TypeError(
+                    f"install_boost takes BoostChannelIR objects, got "
+                    f"{type(channel).__name__}")
+            if channel.label in installed:
+                raise ValueError(
+                    f"duplicate boost channel label {channel.label!r}")
+            groups = (system_groups if not channel.groups
+                      else tuple(int(g) for g in channel.groups))
+            unknown = set(groups) - force_groups
+            if unknown:
+                raise ValueError(
+                    f"boost channel {channel.label!r}: force groups "
+                    f"{sorted(unknown)} carry no forces in this system "
+                    f"(force groups present: {sorted(force_groups)})")
+            biased = set(groups) & bias_groups
+            if biased:
+                raise ValueError(
+                    f"boost channel {channel.label!r}: force groups "
+                    f"{sorted(biased)} hold installed additive biases — "
+                    f"boost channels target the system's own energy")
+            installed[channel.label] = (groups, float(channel.threshold),
+                                        float(channel.k))
+        self._boost = installed
+        self._integrator = _make_boost_integrator(
+            self.spec, installed, force_groups)
+
+    def set_boost_param(self, label: str, name: str, value: float) -> None:
+        """Live-update one channel parameter (``"threshold"`` | ``"k"``).
+
+        Pushes the integrator global (``E_<label>`` / ``k_<label>``) — the
+        same object the Context wraps once it exists, so pre- and
+        post-Context pushes are one code path (verified: integrator global
+        variables are read fresh every step).
+        """
+        if label not in self._boost:
+            raise KeyError(
+                f"no boost channel labeled {label!r} "
+                f"(installed: {sorted(self._boost) or 'none'})")
+        if name not in ("threshold", "k"):
+            raise ValueError(
+                f"boost param name must be 'threshold' or 'k', got {name!r}")
+        if name == "k" and value < 0.0:
+            raise ValueError(f"boost k must be >= 0, got {value}")
+        global_name = ("E_" if name == "threshold" else "k_") + label
+        self._integrator.setGlobalVariableByName(global_name, float(value))
+
+    def boost_potentials(self) -> dict:
+        """label -> BoostReading of the most recent step ({} before any).
+
+        The integrator's own dV/P/b globals are THE definition of what was
+        applied — calibration and the gamd.tsv trace read the same numbers
+        the dynamics used.
+        """
+        readings = {}
+        for label in self._boost:
+            get = self._integrator.getGlobalVariableByName
+            b = get(f"b_{label}")
+            readings[label] = BoostReading(
+                boost=get(f"dV_{label}"), energy=get(f"P_{label}"),
+                scale=1.0 - b)
+        return readings
+
+    def torsion_force_groups(self) -> tuple[int, ...]:
+        """Duck-typed dual-boost discovery: the force groups holding the
+        system's torsion energy (``PeriodicTorsionForce`` /
+        ``CustomTorsionForce``; install_bias forces excluded by identity —
+        a torsion restraint is an additive bias, not dihedral physics).
+
+        When torsion forces SHARE a group with other forces and no Context
+        exists yet, they are isolated into a freshly picked free group
+        (``setForceGroup`` — a public pre-Context System mutation, the
+        same discipline as ``install_bias``).  A live Context is an error:
+        regrouping after the integrator chain is frozen would silently
+        mis-scale.  Returns () when the system has no torsion forces.
+        """
+        if self._simulation is not None:
+            raise RuntimeError(
+                "torsion_force_groups() must run before the Context exists "
+                "(force groups are frozen once boost channels install)")
+        bias_forces = {force for _group, force in self._installed}
+        torsion = [force for force in self.system.getForces()
+                   if isinstance(force, _TORSION_FORCE_TYPES)
+                   and force not in bias_forces]
+        if not torsion:
+            return ()
+        torsion_ids = {id(force) for force in torsion}
+        mixed = any(
+            force.getForceGroup() in
+            {f.getForceGroup() for f in self.system.getForces()
+             if id(f) not in torsion_ids}
+            for force in torsion)
+        if not mixed:
+            return tuple(sorted({f.getForceGroup() for f in torsion}))
+        # isolate: one fresh group for every torsion force
+        used = {force.getForceGroup() for force in self.system.getForces()}
+        free = pick_free_force_group(
+            used, {force.getForceGroup(): type(force).__name__
+                   for force in self.system.getForces()})
+        for force in torsion:
+            force.setForceGroup(free)
+        return (free,)
 
     # ------------------------------------------------------------------
     # snapshots / resume

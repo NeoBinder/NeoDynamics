@@ -65,6 +65,7 @@ KNOWN_KEYS = frozenset(
         "restraint",
         "meta_set",
         "smd",  # steered-MD entries (method 'smd'; v1 SMD commit 179ae35)
+        "gamd",  # GaMD boost settings (method 'gamd'; ADR-0005, issue #10)
         "opes_set",  # OPES entries (method 'opes'; issue #11 path B)
         "steps",
         "input_files",
@@ -94,6 +95,7 @@ _OUTPUT_KEYS = frozenset(
         "report_interval",
         "report_restraint",
         "report_smd",
+        "report_gamd",
         "trajectory_interval",
         "state_interval",
         "checkpoint_interval",
@@ -115,11 +117,12 @@ _MAPPING_KEYS = (
     "restraint",
     "meta_set",
     "smd",
-    "opes_set",
+    "gamd",
     "min_params",
     "forcefield",
-    "ml_region",
     "plugins",
+    "opes_set",
+    "ml_region",
     "qc",
 )
 
@@ -513,10 +516,10 @@ def _validate(data: Any, ctx: _Context) -> list:
     # -- the smd section (steered-MD entries; same registry vocabulary) ------
     _validate_smd_section(data, ctx, problem)
 
-    # -- the opes_set section (OPES method parameters) ------------------------
-    _validate_opes_section(data, ctx, problem)
     # -- the plugins section (the plugin plan-schema namespace, ADR-0002) ----
     _validate_plugins_section(data, ctx, problem)
+    # -- the opes_set section (OPES method parameters) ------------------------
+    _validate_opes_section(data, ctx, problem)
     # -- the qc section (structure quality checks; neomd.qc) ------------------
     _validate_qc_section(data, ctx, problem)
     return errors
@@ -1233,7 +1236,8 @@ class Plan:
     _FLAT_OUTPUT_KEYS = (
         "output_dir",
         "report_interval",
-        "report_smd",  # steered-MD tape switch (driver._TAPE_SWITCHES reads it)
+        "report_smd",
+        "report_gamd",  # GaMD boost tape switch (driver._TAPE_SWITCHES reads it)
         "trajectory_interval",
         "state_interval",
         "checkpoint_interval",

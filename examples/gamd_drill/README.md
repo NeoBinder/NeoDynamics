@@ -13,6 +13,9 @@ It is a complete, installable third-party plugin distribution that lives
 
 | Mechanism | How it is exercised | Test |
 |---|---|---|
+| **Registration** | importing `neomd_gamd_drill` executes `register("method", "gamd_drill", GAMD_METHOD)` **and** `register("plugin", "gamd_drill", PLUGIN_SECTION)` — a method triple and a plan-section declaration defined *outside* the core package, from a directory that is not `src/neomd/` | `test_import_outside_package_self_registers` |
+| **Discovery** | `registry.scan_entry_points()` loads every entry point in the `importlib.metadata` group `"neomd"`; the tests fake `EntryPoint("gamd_drill", "neomd_gamd_drill", "neomd")` via monkeypatching (install-free), and parse `pyproject.toml` with `tomllib` to prove the real distribution declares the same entry point | `test_scan_entry_points_loads_plugin`, `test_pyproject_declares_the_entry_point` |
+| **Dispatch** | `driver.drive(plan-with-method-"gamd_drill")` falls through its built-in `min/eq/md/prod` names into `registry.get("method", "gamd_drill").run(kernel=..., plan=..., sink=..., logger=...)`; the drill runs the loop through `driver.run_md` with an `on_step` hook counting boost "updates", installs one placeholder `BiasIR` via `kernel.install_bias`, appends `gamd_drill.log` through the sink, and returns a `GAMDResult` mirroring the metadynamics `MethodResult` attribute contract. Verified on the fake kernel **and** the openmm ala2 kernel (50 steps) | `test_drive_dispatches_plugin_on_fake_kernel`, `test_drive_dispatches_plugin_on_openmm_ala2` |
 | **Registration** | importing `neomd_gamd_drill` executes `register("method", "gamd", GAMD_METHOD)` **and** `register("plugin", "gamd_drill", PLUGIN_SECTION)` — a method triple and a plan-section declaration defined *outside* the core package, from a directory that is not `src/neomd/` | `test_import_outside_package_self_registers` |
 | **Discovery** | `registry.scan_entry_points()` loads every entry point in the `importlib.metadata` group `"neomd"`; the tests fake `EntryPoint("gamd_drill", "neomd_gamd_drill", "neomd")` via monkeypatching (install-free), and parse `pyproject.toml` with `tomllib` to prove the real distribution declares the same entry point | `test_scan_entry_points_loads_plugin`, `test_pyproject_declares_the_entry_point` |
 | **Dispatch** | `driver.drive(plan-with-method-"gamd")` falls through its built-in `min/eq/md/prod` names into `registry.get("method", "gamd").run(kernel=..., plan=..., sink=..., logger=...)`; the drill runs the loop through `driver.run_md` with an `on_step` hook counting boost "updates", installs one placeholder `BiasIR` via `kernel.install_bias`, appends `gamd_drill.log` through the sink, and returns a `GAMDResult` mirroring the metadynamics `MethodResult` attribute contract. Verified on the fake kernel **and** the openmm ala2 kernel (50 steps) | `test_drive_dispatches_plugin_on_fake_kernel`, `test_drive_dispatches_plugin_on_openmm_ala2` |
@@ -21,9 +24,12 @@ It is a complete, installable third-party plugin distribution that lives
 The physics is a placeholder on purpose: the installed bias is a
 `CustomCentroidBondForce` with the constant expression `0.0*k_drill` (compiles
 on both kernels, contributes zero energy), and a "boost update" just counts on
-the `on_step` seam every `frequency` steps. A real GAMD implementation would
-put the essential/total-energy boost rewrite in that expression and the boost
-parameter update in `on_step` — the seam layout is the deliverable here.
+the `on_step` seam every `frequency` steps. A real GAMD implementation now EXISTS in-tree
+(`src/neomd/methods/gamd.py`, issue #10 / ADR-0005: the boost is an
+energy-dependent force rescaling through the `BoostOps` kernel capability,
+not a bias expression); the drill keeps its placeholder physics and its own
+method name (`gamd_drill`) so the outside-the-core rack mechanism stays
+validated without colliding with the in-tree method.
 
 ## How a real plugin would be packaged / installed / discovered
 

@@ -321,7 +321,7 @@ def test_validate_scans_entry_points_for_plugin_sections(
         # the scan really registered the plugin (that is why it validated)
         assert "gamd_drill" in registry.registered("plugin")
     finally:
-        for kind, name in (("method", "gamd"), ("plugin", "gamd_drill")):
+        for kind, name in (("method", "gamd_drill"), ("plugin", "gamd_drill")):
             if name in registry.registered(kind):
                 registry.unregister(kind, name)
         sys.path.remove(str(drill_src))

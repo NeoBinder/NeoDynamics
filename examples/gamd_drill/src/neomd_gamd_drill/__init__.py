@@ -23,7 +23,7 @@ carrying placeholder physics only:
   drill-specific ``n_updates``).
 
 Import side effect (the plugin contract): importing this module registers
-``GAMD_METHOD`` under ``register("method", "gamd", ...)`` AND its plan
+``GAMD_METHOD`` under ``register("method", "gamd_drill", ...)`` AND its plan
 section under ``register("plugin", "gamd_drill", PluginSection(...))`` —
 the plugin plan-schema namespace (ADR-0002): a plan carries the drill's
 settings as ``plugins.gamd_drill.{boost_factor, frequency, k_drill}``,
@@ -54,7 +54,11 @@ __all__ = [
     "DEFAULT_SETTINGS",
 ]
 
-LABEL = "gamd"
+#: the method-rack name.  The REAL GaMD method (methods/gamd.py, issue
+#: #10 / ADR-0005) owns "gamd" in-tree; the drill registers under its own
+#: name so both can coexist in one process (the registry rejects two
+#: different objects under one (kind, name)).
+LABEL = "gamd_drill"
 NAMESPACE = "gamd_drill"  # the plugins.<NAMESPACE>.* plan section (ADR-0002)
 LOG_FILENAME = "gamd_drill.log"
 
