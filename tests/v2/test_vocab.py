@@ -83,6 +83,10 @@ def test_registered_vocabularies_at_import():
         "rmsd", "xyz_box", "vec_restraint", "distances"}
     # built-in methods since Phase 2 item 2.2 (tests/v2/test_metadynamics.py)
     assert set(registered("method")) == {"metadynamics", "smd"}
+    # the plugin plan-schema rack is EMPTY in the core tree (ADR-0002: a
+    # plugins: section validates only against REGISTERED plugins, and the
+    # empty rack must mean "nothing installed", never "not imported yet")
+    assert set(registered("plugin")) == set()
     # built-in probe presets register through the rack (improvements minor
     # observation: the "probe" kind is real, not reserved-and-empty)
     import neomd.probes  # noqa: F401  (import = preset registration)

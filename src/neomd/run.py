@@ -45,6 +45,10 @@ Scope notes (documented boundaries, not defects):
   section edits are what L2 (the full dict) is for.
 * ``md_run`` writes nothing itself: manifest/probes/checkpoints are the
   driver's job through the sink.
+* plugin distributions under the ``neomd`` entry-point group are scanned
+  (registered) before the Plan is built, so ``plugins:`` sections validate
+  and plugin methods dispatch (ADR-0002; a no-op metadata read when none
+  is installed).
 """
 
 from __future__ import annotations
@@ -162,6 +166,27 @@ def _resolve_plan(target, overrides: Mapping) -> Plan:
             )
         plan = plan.with_(**overrides)
     return plan
+
+
+# ---------------------------------------------------------------------------
+# plugin loading (the facade's side of the plugin contract, ADR-0002)
+# ---------------------------------------------------------------------------
+
+
+def _scan_plugins() -> None:
+    """Load installed plugin distributions before a Plan is built.
+
+    ``plugins:`` sections are validated against the registry (unknown plugin
+    names are collect-all errors), and plugin methods dispatch through it —
+    so third-party entries must be registered before ``Plan`` construction.
+    "Whoever starts a run scans once" (the gamd_drill contract): the facade
+    entry points do it here; library callers building Plans themselves
+    import or scan the plugin on their own.  With nothing installed under
+    the ``neomd`` entry-point group this is a no-op metadata read.
+    """
+    from . import registry
+
+    registry.scan_entry_points()
 
 
 # ---------------------------------------------------------------------------
@@ -330,13 +355,18 @@ def compile(plan_or_dict, *, kernel: str = "openmm", platform: str = "cpu",
     """Plan -> kernel + sink + driver wiring (the L2 companion of md_run).
 
     ``plan_or_dict``: a :class:`~neomd.plan.Plan` or the plan dict (validated
-    and frozen).  ``platform`` passes through to the KernelSpec (default
-    ``"cpu"``, matching the CI parity environment).  Raises
+    and frozen; a dict triggers the plugin entry-point scan first — see
+    ADR-0002 — so installed plugin sections validate and dispatch).
+    ``platform`` passes through to the KernelSpec (default ``"cpu"``,
+    matching the CI parity environment).  Raises
     :class:`NotImplementedError` for ``kernel="fake"`` — see the module
     docstring for the documented fake-kernel route.
     """
-    plan = plan_or_dict if isinstance(plan_or_dict, Plan) \
-        else Plan.from_dict(dict(plan_or_dict))
+    if isinstance(plan_or_dict, Plan):
+        plan = plan_or_dict
+    else:
+        _scan_plugins()
+        plan = Plan.from_dict(dict(plan_or_dict))
 
     if kernel == "fake":
         raise NotImplementedError(
@@ -373,6 +403,7 @@ def md_run(target, *, platform: str = "cpu", kernel: str = "openmm",
 
     Returns the :class:`~neomd.driver.RunOutcome` of the run.
     """
+    _scan_plugins()  # ADR-0002: plugins register before the Plan validates
     plan = _resolve_plan(target, overrides)
     return compile(plan, kernel=kernel, platform=platform,
                    logger=logger).run()

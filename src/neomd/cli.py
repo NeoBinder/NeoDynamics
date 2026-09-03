@@ -28,6 +28,9 @@ mapping onto a public library call —
                      file-existence / index-bounds / method-schema tier.
                      Reports EVERY problem in one pass, writes nothing,
                      exits 2 on problems ("nothing was executed" footer).
+                     Installed plugin distributions are entry-point-scanned
+                     first so ``plugins:`` sections validate against the
+                     live registry (ADR-0002).
     analysis RUN_DIR [RUN_DIR ...] ...   (see `neomd analysis -h`)
                   -> post-run analysis of the v2 artifact formats, mapped
                      onto the neomd.analysis public API: fes / convergence /
@@ -247,6 +250,7 @@ def _cmd_validate(args) -> int:
 
     import yaml
 
+    from . import registry
     from .errors import PlanValidationErrors
     from .plan import check_plan_files, validate_config
 
@@ -264,6 +268,12 @@ def _cmd_validate(args) -> int:
         print(f"neomd validate: {path!r} does not parse: {error}",
               file=sys.stderr)
         return 2
+
+    # ADR-0002: plugins: sections validate against the live registry, so
+    # installed plugin distributions are loaded (import = registration, a
+    # side effect of the plugin contract itself; nothing is written) before
+    # the checks run — same seam as md_run/compile.
+    registry.scan_entry_points()
 
     errors = validate_config(data, source=path)
     if args.check_files and isinstance(data, dict):

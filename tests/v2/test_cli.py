@@ -288,3 +288,41 @@ def test_validate_check_files_tier(tmp_path, capsys):
 def test_validate_missing_file_is_clean_error(tmp_path, capsys):
     assert main(["validate", str(tmp_path / "nope.yaml")]) == 2
     assert "cannot read" in capsys.readouterr().err
+
+
+def test_validate_scans_entry_points_for_plugin_sections(
+        tmp_path, capsys, monkeypatch):
+    """ADR-0002: `neomd validate` entry-point-scans BEFORE validating, so a
+    plan with a ``plugins:`` section checks out when the plugin distribution
+    is installed (faked via importlib.metadata, install-free, same trick as
+    tests/v2/test_gamd_drill.py) and is diagnosed as unknown otherwise."""
+    import importlib
+    import importlib.metadata
+    import sys
+
+    from neomd import registry
+
+    drill_src = (pathlib.Path(__file__).resolve().parents[2]
+                 / "examples" / "gamd_drill" / "src")
+    module = "neomd_gamd_drill"
+    config = _write_plan(
+        tmp_path, plugins={"gamd_drill": {"frequency": 25}})
+
+    sys.path.insert(0, str(drill_src))
+    sys.modules.pop(module, None)
+    monkeypatch.setattr(
+        importlib.metadata, "entry_points",
+        lambda **kw: [importlib.metadata.EntryPoint(
+            name="gamd_drill", value=module, group="neomd")]
+        if kw.get("group") == "neomd" else [])
+    try:
+        assert main(["validate", str(config)]) == 0
+        assert "valid" in capsys.readouterr().out
+        # the scan really registered the plugin (that is why it validated)
+        assert "gamd_drill" in registry.registered("plugin")
+    finally:
+        for kind, name in (("method", "gamd"), ("plugin", "gamd_drill")):
+            if name in registry.registered(kind):
+                registry.unregister(kind, name)
+        sys.path.remove(str(drill_src))
+        importlib.invalidate_caches()

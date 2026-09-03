@@ -1,11 +1,12 @@
 """GAMD plugin drill tests (v2 migration plan §5 item 2.9, §2 Non-Goals).
 
 The drill lives at ``examples/gamd_drill/`` — a complete mini distribution
-OUTSIDE ``src/neomd/``.  These tests validate the three mechanisms the plan
-item names, without installing anything into the environment:
+OUTSIDE ``src/neomd/``.  These tests validate the four mechanisms the plan
+item and ADR-0002 name, without installing anything into the environment:
 
 1. **registration** — importing ``neomd_gamd_drill`` self-registers the
-   ("method", "gamd") triple from outside the core package;
+   ("method", "gamd") triple AND the ("plugin", "gamd_drill") plan-section
+   declaration from outside the core package;
 2. **discovery** — ``registry.scan_entry_points()`` imports the plugin
    through a faked ``importlib.metadata`` entry point (group ``"neomd"``),
    and the drill's ``pyproject.toml`` really declares that entry point
@@ -16,19 +17,19 @@ item names, without installing anything into the environment:
    ``kernel.install_bias``, boost "updates" counted on the driver's
    ``on_step`` seam, ``gamd_drill.log`` appended through the sink, the
    plugin's ``GAMDResult`` recorded in ``RunOutcome.results``.  Both the
-   fake kernel and the openmm ala2 production path are exercised.
+   fake kernel and the openmm ala2 production path are exercised;
+4. **plan-schema namespace** — the drill's settings ride the first-class
+   ``plugins.gamd_drill`` section (ADR-0002): validated by plan.py against
+   the registered ``PluginSection`` and read by ``prepare`` through the
+   frozen Plan (deeper validation coverage lives in
+   tests/v2/test_plugin_section.py).
 
 Teardown hygiene: ``tests/v2/test_vocab.py`` asserts
-``set(registered("method")) == {"metadynamics"}`` exactly, and pytest
-collects this module before it (alphabetical order, same process) — every
-test below therefore registers through paths that unregister ``("method",
-"gamd")`` in a ``finally``.
-
-The plan-schema outcome under test: ``plan.KNOWN_KEYS`` is a closed
-whitelist, so a top-level ``gamd_set`` key is REJECTED by ``Plan.from_dict``
-before any method sees it; the drill's settings ride inside
-``meta_set["gamd_drill"]`` (an existing whitelisted mapping section) or fall
-back to defaults.  See examples/gamd_drill/README.md.
+``set(registered("method")) == {"metadynamics", "smd"}`` and
+``set(registered("plugin")) == set()`` exactly, and pytest collects this
+module before it (alphabetical order, same process) — every test below
+therefore registers through paths that unregister BOTH ``("method",
+"gamd")`` and ``("plugin", "gamd_drill")`` in a ``finally``.
 """
 
 from __future__ import annotations
@@ -111,10 +112,13 @@ def gamd():
     try:
         module = importlib.import_module(MODULE)
         registry.register("method", "gamd", module.GAMD_METHOD)
+        registry.register("plugin", module.NAMESPACE, module.PLUGIN_SECTION)
         yield module
     finally:
-        if "gamd" in registry.registered("method"):
-            registry.unregister("method", "gamd")
+        for kind, name in (("method", "gamd"),
+                           ("plugin", module.NAMESPACE)):
+            if name in registry.registered(kind):
+                registry.unregister(kind, name)
         sys.path.remove(str(SRC))
 
 
@@ -150,18 +154,27 @@ def test_import_outside_package_self_registers():
             entry = registry.get("method", "gamd")
             assert entry is module.GAMD_METHOD
             assert callable(entry.prepare)
-            assert entry.schema["optional"]["gamd_set"]  # documented + caveat
+            assert entry.schema["optional"]["plugins.gamd_drill"]
+            # the plan-section declaration registered too (ADR-0002)
+            section = registry.get("plugin", "gamd_drill")
+            assert section is module.PLUGIN_SECTION
+            assert set(section.optional) == {"boost_factor", "frequency",
+                                             "k_drill"}
             # the triple really lives OUTSIDE the core package
             module_file = pathlib.Path(module.__file__).resolve()
             assert module_file.is_relative_to(DRILL)
             assert not module_file.is_relative_to(CORE)
-            # the import added exactly one method, nothing else changed
-            assert set(registry.registered("method")) == {"metadynamics", "smd", "gamd"}
+            # the import added exactly one method + one plugin section
+            assert set(registry.registered("method")) == \
+                {"metadynamics", "smd", "gamd"}
+            assert set(registry.registered("plugin")) == {"gamd_drill"}
         finally:
             registry.unregister("method", "gamd")
+            registry.unregister("plugin", "gamd_drill")
     finally:
         sys.path.remove(str(SRC))
     assert set(registry.registered("method")) == {"metadynamics", "smd"}
+    assert set(registry.registered("plugin")) == set()
 
 
 # ===========================================================================
@@ -173,6 +186,7 @@ def test_scan_entry_points_loads_plugin(monkeypatch):
     sys.path.insert(0, str(SRC))
     sys.modules.pop(MODULE, None)  # the scan must do the importing itself
     assert "gamd" not in registry.registered("method")
+    assert "gamd_drill" not in registry.registered("plugin")
 
     def fake_entry_points(**kwargs):
         # exactly the call registry.scan_entry_points() makes
@@ -186,10 +200,13 @@ def test_scan_entry_points_loads_plugin(monkeypatch):
         assert loaded == ["gamd_drill"]
         module = importlib.import_module(MODULE)  # cached by the scan's load()
         assert registry.get("method", "gamd") is module.GAMD_METHOD
+        assert registry.get("plugin", "gamd_drill") is module.PLUGIN_SECTION
     finally:
         registry.unregister("method", "gamd")
+        registry.unregister("plugin", "gamd_drill")
         sys.path.remove(str(SRC))
     assert "gamd" not in registry.registered("method")
+    assert "gamd_drill" not in registry.registered("plugin")
 
 
 def test_scan_entry_points_without_plugins_stays_quiet():
@@ -202,18 +219,67 @@ def test_scan_entry_points_without_plugins_stays_quiet():
 
 
 # ===========================================================================
-# 4. the plan-schema question — v2's whitelist is closed to method keys
+# 4. the plan-schema namespace — plugins.gamd_drill (ADR-0002)
 # ===========================================================================
 
 
-def test_plan_whitelist_rejects_gamd_set_top_level():
-    """The honest outcome: a top-level method-specific section cannot pass
-    Plan validation today, so the plugin rides inside meta_set (next test)
-    or runs on defaults."""
+def test_plan_whitelist_still_rejects_gamd_set_top_level():
+    """KNOWN_KEYS stays closed to per-plugin top-level keys (ADR-0002
+    rationale: the whitelist is the fingerprint-forever guarantee): the
+    drill's namespace is `plugins.gamd_drill`, never `gamd_set`."""
     with pytest.raises(ConfigKeyError,
                        match="unknown configuration key 'gamd_set'"):
         Plan.from_dict(gamd_config(
             gamd_set={"boost_factor": 2.0, "frequency": 5}))
+
+
+def test_plugins_section_not_registered_is_rejected():
+    """A plugins section only validates with the plugin in the rack: without
+    the fixture's registration the name is unknown (and the empty plugin
+    rack is itself the 'not installed' diagnosis — it does not degrade)."""
+    assert "gamd_drill" not in registry.registered("plugin")
+    with pytest.raises(ConfigKeyError) as excinfo:
+        Plan.from_dict(gamd_config(
+            plugins={"gamd_drill": {"frequency": 25}}))
+    rendered = str(excinfo.value)
+    assert "unknown plugin 'gamd_drill'" in rendered
+    assert "no plugins are registered" in rendered
+    assert excinfo.value.key == "gamd_drill"
+
+
+def test_facade_scan_lets_compile_build_plugin_plans(monkeypatch):
+    """ADR-0002 loading seam: compile() (dict form) scans the entry-point
+    group BEFORE the Plan is built, so an installed plugin's section
+    validates.  kernel='fake' raises its documented NotImplementedError only
+    AFTER Plan construction — the cleanest public-interface probe that the
+    scan really happened."""
+    from neomd import run as run_module
+
+    def fake_entry_points(**kwargs):
+        assert kwargs.get("group") == registry.ENTRY_POINT_GROUP
+        return [importlib.metadata.EntryPoint(
+            name="gamd_drill", value=MODULE, group="neomd")]
+
+    config = gamd_config(plugins={"gamd_drill": {"frequency": 25}})
+
+    sys.path.insert(0, str(SRC))
+    sys.modules.pop(MODULE, None)
+    try:
+        # without the scan the section cannot validate (nothing registered)
+        with pytest.raises(ConfigKeyError, match="unknown plugin"):
+            run_module.compile(config, kernel="fake")
+
+        # with the entry point visible, the scan registers the plugin first
+        monkeypatch.setattr(importlib.metadata, "entry_points",
+                            fake_entry_points)
+        with pytest.raises(NotImplementedError,
+                           match=r"compile\(kernel='fake'\)"):
+            run_module.compile(config, kernel="fake")  # Plan built fine
+    finally:
+        for kind, name in (("method", "gamd"), ("plugin", "gamd_drill")):
+            if name in registry.registered(kind):
+                registry.unregister(kind, name)
+        sys.path.remove(str(SRC))
 
 
 # ===========================================================================
@@ -249,19 +315,20 @@ def test_drive_dispatches_plugin_on_fake_kernel(tmp_path, gamd):
     assert registry.get("method", "gamd") is gamd.GAMD_METHOD
 
 
-def test_meta_set_carrier_feeds_plugin_settings(gamd):
-    """The documented v2 extension path for method-specific keys: they ride
-    inside the whitelisted meta_set mapping (plan.py checks its type, not
-    its keys) and the plugin reads its own sub-section."""
+def test_plugins_section_feeds_plugin_settings(gamd):
+    """The ADR-0002 extension path for plugin keys: they ride the
+    first-class `plugins.gamd_drill` section (validated against the
+    registered PluginSection) and reach prepare() through the frozen Plan."""
     sink = MemorySink()
     plan = Plan.from_dict(gamd_config(
         steps=50,
-        meta_set={"gamd_drill": {"frequency": 25, "boost_factor": 3.14}}))
+        plugins={"gamd_drill": {"frequency": 25, "boost_factor": 3.14}}))
+    assert plan.plugins["gamd_drill"]["frequency"] == 25
     outcome = drive(plan, kernel_factory=lambda spec: FakeKernel(spec),
                     sink=sink)
 
     result = outcome.results[0]
-    assert result.n_updates == 2  # 50 // 25 — the carrier setting took effect
+    assert result.n_updates == 2  # 50 // 25 — the section setting took effect
     log = sink.get_text(LOG_FILENAME)
     assert "# boost_factor=3.14 frequency=25" in log
     assert [row for row in log.splitlines() if not row.startswith("#")] == \

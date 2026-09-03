@@ -65,6 +65,12 @@ _TOP_LEVEL = {
         "`strict`, per-check enables/overrides; findings land in "
         "`qc_report.json` at the prepare and min tails.",
     ),
+    "plugins": (
+        "mapping",
+        "The plugin plan-schema namespace (ADR-0002): each registered "
+        "plugin owns its `plugins.<name>.*` keys; validated against the "
+        "live plugin rack (entry-point scanned).",
+    ),
     "seed": (
         "int",
         "Random seed (barostat, integrator); the derived view defaults it "

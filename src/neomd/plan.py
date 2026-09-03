@@ -74,6 +74,8 @@ KNOWN_KEYS = frozenset(
         "system_modification",
         "forcefield",  # dead/unreachable in v1 (neosystem.py:52 behind a key
         #                 the whitelist never let through) — a real key in v2
+        "plugins",  # the plugin plan-schema namespace (ADR-0002): each
+        #            registered plugin owns plugins.<name>.* keys
     }
 )
 
@@ -112,6 +114,7 @@ _MAPPING_KEYS = (
     "smd",
     "min_params",
     "forcefield",
+    "plugins",
     "qc",
 )
 
@@ -488,6 +491,8 @@ def _validate(data: Any, ctx: _Context) -> list:
     # -- the smd section (steered-MD entries; same registry vocabulary) ------
     _validate_smd_section(data, ctx, problem)
 
+    # -- the plugins section (the plugin plan-schema namespace, ADR-0002) ----
+    _validate_plugins_section(data, ctx, problem)
     # -- the qc section (structure quality checks; neomd.qc) ------------------
     _validate_qc_section(data, ctx, problem)
     return errors
@@ -695,6 +700,98 @@ def _validate_smd_section(data: Mapping, ctx: _Context, problem) -> None:
         )
 
 
+def _plugin_declared_keys(entry) -> frozenset | None:
+    """The key vocabulary a registered plugin section declares — the union of
+    its ``required``/``optional`` mappings (see
+    :class:`~neomd.registry.PluginSection`).  None when the entry exposes no
+    readable declaration (defensive: the rack stores whatever it is handed);
+    an EMPTY frozenset means the plugin declares no keys at all."""
+    keys: set = set()
+    for attr in ("required", "optional"):
+        mapping = getattr(entry, attr, None)
+        if not isinstance(mapping, Mapping):
+            return None
+        keys.update(str(key) for key in mapping)
+    return frozenset(keys)
+
+
+def _validate_plugins_section(data: Mapping, ctx: _Context, problem) -> None:
+    """The ``plugins`` section — the plugin plan-schema namespace (ADR-0002).
+
+    Each registered plugin owns the keys under ``plugins.<name>.*`` (rack
+    kind ``"plugin"``, a :class:`~neomd.registry.PluginSection`).  This
+    structural tier collects, in one pass like everywhere else:
+
+    * shape: ``plugins.<name>`` must be a mapping (``plugins`` itself is the
+      _MAPPING_KEYS pass's job);
+    * names: a plugin name must be REGISTERED — and unlike restraint types
+      this does not degrade away when the rack is empty: writing a plugins
+      section with nothing registered is itself the error ("not installed /
+      not loaded" is the correct diagnosis; plugins have no in-tree
+      vocabulary whose absence could be a not-yet-imported state);
+    * keys: a key inside a registered section must belong to the section's
+      declared vocabulary.
+
+    Unknown names and unknown keys are :class:`ConfigKeyError` with yaml key
+    path + did-you-mean.  Required-key PRESENCE is the ``--check-files``
+    tier (see :func:`check_plan_files`); VALUES stay opaque to the core —
+    the plugin's ``prepare`` interprets them.
+    """
+    plugins = data.get("plugins")
+    if not plugins:
+        return
+    if not isinstance(plugins, Mapping):
+        return  # the _MAPPING_KEYS pass already reported the shape problem
+    for name, section in plugins.items():
+        path = ("plugins", name) if isinstance(name, str) else ("plugins",)
+        if not isinstance(section, Mapping):
+            problem(
+                ConfigValueError,
+                f"plugins.{name} must be a mapping, got {type(section).__name__}",
+                path,
+                section,
+            )
+
+    registry = _load_registry()
+    if registry is None:
+        return
+    try:
+        known = dict(registry.registered("plugin") or {})
+    except Exception:
+        return  # registry surface not ready — skip the name-level check
+    for name, section in plugins.items():
+        if not isinstance(name, str):
+            continue  # a non-str name can match no registered plugin
+            # (same silent-skip as the restraint pass)
+        if name not in known:
+            detail = (f"the registry knows {len(known)} plugin sections"
+                      if known else
+                      "no plugins are registered in this process — install "
+                      "the plugin distribution (or import it) before "
+                      "building the plan")
+            problem(
+                ConfigKeyError,
+                f"unknown plugin {name!r} in the plugins section ({detail})",
+                ("plugins", name),
+                name,
+                candidates=suggest(name, known),
+                known_keys=known or None,
+            )
+            continue
+        if not isinstance(section, Mapping):
+            continue  # already reported above
+        declared = _plugin_declared_keys(known[name])
+        if declared is None:
+            continue  # no readable declaration — the plugin's own business
+        for key in section:
+            if not isinstance(key, str) or key not in declared:
+                problem(
+                    ConfigKeyError,
+                    f"unknown key {key!r} in plugins.{name}",
+                    ("plugins", name, key) if isinstance(key, str)
+                    else ("plugins", name),
+                    known_keys=declared,
+                )
 def _validate_qc_section(data: Mapping, ctx: _Context, problem) -> None:
     """The ``qc`` section (structure quality checks, :mod:`neomd.qc`).
 
@@ -1230,5 +1327,31 @@ def check_plan_files(data: Mapping, *, source: str | None = None,
                         key=required, source=source))
         except (ImportError, KeyError):
             pass  # unknown methods are the structural/registry pass's job
+
+    # plugin-section required keys (same tier as method-required keys;
+    # ADR-0002 — structural validation owns names/keys, presence is semantic)
+    plugins = data.get("plugins") or {}
+    if isinstance(plugins, Mapping):
+        try:
+            from . import registry
+
+            for name, section in plugins.items():
+                if not isinstance(section, Mapping):
+                    continue  # structural pass already reported the shape
+                try:
+                    entry = registry.get("plugin", name)
+                except KeyError:
+                    continue  # unknown names are the structural pass's job
+                required = getattr(entry, "required", None)
+                if not isinstance(required, Mapping):
+                    continue
+                for key in required:
+                    if section.get(key) in (None, {}, []):
+                        errors.append(ConfigValueError(
+                            f"plugins.{name} requires key {key!r} "
+                            f"(plugin section schema)",
+                            key=key, source=source))
+        except ImportError:
+            pass  # registry unavailable — the structural tier skipped too
 
     return errors

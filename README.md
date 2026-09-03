@@ -366,14 +366,15 @@ module self-registers:
 from types import SimpleNamespace
 from neomd.driver import PreparedMethod
 from neomd.kernel.port import BiasIR, Param
-from neomd.registry import register
+from neomd.registry import PluginSection, register
 
 SCHEMA = {
     "required": {"steps": "int", "temperature": "number (K)"},
-    "optional": {"meta_set.my_method": "settings carried inside meta_set"},
+    "optional": {"plugins.my_method": "settings under plugins.my_method.*"},
 }
 
 def prepare(kernel, plan, sink=None, logger=None):
+    settings = plan.plugins.get("my_method") or {}   # your plan section
     bias = BiasIR(
         kind="CustomCentroidBondForce",
         energy="0.0*k",                       # your potential expression here
@@ -397,21 +398,36 @@ def prepare(kernel, plan, sink=None, logger=None):
     )
 
 register("method", "my_method", SimpleNamespace(schema=SCHEMA, prepare=prepare))
+
+# the plan section your plugin owns under plugins.<name>.* (ADR-0002)
+register("plugin", "my_method", PluginSection(
+    required={},
+    optional={"k": "dimensionless amplitude of the placeholder bias"},
+))
 ```
 
-Notes: `plan.KNOWN_KEYS` is a closed whitelist today, so plugin settings ride
-inside the whitelisted `meta_set` mapping section (the documented v2 path).
-For installable distributions, declare the `"neomd"` entry-point group:
+Notes: plugin settings live in the first-class `plugins:` plan namespace
+(ADR-0002) — `register("plugin", <name>, PluginSection(required=...,
+optional=...))` declares the keys you own under `plugins.<name>.*`; plan
+validation checks names and keys collect-all (yaml key path +
+did-you-mean, required-key presence in `neomd validate --check-files`),
+values are yours to interpret, and the section rides the plan fingerprint.
+`plan.KNOWN_KEYS` itself stays closed. For installable distributions,
+declare the `"neomd"` entry-point group:
 
 ```toml
 [project.entry-points."neomd"]
 my_method = "my_package"      # importing my_package self-registers
 ```
 
+The facade (`md_run`, `compile` on a dict, `neomd validate`) scans that
+group before any Plan is built, so installed plugins validate and dispatch
+automatically.
+
 A complete, tested drill lives in
 [examples/gamd_drill/](examples/gamd_drill/) — an out-of-tree mini-distribution
-validating registration, entry-point discovery and `drive()` dispatch on both
-the fake and openmm kernels.
+validating registration, entry-point discovery, `drive()` dispatch (fake and
+openmm kernels) and the plugin plan-schema namespace.
 
 ## Migrating from v1
 

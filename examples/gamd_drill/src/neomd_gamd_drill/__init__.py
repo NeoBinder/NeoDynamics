@@ -23,19 +23,14 @@ carrying placeholder physics only:
   drill-specific ``n_updates``).
 
 Import side effect (the plugin contract): importing this module registers
-``GAMD_METHOD`` under ``register("method", "gamd", ...)``.  The registry
-makes re-imports idempotent and rejects collisions with a different object,
-so no guard is needed here.
-
-The ``gamd_set`` schema question (outcome, see README):
-``plan.KNOWN_KEYS`` is a CLOSED whitelist — a top-level ``gamd_set`` section
-is rejected with ``ConfigKeyError`` before any method sees the plan, and v2
-has no generic plugin namespace yet.  ``_settings`` therefore resolves the
-drill's settings (a) from ``plan.raw["gamd_set"]`` *tolerantly* — the natural
-future spelling, picked up automatically the day the whitelist opens —
-falling back to (b) ``plan.meta_set["gamd_drill"]`` (riding inside an
-existing whitelisted mapping section, the documented v2 extension path) and
-finally to (c) defaults.  The core package is never edited.
+``GAMD_METHOD`` under ``register("method", "gamd", ...)`` AND its plan
+section under ``register("plugin", "gamd_drill", PluginSection(...))`` —
+the plugin plan-schema namespace (ADR-0002): a plan carries the drill's
+settings as ``plugins.gamd_drill.{boost_factor, frequency, k_drill}``,
+plan.py validates the section's name and keys against this declaration
+(collect-all, with did-you-mean), and the section rides ``plan.raw`` into
+the fingerprint.  The registry makes re-imports idempotent and rejects
+collisions with a different object, so no guard is needed here.
 """
 
 from __future__ import annotations
@@ -45,19 +40,22 @@ from dataclasses import dataclass
 from typing import Callable
 
 from neomd.kernel.port import BiasIR, Param
-from neomd.registry import register
+from neomd.registry import PluginSection, register
 
 __all__ = [
     "Method",
     "GAMDResult",
     "GAMD_METHOD",
+    "PLUGIN_SECTION",
     "LABEL",
+    "NAMESPACE",
     "LOG_FILENAME",
     "SCHEMA",
     "DEFAULT_SETTINGS",
 ]
 
 LABEL = "gamd"
+NAMESPACE = "gamd_drill"  # the plugins.<NAMESPACE>.* plan section (ADR-0002)
 LOG_FILENAME = "gamd_drill.log"
 
 LOG = logging.getLogger("neomd_gamd_drill")
@@ -103,26 +101,18 @@ class GAMDResult:
 
 
 def _settings(plan) -> dict:
-    """Resolve the drill's settings from ``plan``, tolerantly.
+    """Resolve the drill's settings from the ``plugins.gamd_drill`` section.
 
-    Precedence (see module docstring — the closed-whitelist outcome):
-
-    1. ``plan.raw["gamd_set"]`` — the natural spelling; today this is empty
-       because ``Plan.from_dict`` rejects the key outright (ConfigKeyError),
-       but the getter tolerates it so the plugin picks the section up the
-       day the core whitelist opens (no plugin change needed);
-    2. ``plan.meta_set["gamd_drill"]`` — the documented v2 ride-along path:
-       ``meta_set`` is a whitelisted mapping section and plan validation
-       checks its TYPE, not its keys, so a third-party method may carry its
-       own sub-section there;
-    3. ``DEFAULT_SETTINGS``.
+    ADR-0002: the namespace is first-class — plan validation already proved
+    the section's name and keys against :data:`PLUGIN_SECTION` by the time a
+    Plan reaches ``prepare``, so this only merges the section over
+    :data:`DEFAULT_SETTINGS`.  Values (types, ranges) stay the plugin's own
+    business, exactly like a method triple reading its plan keys.
     """
     settings = dict(DEFAULT_SETTINGS)
-    carrier = (getattr(plan, "raw", None) or {}).get("gamd_set")
-    if not carrier:
-        carrier = dict(getattr(plan, "meta_set", None) or {}).get("gamd_drill")
-    if carrier:
-        settings.update(dict(carrier))
+    section = (getattr(plan, "plugins", None) or {}).get(NAMESPACE)
+    if section:
+        settings.update(dict(section))
     return settings
 
 
@@ -200,24 +190,32 @@ SCHEMA = {
         "temperature": "number, kelvin (plan-level key)",
     },
     "optional": {
-        # The natural spelling.  NOTE: plan.KNOWN_KEYS is a closed whitelist
-        # today — a top-level gamd_set key raises ConfigKeyError at Plan
-        # construction; see README "The gamd_set schema question".
-        "gamd_set": (
+        # The plugin plan-schema namespace (ADR-0002): the drill's settings
+        # ride under plugins.gamd_drill.*, validated against PLUGIN_SECTION.
+        "plugins.gamd_drill": (
             "mapping with boost_factor (dimensionless placeholder), "
             "frequency (steps between counted boost updates, default 10), "
             "k_drill (constant-energy amplitude, default 0.0)"),
-        # The documented v2 ride-along carrier while the whitelist is closed.
-        "meta_set.gamd_drill": ("same keys as gamd_set, carried inside the "
-                                "whitelisted meta_set mapping section"),
         "output.*": ("output_dir + state/trajectory/checkpoint intervals "
                      "(plan-level; gamd_drill.log always appends one row "
                      "per boost update)"),
     },
 }
 
-#: the knowledge triple this distribution contributes to the rack
+#: the method knowledge triple this distribution contributes to the rack
 GAMD_METHOD = Method(schema=SCHEMA, prepare=_prepare)
+
+#: the plan section it owns under plugins.<NAMESPACE>.* (ADR-0002) —
+#: registered next to the method triple; mirrors the SCHEMA shape
+PLUGIN_SECTION = PluginSection(
+    required={},
+    optional={
+        "boost_factor": "dimensionless placeholder (a real GAMD: sigma0/dV)",
+        "frequency": "steps between counted boost updates (default 10)",
+        "k_drill": "constant-energy amplitude of the placeholder bias (0.0)",
+    },
+)
 
 # -- the plugin contract: importing this module self-registers ----------------
 register("method", LABEL, GAMD_METHOD)
+register("plugin", NAMESPACE, PLUGIN_SECTION)

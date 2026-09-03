@@ -2,12 +2,14 @@
 
 Everything pluggable — restraint knowledge triples, collective variables,
 methods (metadynamics, GAMD, ...), probe presets — enters the system through
-``register()`` under one of four kinds:
+``register()`` under one of five kinds:
 
     "restraint"  knowledge triples (schema + make_bias + observables)
     "cv"         collective-variable vocabulary (schema + make_cv + evaluate)
     "method"     sampling methods (metadynamics, ...)
     "probe"      output presets (trajectory / state / checkpoint / colvar)
+    "plugin"     plan-schema sections (PluginSection: the keys the plugin
+                 owns under ``plugins.<name>.*`` in a plan; ADR-0002)
 
 The registry is the *only* global mutable state in neomd and it is append
 only in normal operation: core vocabularies self-register at import time and
@@ -23,9 +25,12 @@ from __future__ import annotations
 
 import difflib
 import importlib.metadata
+from dataclasses import dataclass, field
+from typing import Mapping
 
 __all__ = [
     "KINDS",
+    "PluginSection",
     "RegistryError",
     "register",
     "unregister",
@@ -35,7 +40,28 @@ __all__ = [
 ]
 
 #: the extension kinds the rack accepts
-KINDS = ("restraint", "cv", "method", "probe")
+KINDS = ("restraint", "cv", "method", "probe", "plugin")
+
+
+@dataclass(frozen=True)
+class PluginSection:
+    """The plan keys a plugin owns under ``plugins.<name>.*`` (ADR-0002).
+
+    A plugin distribution registers one section per namespace it wants in
+    the plan, next to its other rack entries — e.g. the gamd drill does
+    ``register("method", "gamd", ...)`` and
+    ``register("plugin", "gamd_drill", PluginSection(...))`` so plans may
+    carry a ``plugins.gamd_drill.*`` mapping.  The declaration mirrors the
+    method SCHEMA shape: ``required``/``optional`` are key -> description
+    mappings.  plan.py validates NAMES (registered plugin) and KEYS (the
+    declared union, with did-you-mean) in the structural collect-all pass;
+    required-key presence is a ``check_plan_files`` (--check-files) check;
+    VALUES stay opaque to the core — the plugin's ``prepare`` interprets
+    them.  Plugin sections ride ``plan.raw`` and therefore the fingerprint.
+    """
+
+    required: Mapping[str, str] = field(default_factory=dict)
+    optional: Mapping[str, str] = field(default_factory=dict)
 
 #: entry-point group scanned by scan_entry_points()
 ENTRY_POINT_GROUP = "neomd"

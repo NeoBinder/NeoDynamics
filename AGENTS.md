@@ -53,6 +53,17 @@ release together with the `neomd2` script alias.
   one definition point, ramps substitute the spec values per update
   boundary; its `smd.tsv` tape is switched by `output.report_smd`,
   default on, and trimmed on resume like every other tape).
+- **Plugin plan-schema namespace** (`plugins:` plan section, ADR-0002):
+  third-party distributions declare the plan keys they own via
+  `register("plugin", <name>, registry.PluginSection(required=...,
+  optional=...))` next to their other rack entries. plan.py validates plugin
+  names and section keys collect-all (yaml key path + did-you-mean; an empty
+  plugin rack is the "not installed" diagnosis, it does not degrade);
+  required-key presence is the `--check-files` tier, values stay opaque;
+  sections ride `plan.raw` into the fingerprint and reach the plugin's
+  `prepare()` through the unchanged `prepare(kernel, plan, ...)`. The facade
+  (`md_run`, `compile` on a dict, `neomd validate`) entry-point-scans before
+  any Plan is built (see `examples/gamd_drill/`).
 - **Driver / resume / artifacts**: `driver.py` (stepping loop, progress,
   periodic scheduling) and `resume.py` (THE resume owner: restore + trim
   every tape to the checkpoint step; probes never decide append/truncate
