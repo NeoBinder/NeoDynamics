@@ -11,8 +11,11 @@ Built-in methods:
 
     metadynamics   well-tempered metadynamics (v1 metadynamics/engine.py)
     smd            steered MD, parameter-ramp steering (v1 SMD commit 179ae35)
+    opes           on-the-fly probability enhanced sampling, standard/explore
+                   modes (issue #11 path B; cyrushu's spec comment + the
+                   Invernizzi–Parrinello 2020/2022 papers)
 """
 
-from . import metadynamics, smd
+from . import metadynamics, opes, smd
 
-__all__ = ["metadynamics", "smd"]
+__all__ = ["metadynamics", "smd", "opes"]

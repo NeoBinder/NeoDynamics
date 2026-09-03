@@ -31,6 +31,7 @@ What is trimmed where (artifact -> format, all step-addressed):
     output.state / colvar.tsv / restraint.tsv / smd.tsv   tab-separated rows
     output.dcd                                   DCD frames (header-carried)
     hills.npz                                    the hills ledger
+    kernels.npz                                  the OPES kernel ledger
 
 ``output.ckpt`` is not trimmed: it is the restore source itself and is
 wholesale-overwritten by the checkpoint probe.  The manifest's
@@ -61,6 +62,7 @@ TAPE_ARTIFACTS: dict[str, str] = {
     "restraint.tsv": "tsv",
     "smd.tsv": "tsv",
     "hills.npz": "hills",
+    "kernels.npz": "kernels",
 }
 
 
@@ -128,6 +130,18 @@ def _trim_hills(data: bytes, last_step: int) -> bytes:
     return buffer.getvalue()
 
 
+def _trim_kernels(data: bytes, last_step: int) -> bytes:
+    """Drop ledger rows deposited beyond ``last_step`` (kernels.npz) —
+    every stored array is row-aligned to ``steps``, so one mask trims all
+    (steps / positions / sigmas / heights / logweights)."""
+    with np.load(io.BytesIO(data)) as kernels:
+        arrays = {name: np.asarray(kernels[name]) for name in kernels.files}
+    mask = np.asarray(arrays["steps"], dtype=np.int64) <= last_step
+    buffer = io.BytesIO()
+    np.savez(buffer, **{name: value[mask] for name, value in arrays.items()})
+    return buffer.getvalue()
+
+
 def _trim_artifact(sink: ArtifactSink, name: str, kind: str,
                    last_step: int) -> None:
     if kind == "dcd":
@@ -139,6 +153,8 @@ def _trim_artifact(sink: ArtifactSink, name: str, kind: str,
         trimmed = _trim_tsv_text(data.decode("utf-8"), last_step).encode("utf-8")
     elif kind == "hills":
         trimmed = _trim_hills(data, last_step)
+    elif kind == "kernels":
+        trimmed = _trim_kernels(data, last_step)
     else:  # pragma: no cover - TAPE_ARTIFACTS is the only caller
         raise ValueError(f"unknown artifact kind {kind!r} for {name!r}")
     sink.write_bytes(name, trimmed)

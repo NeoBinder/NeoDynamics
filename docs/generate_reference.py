@@ -71,6 +71,14 @@ _TOP_LEVEL = {
         "plugin owns its `plugins.<name>.*` keys; validated against the "
         "live plugin rack (entry-point scanned).",
     ),
+    "opes_set": (
+        "mapping",
+        "OPES method parameters (method `opes`): `pace` (steps between "
+        "bias updates), `barrier` (expected free-energy barrier, kJ/mol), "
+        "optional `mode` (standard|explore) and tuning knobs "
+        "(`fixed_sigma`, `kernel_cutoff`, `compression_threshold`, "
+        "`no_zed`).",
+    ),
     "seed": (
         "int",
         "Random seed (barostat, integrator); the derived view defaults it "

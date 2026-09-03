@@ -27,6 +27,7 @@ key path and a did-you-mean suggestion.
 | `meta_set` | no | mapping | Method settings carried inside one whitelisted mapping — also the documented ride-along for plugin settings. Metadynamics reads `biasFactor` (> 1.0), `height` (kJ/mol) and `frequency` (steps between hills) from it. |
 | `method` | no | str | Sampling method: a driver-dispatched phase (`min`, `eq`, `md`, `prod`) or a registry method (`metadynamics`, `smd`). Defaults to `md` when absent. |
 | `min_params` | no | mapping | Minimizer settings for method `min`; keys `tolerance`, `maxiter`, `maxiterations`, `max_iterations` (v1 aliases). Defaults: tolerance 10, max_iterations 10000. |
+| `opes_set` | no | mapping | OPES method parameters (method `opes`): `pace` (steps between bias updates), `barrier` (expected free-energy barrier, kJ/mol), optional `mode` (standard\|explore) and tuning knobs (`fixed_sigma`, `kernel_cutoff`, `compression_threshold`, `no_zed`). |
 | `output` | yes | mapping | Output settings: the output directory, reporting intervals and tape switches (see the `output` table below). |
 | `plugins` | no | mapping | The plugin plan-schema namespace (ADR-0002): each registered plugin owns its `plugins.<name>.*` keys; validated against the live plugin rack (entry-point scanned). |
 | `qc` | no | mapping | Structure quality checks (openmm-free, `neomd.qc`): optional `strict`, per-check enables/overrides; findings land in `qc_report.json` at the prepare and min tails. |
@@ -91,6 +92,22 @@ sampling methods register through the extension rack (`neomd.methods`).
 | `continue_md` | no | bool; restore output.ckpt and replay hills.npz from the output directory before running | None |
 | `meta_set.update_context_frequency` | no | int steps; None (default) pushes the bias table to the kernel on every hill, a number throttles the push like v1 | None |
 | `output.*` | no | output_dir + state/trajectory/checkpoint intervals (plan-level; the colvar recorder always fires on meta_set.frequency) | None |
+
+### `method: opes`
+
+| Key | Required | Description | Default |
+|---|---|---|---|
+| `colvars` | yes | mapping name -> colvar spec; each needs 'type' plus the cv registry's keys — the grid (min/max/bins) is the bias TABLE domain and biasWidth is σ(0), the initial kernel width; 1-3 CVs | — |
+| `opes_set` | yes | mapping with pace (steps between OPES updates) and barrier (expected free-energy barrier, kJ/mol); gamma, epsilon and the kernel cutoff are derived from barrier — no biasFactor/height keys exist (the spec's 3-input design) | — |
+| `steps` | yes | int, total steps (plan-level key) | — |
+| `temperature` | yes | number, kelvin (plan-level key) | — |
+| `continue_md` | no | bool; restore output.ckpt and replay kernels.npz (trimmed to the checkpoint step) from the output directory before running | None |
+| `opes_set.compression_threshold` | no | merge a new kernel into the nearest existing one when their distance is below this many sigmas (default 1; 0 disables merging) | None |
+| `opes_set.fixed_sigma` | no | bool, default false; true disables the N_eff bandwidth shrinking (sigma stays at biasWidth) | None |
+| `opes_set.kernel_cutoff` | no | truncate KDE kernels at this many sigmas (default derived from barrier: sqrt(2*barrier/(prefactor*kT)), explore uses sqrt(2*barrier/kT)) | None |
+| `opes_set.mode` | no | 'standard' (default; well-tempered target, convergence-oriented) or 'explore' (uniform-exploration target, KDE of the sampled distribution) | None |
+| `opes_set.no_zed` | no | bool, default false; true sets Z_n = 1 (no normalization over the explored region) | None |
+| `output.*` | no | output_dir + state/trajectory/checkpoint intervals (plan-level; the colvar recorder always fires on opes_set.pace) | None |
 
 ### `method: smd`
 

@@ -3,7 +3,7 @@
 [![CI](https://github.com/NeoBinder/NeoDynamics/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/NeoBinder/NeoDynamics/actions/workflows/ci.yml)
 
 **A molecular-dynamics SDK on OpenMM** — generic MD, well-tempered
-metadynamics and steered MD behind a single facade, with a swappable
+metadynamics, steered MD and OPES behind a single facade, with a swappable
 physics kernel.
 
 Python 3.12+ · OpenMM 8.6.x · MIT license · version derived from git tags
@@ -12,8 +12,9 @@ NeoDynamics is NeoBinder's open-source project for molecular dynamics built
 on top of [OpenMM](https://openmm.org/). The package contains:
 
 - OpenMM pipelines for generic MD (`min` / `eq` / `md` / `prod`),
-  well-tempered metadynamics and steered MD (QM/MM, GaMD and ML-powered MD
-  are planned as 2.x plugins — see the extension section below)
+  well-tempered metadynamics, steered MD and OPES (QM/MM, GaMD and
+  ML-powered MD are planned as 2.x plugins — see the extension section
+  below)
 - OpenMM system-building tools (protein + ligand + solvent)
 - Ligand forcefield creation and support for externally supplied ligand
   forcefields (AM1-BCC/GAFF via antechamber, RESP2 charges via ORCA, or
@@ -103,6 +104,19 @@ plus `colvar.tsv`, `hills.npz` and `fes.tsv`. Complete, runnable examples:
 [examples/3HTB_complex/](examples/3HTB_complex/) (protein–ligand complex,
 with the [run_v2.py](examples/3HTB_complex/run_v2.py) walkthrough) and
 [examples/ala_meta/](examples/ala_meta/) (alanine-dipeptide metadynamics).
+
+OPES swaps in `method: opes` with the same `colvars:` section and an
+`opes_set:` section that takes exactly the method's three inputs — `pace`,
+`barrier` (the expected free-energy barrier, kJ/mol; γ/ε/kernel cutoff are
+all derived from it — no `biasFactor`/`height` keys) and optionally
+`mode: standard|explore`. Every `pace` steps the method deposits one
+(compressed) KDE kernel, refreshes the explored-region normalization Z_n
+and pushes the new bias table through the same seam metadynamics uses;
+artifacts add `kernels.npz` (the kernel ledger, replayed deterministically
+on `continue_md`), `colvar.tsv` and `fes.tsv`, and `neomd.analysis` reads
+the tapes back. Background (issue #11), the full parameter walkthrough, a
+runnable YAML plan and the architecture notes live in
+[docs/methods/opes.md](docs/methods/opes.md).
 
 Steered MD swaps in `method: smd` and an `smd:` section whose entries use
 the restraint vocabulary — any rampable key (`restr_k`, `max_nm`,
@@ -215,7 +229,7 @@ One module per restraint / collective variable / method / probe, each
 holding **schema + force expression + observables**, injected via
 `registry.register(kind, name, entry)`. Method doc with the W1-b CV
 spellings, dual-track kernels and hand-computed geometry pins:
-[docs/methods/cv-library.md](docs/methods/cv-library.md). Built-ins: 9 restraint types
+[docs/methods/cv-library.md](docs/methods/cv-library.md). Built-ins: 10 restraint types
 (`distance`, `dihedral`, `angle`, `funnel`, `dist_ref_position`, `xyz_box`,
 `vec_restraint`, `rmsd`, `distances` — many pairs packed into one force
 per side, the v1 179ae35 group-economy type — and `boresch`, the
@@ -226,8 +240,8 @@ expression CVs (`distance`, `dihedral`, `angle`, `min_distances`,
 RMSD to a reference), `coordination` (PLUMED-style rational switching pair
 sum between two atom groups) and `path_s`/`path_z` (Branduardi–Gervasio–
 Parrinello path progress and distance over multi-model reference frames) —
-the well-tempered `metadynamics` and steered-MD (`smd`) methods, and 6 probe
-presets. v1 physics expressions are ported verbatim — that is physics, not
+the well-tempered `metadynamics`, steered-MD (`smd`) and OPES (`opes`,
+standard + explore modes) methods, and 6 probe presets. v1 physics expressions are ported verbatim — that is physics, not
 architecture; the W1-b CVs are new physics from the primary literature
 (colvars.py documents the citations, kernels and representation).
 
@@ -242,8 +256,10 @@ architecture; the W1-b CVs are new physics from the primary literature
 | `last.ckpt`, `last.pdbx` | driver, at leg end | final snapshot (+ final structure when the kernel provides `StructureWriter`; the pdbx header carries the RUNTIME periodic box — v1 8d04b0c fix — and fresh starts take the initial box from the structure file's header) |
 | `restraint.tsv` | `RestraintProbe` | restraint observables + `__energy` via `GroupEnergy` |
 | `smd.tsv` | `SmdProbe` (steered MD) | per-entry geometric observable + current ramp values + `__energy` (switch: `output.report_smd`) |
-| `colvar.tsv` | `ColvarProbe` (metadynamics) | CV values in natural units (e.g. degrees) |
+| `colvar.tsv` | `ColvarProbe` (metadynamics / opes) | CV values in natural units (e.g. degrees) |
 | `hills.npz` | metadynamics | hill ledger `{steps, positions, heights}` |
+| `kernels.npz` | opes | kernel ledger `{steps, positions, sigmas, heights, logweights}` (pre-compression deposits; the resume replay state) |
+| `fes.tsv` | metadynamics / opes | free-energy surface at run end |
 | `fes.tsv` | metadynamics | free-energy surface at run end |
 | `qc_report.json` | `neomd.qc` (hooks below) | structure quality report: every finding with atom indices, measured value, threshold, per-check + overall verdict |
 
@@ -299,10 +315,12 @@ the usual collect-all diagnostics (key path + did-you-mean).
 Set `continue_md: true` and the same plan re-runs from its checkpoint:
 `resume.plan_resume` is the single owner that restores the kernel and trims
 *every* tape (`output.state`, `output.dcd`, `colvar.tsv`, `restraint.tsv`,
-`hills.npz`, `smd.tsv`) to the resume step, then the probes re-open them in
+`hills.npz`, `kernels.npz`, `smd.tsv`) to the resume step, then the probes re-open them in
 append mode. Probes never decide append/truncate themselves. A resumed SMD
 run snaps its ramp push to the enclosing 5000-step boundary, so the
-staircase is identical to an uninterrupted run's.
+staircase is identical to an uninterrupted run's; a resumed metadynamics
+or OPES run replays its (trimmed) ledger through the same deposit math,
+so kernels and hills are bit-identical to an uninterrupted run's.
 
 ### System preparation and tools
 

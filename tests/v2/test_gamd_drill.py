@@ -25,7 +25,8 @@ item and ADR-0002 name, without installing anything into the environment:
    tests/v2/test_plugin_section.py).
 
 Teardown hygiene: ``tests/v2/test_vocab.py`` asserts
-``set(registered("method")) == {"metadynamics", "smd"}`` and
+``set(registered("method"))`` is the exact built-in set (metadynamics, smd,
+opes at the time of writing) and
 ``set(registered("plugin")) == set()`` exactly, and pytest collects this
 module before it (alphabetical order, same process) — every test below
 therefore registers through paths that unregister BOTH ``("method",
@@ -165,15 +166,15 @@ def test_import_outside_package_self_registers():
             assert module_file.is_relative_to(DRILL)
             assert not module_file.is_relative_to(CORE)
             # the import added exactly one method + one plugin section
-            assert set(registry.registered("method")) == \
-                {"metadynamics", "smd", "gamd"}
+            assert set(registry.registered("method")) == {
+                "metadynamics", "smd", "opes", "gamd"}
             assert set(registry.registered("plugin")) == {"gamd_drill"}
         finally:
             registry.unregister("method", "gamd")
             registry.unregister("plugin", "gamd_drill")
     finally:
         sys.path.remove(str(SRC))
-    assert set(registry.registered("method")) == {"metadynamics", "smd"}
+    assert set(registry.registered("method")) == {"metadynamics", "smd", "opes"}
     assert set(registry.registered("plugin")) == set()
 
 

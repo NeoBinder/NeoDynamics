@@ -65,6 +65,7 @@ KNOWN_KEYS = frozenset(
         "restraint",
         "meta_set",
         "smd",  # steered-MD entries (method 'smd'; v1 SMD commit 179ae35)
+        "opes_set",  # OPES entries (method 'opes'; issue #11 path B)
         "steps",
         "input_files",
         "output",
@@ -112,10 +113,26 @@ _MAPPING_KEYS = (
     "restraint",
     "meta_set",
     "smd",
+    "opes_set",
     "min_params",
     "forcefield",
     "plugins",
     "qc",
+)
+
+#: the opes_set vocabulary (methods/opes.py owns the semantics; this is the
+#: collect-all structural tier — the spec's 3-input design: pace, barrier,
+#: and the per-colvar biasWidth standing in for the initial kernel width)
+_OPES_SET_KEYS = frozenset(
+    {
+        "pace",  # steps between OPES updates (the PACE cadence)
+        "barrier",  # expected free-energy barrier, kJ/mol
+        "mode",  # 'standard' | 'explore'
+        "compression_threshold",  # kernel merge threshold, units of sigma
+        "kernel_cutoff",  # KDE kernel truncation, units of sigma
+        "fixed_sigma",  # disable the N_eff bandwidth shrinking
+        "no_zed",  # set Z_n = 1 (no explored-region normalization)
+    }
 )
 
 
@@ -491,6 +508,8 @@ def _validate(data: Any, ctx: _Context) -> list:
     # -- the smd section (steered-MD entries; same registry vocabulary) ------
     _validate_smd_section(data, ctx, problem)
 
+    # -- the opes_set section (OPES method parameters) ------------------------
+    _validate_opes_section(data, ctx, problem)
     # -- the plugins section (the plugin plan-schema namespace, ADR-0002) ----
     _validate_plugins_section(data, ctx, problem)
     # -- the qc section (structure quality checks; neomd.qc) ------------------
@@ -739,6 +758,91 @@ def _validate_smd_section(data: Mapping, ctx: _Context, problem) -> None:
             smd_type,
             candidates=suggest(smd_type, known),
         )
+
+
+def _validate_opes_section(data: Mapping, ctx: _Context, problem) -> None:
+    """The ``opes_set`` section (method ``"opes"``) — collect-all structural
+    checks: unknown keys with did-you-mean, mode vocabulary, pace/barrier
+    ranges, tuning-knob types.  Missing pace/barrier is the registry
+    schema's job (check_plan_files names them once the method registers);
+    everything independent is still collected here."""
+    opes = data.get("opes_set")
+    if not opes:
+        return
+    if not isinstance(opes, Mapping):
+        return  # the _MAPPING_KEYS pass already reported the shape problem
+    for key in opes:
+        if not isinstance(key, str) or key not in _OPES_SET_KEYS:
+            problem(
+                ConfigKeyError,
+                f"unknown opes_set key {key!r}",
+                ("opes_set", key) if isinstance(key, str) else ("opes_set",),
+                known_keys=_OPES_SET_KEYS,
+            )
+
+    pace = opes.get("pace")
+    if pace is not None:
+        integral = _is_number(pace) and float(pace).is_integer()
+        if not integral or int(pace) < 1:
+            problem(
+                ConfigValueError,
+                "opes_set.pace must be a positive integer number of steps "
+                "(the PACE update cadence)",
+                ("opes_set", "pace"),
+                pace,
+            )
+
+    barrier = opes.get("barrier")
+    if barrier is not None:
+        if not _is_number(barrier) or barrier <= 0:
+            problem(
+                ConfigValueError,
+                "opes_set.barrier must be a number > 0 (kJ/mol, the expected "
+                "free-energy barrier; gamma and epsilon are derived from it)",
+                ("opes_set", "barrier"),
+                barrier,
+            )
+
+    mode = opes.get("mode")
+    if mode is not None and mode not in ("standard", "explore"):
+        problem(
+            ConfigValueError,
+            f"opes_set.mode must be 'standard' or 'explore', got {mode!r}",
+            ("opes_set", "mode"),
+            mode,
+            candidates=["standard", "explore"],
+        )
+
+    threshold = opes.get("compression_threshold")
+    if threshold is not None:
+        if not _is_number(threshold) or threshold < 0:
+            problem(
+                ConfigValueError,
+                "opes_set.compression_threshold must be a number >= 0 "
+                "(sigmas; 0 disables kernel merging)",
+                ("opes_set", "compression_threshold"),
+                threshold,
+            )
+
+    cutoff = opes.get("kernel_cutoff")
+    if cutoff is not None:
+        if not _is_number(cutoff) or cutoff <= 0:
+            problem(
+                ConfigValueError,
+                "opes_set.kernel_cutoff must be a number > 0 (sigmas)",
+                ("opes_set", "kernel_cutoff"),
+                cutoff,
+            )
+
+    for key in ("fixed_sigma", "no_zed"):
+        value = opes.get(key)
+        if value is not None and not isinstance(value, bool):
+            problem(
+                ConfigValueError,
+                f"opes_set.{key} must be a boolean (true/false)",
+                ("opes_set", key),
+                value,
+            )
 
 
 def _plugin_declared_keys(entry) -> frozenset | None:

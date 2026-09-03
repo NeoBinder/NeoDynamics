@@ -1,6 +1,9 @@
 # 方法文档索引
 
+每个特性一份独立方法文档；本文件只做索引。
 
+- [opes.md](opes.md) —— OPES 增强采样方法（KDE bias、kernels.npz 回放；
+  issue #11，W2-a，路径 B 自研）
 - [analysis.md](analysis.md) —— 增强采样分析与收敛诊断工具链（`neomd.analysis` 子包 +
   `neomd analysis` CLI；issue #16，W1-a）
 - [cv-library.md](cv-library.md) —— CV 库扩展：path（s,z）/ coordination /

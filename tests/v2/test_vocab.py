@@ -82,8 +82,9 @@ def test_registered_vocabularies_at_import():
     assert set(registered("restraint")) == {
         "distance", "dihedral", "angle", "funnel", "dist_ref_position",
         "rmsd", "xyz_box", "vec_restraint", "distances", "boresch"}
-    # built-in methods since Phase 2 item 2.2 (tests/v2/test_metadynamics.py)
-    assert set(registered("method")) == {"metadynamics", "smd"}
+    # built-in methods since Phase 2 item 2.2 (tests/v2/test_metadynamics.py,
+    # tests/v2/test_smd.py) and W2-a (tests/v2/test_opes.py)
+    assert set(registered("method")) == {"metadynamics", "smd", "opes"}
     # the plugin plan-schema rack is EMPTY in the core tree (ADR-0002: a
     # plugins: section validates only against REGISTERED plugins, and the
     # empty rack must mean "nothing installed", never "not imported yet")

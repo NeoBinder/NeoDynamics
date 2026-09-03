@@ -9,7 +9,7 @@ discipline §8, flip record §9) and [docs/v2-improvements.md](docs/v2-improveme
 ## What this is
 
 NeoDynamics: a molecular-dynamics SDK on OpenMM (generic MD + well-tempered
-metadynamics + steered MD). Since v0.2.0 (the 2026-08-27 flip) the v2
+metadynamics + steered MD + OPES). Since v0.2.0 (the 2026-08-27 flip) the v2
 architecture under `src/neomd/` is the only active codebase.
 `src/neomd_legacy/` is frozen v1 — bug fixes only, kept for one deprecation
 release together with the `neomd2` script alias.
@@ -57,7 +57,15 @@ release together with the `neomd2` script alias.
   wiring (smd reuses the restraint triples' `make_bias` for its forces —
   one definition point, ramps substitute the spec values per update
   boundary; its `smd.tsv` tape is switched by `output.report_smd`,
-  default on, and trimmed on resume like every other tape).
+  default on, and trimmed on resume like every other tape; opes mirrors
+  the metadynamics triple exactly — weighted KDE of the (unbiased |
+  sampled) distribution, nearest-kernel compression, Z_n over the explored
+  region, one table push per `opes_set.pace` steps — its `kernels.npz`
+  ledger is method STATE written on the deposit hook like `hills.npz`
+  (NOT a switch-gated tape: a probe fires before `on_step`, so a
+  probe-written ledger would lag one deposit and break bit-exact resume),
+  replayed through the same deposit math on continue_md; spec = cyrushu's
+  issue #11 comment + the Invernizzi–Parrinello 2020/2022 papers).
 - **Plugin plan-schema namespace** (`plugins:` plan section, ADR-0002):
   third-party distributions declare the plan keys they own via
   `register("plugin", <name>, registry.PluginSection(required=...,
