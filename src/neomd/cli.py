@@ -27,10 +27,21 @@ mapping onto a public library call —
                   -> structural validation always; --check-files adds the
                      file-existence / index-bounds / method-schema tier.
                      Reports EVERY problem in one pass, writes nothing,
-                     exits 2 on problems ("nothing was executed" footer).
-                     Installed plugin distributions are entry-point-scanned
+                     exits 2 on problems ("nothing was executed" footer);
+                     installed plugin distributions are entry-point-scanned
                      first so ``plugins:`` sections validate against the
                      live registry (ADR-0002).
+    mlcv     featurize config.yaml [-o features.npz]
+                  -> neomd.mlcv.featurize: named feature columns over a
+                     run's trajectory/mass artifacts (cv-registry geometry
+                     + tape passthrough), written as the features.npz cache
+             train features.npz [-o model.npz] [--model tica|logistic]
+                  -> neomd.mlcv.train: TICA (unlabeled streams) or logistic
+                     regression (labeled two-basin data), numpy-only
+             convert model.npz [-o model.pt]
+                  -> neomd.mlcv.convert: TorchScript export of the linear
+                     model (the phase-2 injection artifact; needs torch,
+                     clean exit-2 error without it)
     analysis RUN_DIR [RUN_DIR ...] ...   (see `neomd analysis -h`)
                   -> post-run analysis of the v2 artifact formats, mapped
                      onto the neomd.analysis public API: fes / convergence /
@@ -119,6 +130,71 @@ def build_parser() -> argparse.ArgumentParser:
                                "indices fall inside the system")
     validate.set_defaults(func=_cmd_validate)
 
+    mlcv = sub.add_parser(
+        "mlcv", help="ML collective variables: featurize / train / convert")
+    mlcv_sub = mlcv.add_subparsers(dest="mlcv_command", required=True,
+                                   metavar="SUBCOMMAND")
+
+    mlcv_featurize = mlcv_sub.add_parser(
+        "featurize", help="run dirs + feature config -> features.npz cache")
+    mlcv_featurize.add_argument("config", help="featurize-config YAML "
+                                                "(run_dirs/trajectory, "
+                                                "features: name -> spec)")
+    mlcv_featurize.add_argument("-o", "--output", default=None,
+                                metavar="PATH",
+                                help="features.npz output path (default: the "
+                                     "config's 'output' key, else "
+                                     "features.npz)")
+    mlcv_featurize.set_defaults(func=_cmd_mlcv_featurize)
+
+    mlcv_train = mlcv_sub.add_parser(
+        "train", help="features.npz -> a trained model artifact")
+    mlcv_train.add_argument("features", help="features.npz (from featurize)")
+    mlcv_train.add_argument("-o", "--output", default="model.npz",
+                            metavar="PATH", help="model output path "
+                                                 "(default: model.npz)")
+    mlcv_train.add_argument("--model", choices=("tica", "logistic"),
+                            default="tica",
+                            help="model family (default: tica — the "
+                                 "unlabeled slow-subspace finder; logistic "
+                                 "needs labels)")
+    mlcv_train.add_argument("--lag", type=int, default=1, metavar="N",
+                            help="tica: lag in frames (default: 1)")
+    mlcv_train.add_argument("--components", type=int, default=None,
+                            metavar="K",
+                            help="tica: keep the K slowest components "
+                                 "(default: all)")
+    mlcv_train.add_argument("--ridge", type=float, default=0.0, metavar="R",
+                            help="tica: ridge added to the feature "
+                                 "covariance when it is singular "
+                                 "(default: 0)")
+    mlcv_train.add_argument("--epochs", type=int, default=2000,
+                            metavar="N",
+                            help="logistic: gradient-descent epochs "
+                                 "(default: 2000)")
+    mlcv_train.add_argument("--learning-rate", type=float, default=0.5,
+                            metavar="F",
+                            help="logistic: learning rate (default: 0.5)")
+    mlcv_train.add_argument("--l2", type=float, default=0.0, metavar="F",
+                            help="logistic: L2 regularization "
+                                 "(default: 0)")
+    mlcv_train.add_argument("--labels", default=None, metavar="PATH",
+                            help="logistic: labels .npy/.npz (one {0,1} "
+                                 "label per frame; npz key 'labels')")
+    mlcv_train.add_argument("--label-column", default=None, metavar="NAME",
+                            help="logistic: label by thresholding this "
+                                 "feature column (with --label-threshold)")
+    mlcv_train.add_argument("--label-threshold", type=float, default=None,
+                            metavar="F",
+                            help="logistic: label = column > threshold")
+    mlcv_train.set_defaults(func=_cmd_mlcv_train)
+
+    mlcv_convert = mlcv_sub.add_parser(
+        "convert", help="model.npz -> TorchScript module (.pt, needs torch)")
+    mlcv_convert.add_argument("model", help="model artifact from train")
+    mlcv_convert.add_argument("-o", "--output", default=None, metavar="PATH",
+                              help="output .pt path (default: <model>.pt)")
+    mlcv_convert.set_defaults(func=_cmd_mlcv_convert)
     analysis = sub.add_parser(
         "analysis",
         help="analyze run artifacts (hills/colvar/smd tapes: FES, "
@@ -290,6 +366,63 @@ def _cmd_validate(args) -> int:
         "re-run `neomd validate`")
     print(aggregate.render(), file=sys.stderr)
     return 2
+
+
+def _cmd_mlcv_featurize(args) -> int:
+    """`neomd mlcv featurize` — config YAML -> features.npz cache."""
+    import yaml
+
+    from .mlcv import featurize
+
+    try:
+        with open(args.config, "r", encoding="utf-8") as handle:
+            config = yaml.safe_load(handle)
+    except (OSError, yaml.YAMLError) as error:
+        print(f"neomd mlcv featurize: cannot read {args.config!r}: {error}",
+              file=sys.stderr)
+        return 2
+
+    result = featurize(config, output=args.output)
+    print("mlcv featurize complete:"
+          + f" frames={result.n_frames}"
+          + f" features={len(result.feature_names)}"
+          + f" columns={','.join(result.feature_names)}"
+          + f" output={result.output}")
+    return 0
+
+
+def _cmd_mlcv_train(args) -> int:
+    """`neomd mlcv train` — features.npz -> model.npz (tica | logistic)."""
+    from .mlcv import train
+
+    result = train(
+        args.features, model=args.model, output=args.output,
+        lag=args.lag, components=args.components, ridge=args.ridge,
+        epochs=args.epochs, learning_rate=args.learning_rate, l2=args.l2,
+        labels_path=args.labels, label_column=args.label_column,
+        label_threshold=args.label_threshold)
+    extras = ""
+    if args.model == "tica":
+        top = result.diagnostics.get("eigenvalues", [])
+        extras = f" eigenvalues[{len(top)}]={top[:3]}"
+    else:
+        extras = (f" accuracy={result.diagnostics.get('accuracy')}"
+                  f" logloss={result.diagnostics.get('logloss')}")
+    print(f"mlcv train complete: model={result.model_type}"
+          + f" frames={result.n_frames}"
+          + f" features={len(result.feature_names)}{extras}"
+          + f" output={result.output}")
+    return 0
+
+
+def _cmd_mlcv_convert(args) -> int:
+    """`neomd mlcv convert` — model.npz -> TorchScript .pt (torch-gated)."""
+    from .mlcv import convert
+
+    result = convert(args.model, output=args.output)
+    print(f"mlcv convert complete: model={result.model_type}"
+          + f" outputs={result.n_outputs} output={result.output}")
+    return 0
 
 
 def _cmd_version(args) -> int:

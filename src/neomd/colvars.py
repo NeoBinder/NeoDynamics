@@ -289,7 +289,12 @@ def _coordination_sum(positions, groups, r0: float, nn: float, mm: float,
         delta = minimum_image(delta)
     r = np.sqrt((delta * delta).sum(axis=2))
     x = r / float(r0)
-    values = (1.0 - x ** nn) / (1.0 - x ** mm)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        values = (1.0 - x ** nn) / (1.0 - x ** mm)
+    # the removable 0/0 at r == r0 exactly (L'Hôpital limit nn/mm) — the
+    # docstring's "measure zero" holds for MD frames, but hand-picked
+    # geometries (featurizer fixtures) can hit it deliberately
+    values = np.where(x == 1.0, nn / mm, values)
     cross = g1[:, None] != g2[None, :]  # drop shared-atom self-pairs
     return float(values[cross].sum())
 

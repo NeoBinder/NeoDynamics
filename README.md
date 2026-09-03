@@ -193,6 +193,7 @@ flowchart LR
     FAC --> FK["fake kernel<br/>(deterministic CI)"]
     FAC --> RP["replay kernel<br/>(golden tapes)"]
     OM & FK & RP -.-> PORT["KernelPort<br/>closed operation surface"]
+    REG["registry: knowledge triples<br/>9 restraints · 9 CVs · methods · probes"] -.-> DRV
     REG["registry: knowledge triples<br/>10 restraints · 9 CVs · methods · probes"] -.-> DRV
     MR --> DRV["driver.drive()<br/>boundary-chunked loop"]
     RES["resume.py<br/>restore + trim"] -.-> DRV
@@ -241,8 +242,8 @@ RMSD to a reference), `coordination` (PLUMED-style rational switching pair
 sum between two atom groups) and `path_s`/`path_z` (Branduardi–Gervasio–
 Parrinello path progress and distance over multi-model reference frames) —
 the well-tempered `metadynamics`, steered-MD (`smd`) and OPES (`opes`,
-standard + explore modes) methods, and 6 probe presets. v1 physics expressions are ported verbatim — that is physics, not
-architecture; the W1-b CVs are new physics from the primary literature
+standard + explore modes) methods, and 6 probe presets. v1 physics
+expressions are ported verbatim — that is physics, not architecture; the W1-b CVs are new physics from the primary literature
 (colvars.py documents the citations, kernels and representation).
 
 ### Driver, probes, sinks — what a run writes
@@ -456,6 +457,36 @@ A complete, tested drill lives in
 validating registration, entry-point discovery, `drive()` dispatch (fake and
 openmm kernels) and the plugin plan-schema namespace.
 
+## ML collective variables (phase 1: featurize → train → convert)
+
+`neomd mlcv` turns run-dir trajectories into trained linear CVs — numpy-only,
+zero simulation-core changes (phase 2, injecting the model back as a live CV,
+is designed in [ADR-0006](docs/adr/0006-mlcv-injection-torchcv.md)):
+
+```bash
+# 1. featurize: named feature columns over a run's output.dcd frames
+#    (distances, W1-b coordination/path/rmsd CVs, smoothed contacts, tape
+#    passthrough), masses from the run's system.xml — deterministic npz cache
+neomd mlcv featurize featurize.yaml            # run_dirs + features: {...}
+
+# 2. train: TICA on unlabeled streams (slow linear components via the
+#    C_tau v = lambda C_0 v generalized eigenproblem, runs pooled without
+#    crossing boundaries) or logistic regression on two-basin labels
+neomd mlcv train features.npz --model tica --lag 10 -o model.npz
+neomd mlcv train features.npz --model logistic --label-column s --label-threshold 0
+
+# 3. convert: export the linear model to TorchScript (torch-gated) — the
+#    phase-2 handoff artifact, reproducing apply_model bit-tightly
+neomd mlcv convert model.npz -o cv.pt
+```
+
+Everything crosses public interfaces: the featurizer reuses the PUBLIC cv
+registry's evaluate implementations (never re-implements geometry), the model
+artifact is a versioned npz with a json header, and config problems render
+collect-all with key paths + did-you-mean. Full background, the issue #9
+two-phase mapping and the phase-2 injection design live in
+[docs/methods/mlcv.md](docs/methods/mlcv.md).
+
 ## Migrating from v1
 
 `neomd migrate old_config.yaml -o plan.yaml` (or
@@ -506,6 +537,7 @@ NeoDynamics/
 │   ├── probes.py / sinks.py   # all artifact writing (LocalDirSink, MemorySink, DCD writer)
 │   ├── system.py / prepare.py # openmm-free SystemBundle + preparation workflow
 │   ├── openmm_privates.py     # ALL private-API touches behind an openmm 8.6.x gate
+│   ├── restraints.py          # 9 restraint knowledge triples
 │   ├── restraints.py          # 10 restraint knowledge triples (incl. boresch)
 │   ├── colvars.py             # 9 collective-variable triples (5 expression + 4 kind-driven)
 │   ├── registry.py            # the extension rack (restraint/cv/method/probe)

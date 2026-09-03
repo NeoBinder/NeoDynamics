@@ -97,6 +97,14 @@ release together with the `neomd2` script alias.
 - **Tools** (`tools/`): external-process adapters (antechamber, orca,
   ligand, convert, fix_protein, template_xml). Subprocess-isolated tmpdirs;
   `os.chdir` is forbidden.
+- **ML-CV phase 1** (`mlcv/`, ADR-0006): numpy-only out-of-tree-style tool
+  (`neomd mlcv featurize|train|convert`) — features reuse the PUBLIC cv
+  registry's evaluate implementations; TICA (generalized eigenproblem,
+  runs pooled without crossing boundaries) + logistic regression, both
+  linear; TorchScript export is torch-gated and reproduces `apply_model`
+  bit-tightly. ZERO simulation-core changes — phase 2 (TorchCV injection
+  through the kind-driven CVIR precedent) is designed in ADR-0006, lands
+  in W3-b.
 - **Analysis** (`analysis/`): openmm-free post-run analysis of the v2
   artifact formats (colvar.tsv / hills.npz / smd.tsv + the manifest's grid
   metadata) — WT FES reconstruction (producer conventions, bit-identical
