@@ -349,14 +349,24 @@ def test_missing_colvars_is_rejected():
 
 
 def test_unknown_colvar_type_gives_did_you_mean():
+    # W1-b: the colvars section now gets the same collect-all plan validation
+    # the restraint section always had, so the did-you-mean fires at Plan
+    # construction (ConfigValueError with the yaml key path); the
+    # registry.get KeyError inside MetadynamicsRun remains the second net
+    # for plans the validator could not type-check (registry not imported).
+    from neomd.errors import ConfigValueError
+
     config = meta_config(colvars={"dist": {
         "type": "dihedral", "grp1_idx": "0", "grp2_idx": "1",
         "grp3_idx": "2", "grp4_idx": "3",
         "min_cv_degree": -180, "max_cv_degree": 180,
         "biasWidth_degree": 20, "bins": 36, "is_period": False}})
     config["colvars"]["dist"]["type"] = "dihedra"
-    with pytest.raises(KeyError, match="did you mean: dihedral"):
-        MetadynamicsRun(fake_kernel(), Plan.from_dict(config))
+    with pytest.raises(ConfigValueError) as ei:
+        Plan.from_dict(config)
+    assert "unknown colvar type 'dihedra'" in str(ei.value)
+    assert "did you mean: 'dihedral'?" in str(ei.value)
+    assert ei.value.key == "type"  # the yaml key path into the entry
 
 
 def test_registry_lists_metadynamics_method():

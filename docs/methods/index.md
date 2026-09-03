@@ -4,3 +4,5 @@
 
 - [analysis.md](analysis.md) —— 增强采样分析与收敛诊断工具链（`neomd.analysis` 子包 +
   `neomd analysis` CLI；issue #16，W1-a）
+- [cv-library.md](cv-library.md) —— CV 库扩展：path（s,z）/ coordination /
+  rmsd-as-CV 知识三元组与双轨实现（issue #14 残留，W1-b）

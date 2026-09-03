@@ -170,7 +170,7 @@ flowchart LR
     FAC --> FK["fake kernel<br/>(deterministic CI)"]
     FAC --> RP["replay kernel<br/>(golden tapes)"]
     OM & FK & RP -.-> PORT["KernelPort<br/>closed operation surface"]
-    REG["registry: knowledge triples<br/>9 restraints · 5 CVs · methods · probes"] -.-> DRV
+    REG["registry: knowledge triples<br/>9 restraints · 9 CVs · methods · probes"] -.-> DRV
     MR --> DRV["driver.drive()<br/>boundary-chunked loop"]
     RES["resume.py<br/>restore + trim"] -.-> DRV
     DRV --> PRB["probes + sinks"] --> ART["manifest.json · output.state/dcd/ckpt<br/>last.ckpt/pdbx · colvar.tsv · hills.npz · fes.tsv"]
@@ -204,13 +204,21 @@ before `KernelFactory.create(kind="replay")`.
 
 One module per restraint / collective variable / method / probe, each
 holding **schema + force expression + observables**, injected via
-`registry.register(kind, name, entry)`. Built-ins: 9 restraint types
+`registry.register(kind, name, entry)`. Method doc with the W1-b CV
+spellings, dual-track kernels and hand-computed geometry pins:
+[docs/methods/cv-library.md](docs/methods/cv-library.md). Built-ins: 9 restraint types
 (`distance`, `dihedral`, `angle`, `funnel`, `dist_ref_position`, `xyz_box`,
 `vec_restraint`, `rmsd`, and `distances` — many pairs packed into one force
-per side, the v1 179ae35 group-economy type), 5 CVs (`distance`, `dihedral`, `angle`,
-`min_distances`, `distance_ref`), the well-tempered `metadynamics` and
-steered-MD (`smd`) methods, and 6 probe presets. Physics expressions are
-ported verbatim from v1 — that is physics, not architecture.
+per side, the v1 179ae35 group-economy type), 9 CVs — the 5 v1-ported
+expression CVs (`distance`, `dihedral`, `angle`, `min_distances`,
+`distance_ref`) plus the W1-b kind-driven CVs `rmsd` (Kabsch optimal-rotation
+RMSD to a reference), `coordination` (PLUMED-style rational switching pair
+sum between two atom groups) and `path_s`/`path_z` (Branduardi–Gervasio–
+Parrinello path progress and distance over multi-model reference frames) —
+the well-tempered `metadynamics` and steered-MD (`smd`) methods, and 6 probe
+presets. v1 physics expressions are ported verbatim — that is physics, not
+architecture; the W1-b CVs are new physics from the primary literature
+(colvars.py documents the citations, kernels and representation).
 
 ### Driver, probes, sinks — what a run writes
 
@@ -402,7 +410,7 @@ NeoDynamics/
 │   ├── system.py / prepare.py # openmm-free SystemBundle + preparation workflow
 │   ├── openmm_privates.py     # ALL private-API touches behind an openmm 8.6.x gate
 │   ├── restraints.py          # 9 restraint knowledge triples
-│   ├── colvars.py             # 5 collective-variable triples
+│   ├── colvars.py             # 9 collective-variable triples (5 expression + 4 kind-driven)
 │   ├── registry.py            # the extension rack (restraint/cv/method/probe)
 │   ├── methods/metadynamics.py# well-tempered metadynamics
 │   ├── analysis/              # post-run analysis: readers, WT FES, convergence,

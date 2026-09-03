@@ -71,8 +71,11 @@ def v1_fix_max_angle(min_angle, max_angle):
 # ===========================================================================
 
 def test_registered_vocabularies_at_import():
+    # 5 v1-ported CVs + the 4 W1-b kinds (rmsd, coordination, path_s/path_z
+    # — issue #14 residue; kind-driven CVIRs, see colvars.py)
     assert set(registered("cv")) == {
-        "distance", "dihedral", "angle", "min_distances", "distance_ref"}
+        "distance", "dihedral", "angle", "min_distances", "distance_ref",
+        "rmsd", "coordination", "path_s", "path_z"}
     # the full v1 surface: Phase 2 item 2.1 (tests/v2/test_restraints8.py)
     # plus the post-flip 179ae35 `distances` type (same test file)
     assert set(registered("restraint")) == {

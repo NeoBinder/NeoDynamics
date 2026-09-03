@@ -167,7 +167,16 @@ def _standardize(value: float, cv: CVIR) -> float:
 
 
 def _grid_unit(cv: CVIR) -> str:
-    return "rad" if _is_angular(cv) else "nm"
+    """Kernel unit of one CV's deposition grid (the fes.tsv column header):
+    radians for angular CVs, nm for nanometric ones (distances, RMSD, path
+    z), '' for the dimensionless W1-b CVs (coordination, path s)."""
+    if _is_angular(cv):
+        return "rad"
+    if cv.kind == "CustomNonbondedForce":
+        return ""  # dimensionless coordination number
+    if cv.kind == "PathCV" and cv.expression == "s":
+        return ""  # dimensionless path progress
+    return "nm"
 
 
 def _make_evaluator(entry, cv: CVIR) -> Callable:
@@ -530,16 +539,17 @@ class MetadynamicsRun:
     def write_fes(self, path) -> None:
         """Write ``fes.tsv`` (new format): one row per grid point.
 
-        Columns: each CV's coordinate in its kernel unit (nm / radian — the
-        deposition grid's own units) followed by the free energy in kJ/mol.
-        Rows follow the bias array's C order (v1's reversed-axis convention:
-        the FIRST configured CV varies fastest, the LAST slowest).
+        Columns: each CV's coordinate in its kernel unit (nm / radian for
+        the v1 CVs; dimensionless CVs — coordination, path s — carry no unit
+        tag) followed by the free energy in kJ/mol.  Rows follow the bias
+        array's C order (v1's reversed-axis convention: the FIRST configured
+        CV varies fastest, the LAST slowest).
         """
         fes = self.get_free_energy()
         coords = [np.linspace(grid.minimum, grid.maximum, num=grid.bins)
                   for grid in self.grids]
         header = "# " + "\t".join(
-            f"{name} [{_grid_unit(cv)}]"
+            f"{name} [{unit}]" if (unit := _grid_unit(cv)) else name
             for name, cv, _ in self.cvs) + "\tfes [kJ/mol]\n"
         with open(path, "w", encoding="utf-8") as handle:
             handle.write(header)

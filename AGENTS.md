@@ -37,7 +37,12 @@ release together with the `neomd2` script alias.
   expression + observables, injected via `registry.register()` (9 restraint
   types incl. `distances` — N pairs packed into one force per side via the
   port's multi-bond `BiasIR.bonds`/`BondIR`; per-bond values are not
-  live-settable). Force-group
+  live-settable — and 9 CVs: the 5 v1-ported expression CVs plus the W1-b
+  kind-driven `rmsd`/`coordination`/`path_s`/`path_z`, whose `CVIR.kind`
+  drives compilation — openmm compiles RMSDForce, a CustomNonbondedForce
+  pair sum and per-image RMSDForce log-sum-exp CustomCVForces; the fake
+  kernel carries mirrored numpy special paths pinned bit-exact against
+  `colvars.evaluate`). Force-group
   ids come from the one allocator `port.pick_free_force_group`. Methods are
   dispatched by `drive()` through the prepare contract:
   `entry.prepare(...) -> PreparedMethod` (biases installed, resume planned,

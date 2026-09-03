@@ -262,19 +262,30 @@ class CVIR:
     CustomCVForce table bias) and by the OpenMM adapter.  Grid ranges and bias
     widths are method-level settings, NOT part of the CV — the CV only knows
     its geometry and intrinsic periodicity.
+
+    Kinds (the kind, not the expression, drives compilation for the W1-b
+    additions — the RMSDForce precedent): ``CustomCentroidBondForce`` /
+    ``CustomTorsionForce`` (expression-driven), ``RMSDForce`` (reference-
+    positions CV), ``CustomNonbondedForce`` (coordination: the per-pair
+    switching kernel in ``expression`` summed over the grp1 x grp2 atom
+    pairs in ``groups``, parameters in ``bond_params``), ``PathCV`` (the
+    Branduardi path CVs: ``expression`` selects ``"s"`` or ``"z"``).
     """
 
     kind: str  # "CustomCentroidBondForce" | "CustomTorsionForce" | "RMSDForce"
-    expression: str  # e.g. "distance(g1,g2)" / "theta"
+              # | "CustomNonbondedForce" | "PathCV"
+    expression: str  # e.g. "distance(g1,g2)" / "theta" / "RMSD" / "s"|"z"
     groups: list[list[int]] = field(default_factory=list)
     torsion: tuple[int, int, int, int] | None = None  # 4 atom indices (CustomTorsionForce)
     periodic: bool = False
     #: extra per-bond parameters (name -> (value, unit)); e.g. reference position
     bond_params: dict[str, Param] = field(default_factory=dict)
-    #: RMSDForce only: reference positions for the FULL system (N, 3) nm —
+    #: RMSDForce: reference positions for the FULL system (N, 3) nm —
     #: openmm requires one reference position per System particle even when
     #: only ``indices`` are restrained (v1 passed whole-file positions too) —
-    #: plus the restrained subset indices
+    #: plus the restrained subset indices.  PathCV: the STACKED reference
+    #: frames (P, N, 3) nm (full-system rows, one RMSDForce per frame) plus
+    #: the selected-atom indices.
     ref_positions: np.ndarray | None = None
     indices: list[int] | None = None
     label: str = ""

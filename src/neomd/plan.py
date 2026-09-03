@@ -478,6 +478,11 @@ def _validate(data: Any, ctx: _Context) -> list:
     # -- restraint types (registry-aware, best effort) -----------------------
     _validate_restraint_types(data, ctx, problem)
 
+    # -- colvar types (registry-aware, best effort; W1-b — same treatment
+    #    the restraint section gets, so an unknown cv type is a collect-all
+    #    plan error with did-you-mean instead of a runtime KeyError)
+    _validate_colvar_types(data, ctx, problem)
+
     # -- the smd section (steered-MD entries; same registry vocabulary) ------
     _validate_smd_section(data, ctx, problem)
     return errors
@@ -549,6 +554,51 @@ def _validate_restraint_types(data: Mapping, ctx: _Context, problem) -> None:
 # ---------------------------------------------------------------------------
 # derivation (port of v1 BasePipeline.modify_config — but into a separate view)
 # ---------------------------------------------------------------------------
+
+
+def _validate_colvar_types(data: Mapping, ctx: _Context, problem) -> None:
+    """The ``colvars`` section against the cv registry (mirrors
+    ``_validate_restraint_types``): entries must be mappings with a string
+    ``type``, and unknown types collect a did-you-mean error.  Best effort —
+    when nothing has imported the cv registry yet the type check degrades
+    away exactly like the restraint pass."""
+    colvars = data.get("colvars")
+    if not colvars:
+        return
+    if not isinstance(colvars, Mapping):
+        return  # the _MAPPING_KEYS pass already reported the shape problem
+    for name, spec in colvars.items():
+        path = ("colvars", name) if isinstance(name, str) else ("colvars",)
+        if not isinstance(spec, Mapping) or not isinstance(spec.get("type"), str):
+            problem(
+                ConfigValueError,
+                f"colvar entry {name!r} must be a mapping with a string 'type'",
+                path,
+                spec,
+            )
+    registry = _load_registry()
+    if registry is None:
+        return
+    try:
+        known = dict(registry.registered("cv") or {})
+    except Exception:
+        return  # registry surface not ready — skip the type-level check
+    if not known:
+        return
+    for name, spec in colvars.items():
+        if not isinstance(spec, Mapping) or not isinstance(spec.get("type"), str):
+            continue  # already reported above
+        cv_type = spec["type"]
+        if cv_type in known:
+            continue
+        problem(
+            ConfigValueError,
+            f"unknown colvar type {cv_type!r} in entry {name!r} "
+            f"(registry knows {len(known)} cv types)",
+            ("colvars", name, "type"),
+            cv_type,
+            candidates=suggest(cv_type, known),
+        )
 
 
 def _validate_smd_section(data: Mapping, ctx: _Context, problem) -> None:
@@ -985,30 +1035,47 @@ def validate_config(data, *, source: str | None = None) -> list:
 
 def _particle_count_from_system_xml(path: str) -> int | None:
     """Particle count from a serialized openmm System XML (no openmm import
-    — the schema writes one ``<Particle .../>`` per particle)."""
+    — the schema writes one ``<Particle .../>`` per particle, inside a
+    ``<Particles>`` block for real serializations or as bare root children
+    in minimal fixtures; the ``ParticleOffsets`` sections some force
+    serializations carry ALSO use ``<Particle>`` tags and must not be
+    counted — the ala2 fixture reads 44 with a blind ``.//Particle`` scan
+    against its real 22 particles)."""
     import xml.etree.ElementTree as ET
 
     try:
         root = ET.parse(path).getroot()
     except (ET.ParseError, OSError):
         return None
-    return len(root.findall(".//Particle"))
+    return (len(root.findall("./Particles/Particle"))
+            + len(root.findall("./Particle")))
 
 
 def _flatten_indices(value) -> list[int]:
-    """One index-key value (int | numeric str | list of those) -> ints."""
+    """One index-key value (int | numeric str | v1 comma-string | list of
+    those) -> ints.
+
+    The comma-string split matters: ``"1,2,3"`` is THE v1 spec grammar every
+    index key accepts (idstr2list), and without it the ``--check-files``
+    bounds pass silently skipped comma-string groups entirely."""
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return [int(value)]
     if isinstance(value, str):
-        try:
-            return [int(value)]
-        except ValueError:
-            return []
-    if isinstance(value, (list, tuple)):
         out: list[int] = []
-        for item in value:
-            out.extend(_flatten_indices(item))
+        for token in value.split(","):
+            token = token.strip()
+            if not token:
+                continue
+            try:
+                out.append(int(token))
+            except ValueError:
+                pass  # not this helper's job to validate (make_cv raises)
         return out
+    if isinstance(value, (list, tuple)):
+        flattened: list[int] = []
+        for item in value:
+            flattened.extend(_flatten_indices(item))
+        return flattened
     return []
 
 

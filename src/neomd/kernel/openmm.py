@@ -50,7 +50,12 @@ dimensionless -> bare float) + ``setUsesPeriodicBoundaryConditions(bias.periodic
 ``CustomTorsionForce(energy)`` + ``addTorsion(bias.torsion)``; and
 ``CustomCVForce(energy)`` wrapping the BiasIR's CVIR (same centroid/torsion
 compilation, with CVIR.bond_params becoming per-bond parameters for the
-RMSD-style reference-position CVs colvars.py emits).
+RMSD-style reference-position CVs colvars.py emits).  The W1-b kind-driven
+CVs compile to their own inner forces (``_compile_cv``): coordination is a
+CustomNonbondedForce whose per-pair membership product selects the grp1 x
+grp2 cross pairs, and the path CVs are CustomCVForces over one RMSDForce
+per reference frame with the Branduardi closed-form expressions (nesting
+inside the metadynamics table's CustomCVForce verified on 8.6 / CPU).
 
 Force-group assignment ports v1 ``max_force_grps`` (builder/neosystem.py:12-18,
 94-122): the bias force takes ``max(freeGroups)`` where free groups are
@@ -534,8 +539,10 @@ class OpenMMKernel:
         """Compile one CVIR into the inner force of a CustomCVForce.
 
         Supports the CV kinds colvars.py emits: centroid distance/angle (and
-        the distance_ref variant whose bond_params are per-bond parameters)
-        and the torsion CV ("theta").
+        the distance_ref variant whose bond_params are per-bond parameters),
+        the torsion CV ("theta"), and the three W1-b kind-driven CVs —
+        RMSDForce, CustomNonbondedForce (coordination) and PathCV (the
+        Branduardi s/z path variables over per-image RMSDForces).
         """
         if cv.kind == "CustomCentroidBondForce":
             if not cv.groups:
@@ -572,6 +579,78 @@ class OpenMMKernel:
                 raise ValueError(f"cv {cv.label!r}: RMSDForce needs ref_positions and indices")
             ref = np.asarray(cv.ref_positions, dtype=np.float64) * unit.nanometer
             return openmm.RMSDForce(ref, list(cv.indices))
+        if cv.kind == "CustomNonbondedForce":
+            # coordination CV (W1-b): the pair kernel summed over the
+            # grp1 x grp2 atom pairs.  Implemented over ALL system pairs with
+            # two membership parameters — (a1*b2 + a2*b1) is 1 exactly on
+            # cross-group pairs, 0 on intra-group ones — instead of explicit
+            # exclusions (same value, no exception bookkeeping; self-pairs
+            # never occur in a nonbonded pair list).  The force's energy IS
+            # the dimensionless coordination number, so a CustomCVForce (the
+            # metadynamics table) reads it as the CV value.
+            #
+            # PBC: CustomNonbondedForce has no setUsesPeriodicBoundary-
+            # Conditions — the NonbondedMethod decides, and only CutoffPeriodic
+            # applies the minimum-image convention (verified on 8.6: NoCutoff
+            # keeps raw distances even in a periodic box).  Periodic systems
+            # therefore take CutoffPeriodic with half the smallest default box
+            # edge — the largest MIC-valid cutoff; the residual truncation
+            # (pairs beyond it contribute ~(r/r0)^(nn-mm)) is the documented
+            # deviation from the fake/evaluate tracks, which do not truncate.
+            if len(cv.groups) != 2:
+                raise ValueError(
+                    f"cv {cv.label!r}: CustomNonbondedForce needs 2 groups")
+            force = openmm.CustomNonbondedForce(
+                "(a1*b2 + a2*b1)*(" + cv.expression + ")")
+            for name, param in cv.bond_params.items():
+                force.addGlobalParameter(name, _to_quantity(param))
+            force.addPerParticleParameter("a")
+            force.addPerParticleParameter("b")
+            grp1, grp2 = set(cv.groups[0]), set(cv.groups[1])
+            for i in range(self.system.getNumParticles()):
+                force.addParticle([1.0 if i in grp1 else 0.0,
+                                   1.0 if i in grp2 else 0.0])
+            if self.system.usesPeriodicBoundaryConditions():
+                box = self.system.getDefaultPeriodicBoxVectors()
+                edge = min(np.linalg.norm([v.x, v.y, v.z]) for v in box)
+                force.setCutoffDistance(0.5 * edge * unit.nanometer)
+                force.setNonbondedMethod(
+                    openmm.CustomNonbondedForce.CutoffPeriodic)
+            else:
+                force.setNonbondedMethod(
+                    openmm.CustomNonbondedForce.NoCutoff)
+            return force
+        if cv.kind == "PathCV":
+            # path CV s/z (W1-b, Branduardi-Gervasio-Parrinello JCP 2007):
+            # a CustomCVForce over one RMSDForce per reference frame (d1..dP,
+            # full-system frame positions + selected atoms) with the closed-
+            # form expressions and a global lambda.  Nesting works: the
+            # metadynamics table's CustomCVForce wraps this CustomCVForce
+            # (verified on openmm 8.6 / CPU).
+            refs = cv.ref_positions
+            if (refs is None or np.asarray(refs).ndim != 3
+                    or cv.indices is None
+                    or cv.expression not in ("s", "z")):
+                raise ValueError(
+                    f"cv {cv.label!r}: PathCV needs stacked ref_positions "
+                    f"(P, N, 3), indices and expression 's'|'z'")
+            refs = np.asarray(refs, dtype=np.float64)
+            weights = [f"exp(-(d{p}*d{p})/(lambda*lambda))"
+                       for p in range(1, refs.shape[0] + 1)]
+            if cv.expression == "s":
+                numerator = " + ".join(
+                    f"{p}*{w}" for p, w in enumerate(weights, start=1))
+                energy = f"({numerator})/({' + '.join(weights)})"
+            else:  # "z" — openmm/Lepton log() is the natural logarithm
+                energy = f"-lambda*log({' + '.join(weights)})"
+            force = openmm.CustomCVForce(energy)
+            for p in range(refs.shape[0]):
+                force.addCollectiveVariable(
+                    f"d{p + 1}",
+                    openmm.RMSDForce(refs[p] * unit.nanometer, list(cv.indices)))
+            for name, param in cv.bond_params.items():  # "lambda" (nm)
+                force.addGlobalParameter(name, _to_quantity(param))
+            return force
         raise NotImplementedError(
             f"cv kind {cv.kind!r} is not defined (cv {cv.label!r})")
 

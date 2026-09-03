@@ -20,7 +20,14 @@ Physics (documented simplifications):
   of the openmm expression language v1 uses: + - * / ^ (=power) ,
   max/min/abs/sqrt/exp/atan/tan/sin/cos, distance()/angle()/dihedral()
   between group centroids g1..g4, xN/yN/zN centroid coordinates,
-  ``";"``-separated intermediate assignments).
+  ``";"``-separated intermediate assignments).  The W1-b kind-driven CVs
+  (RMSDForce / CustomNonbondedForce / PathCV — rmsd, coordination, path
+  s/z) bypass the interpreter with direct numpy paths in
+  ``_cv_expression_value`` (Kabsch RMSD, the coordination pair sum with the
+  orthorhombic minimum image on periodic systems, and the path-CV
+  log-sum-exp closed forms — the MIRROR of colvars.py's evaluate track,
+  pinned in agreement by tests; this also makes the rmsd RESTRAINT runnable
+  on the fake kernel, whose CustomCVForce("...RMSD...") needs the CV value).
 * forces are always reported as ZERO (the fake does not propagate bias
   forces into the dynamics); kinetic energy comes from its own velocities
   and temperature from 2*KE/(dof*R) with dof = 3N (the openmm
@@ -122,6 +129,61 @@ def _dihedral_rad(p1, p2, p3, p4) -> float:
     n2 = n2 / np.linalg.norm(n2)
     m1 = np.cross(n1, b2 / np.linalg.norm(b2))
     return float(-np.arctan2(np.dot(m1, n2), np.dot(n1, n2)))
+
+
+# ----------------------------------------------------------------------
+# W1-b kind-driven CV geometry — the MIRROR of colvars.py's evaluate track
+# (same dual-track discipline as the COM/angle/dihedral helpers above; the
+# tests pin the two tracks in agreement).  These are NOT OpenMM corner-case
+# mimicry: they are the plain numpy evaluation of the same literature
+# formulas colvars.evaluate implements (settled decision #9's carve-out).
+# ----------------------------------------------------------------------
+
+def _kabsch_rmsd(mobile, reference) -> float:
+    """Unweighted optimal-rotation RMSD (Kabsch), openmm RMSDForce
+    semantics — see the colvars.py twin for the algorithm notes."""
+    P = np.asarray(mobile, dtype=np.float64)
+    Q = np.asarray(reference, dtype=np.float64)
+    P = P - P.mean(axis=0)
+    Q = Q - Q.mean(axis=0)
+    H = P.T @ Q
+    U, _, Vt = np.linalg.svd(H)
+    d = np.sign(np.linalg.det(U @ Vt))
+    R = U @ np.diag([1.0, 1.0, d]) @ Vt
+    diff = P @ R - Q
+    return float(np.sqrt((diff * diff).sum() / len(P)))
+
+
+def _coordination_pair_sum(positions, groups, r0: float, nn: float, mm: float,
+                           minimum_image=None) -> float:
+    """Coordination number pair sum — the colvars._coordination_sum twin
+    (PLUMED-style rational switching over the grp1 x grp2 atom pairs)."""
+    g1 = np.asarray(groups[0], dtype=int)
+    g2 = np.asarray(groups[1], dtype=int)
+    pos = np.asarray(positions, dtype=np.float64)
+    delta = pos[g1][:, None, :] - pos[g2][None, :, :]
+    if minimum_image is not None:
+        delta = minimum_image(delta)
+    r = np.sqrt((delta * delta).sum(axis=2))
+    x = r / float(r0)
+    values = (1.0 - x ** nn) / (1.0 - x ** mm)
+    cross = g1[:, None] != g2[None, :]
+    return float(values[cross].sum())
+
+
+def _path_sz(mobile, images, lam: float) -> tuple[float, float]:
+    """(s, z) of the Branduardi path CV — the colvars._path_values twin
+    (max-shifted log-sum-exp closed forms; see colvars.py for citations)."""
+    msd = np.array([_kabsch_rmsd(mobile, image) ** 2 for image in images],
+                   dtype=np.float64)
+    a = -msd / (lam * lam)
+    shift = float(a.max())
+    weights = np.exp(a - shift)
+    total = float(weights.sum())
+    progress = float((np.arange(1, len(msd) + 1, dtype=np.float64)
+                      * weights).sum() / total)
+    distance = -lam * (shift + float(np.log(total)))
+    return progress, distance
 
 
 def _torsion_theta_rad(p1, p2, p3, p4) -> float:
@@ -487,21 +549,10 @@ class FakeKernel:
             f"bias {bias.label!r}: no scalar quantity for {n_groups} group(s)")
 
     def _cv_quantity(self, cv: CVIR, positions: np.ndarray) -> float:
-        """Report-unit value of one CVIR (degrees for angles, else nm)."""
-        if cv.kind == "CustomTorsionForce":
-            torsion = cv.torsion
-            if torsion is None and len(cv.groups) == 4:
-                torsion = tuple(g[0] for g in cv.groups)
-            if torsion is None:
-                raise ValueError(f"cv {cv.label!r}: CustomTorsionForce needs torsion")
-            return math.degrees(_dihedral_rad(*[positions[i] for i in torsion]))
-        coms = self._centroids(cv.groups, positions) if cv.groups else None
-        env = self._cv_variables(cv)
-        value = _evaluate_expression(cv.expression, env, coms)
-        # distance-type CVs are nm; angular CVs come back in radians
-        if cv_is_angular(cv):
-            return math.degrees(value)
-        return value
+        """Report-unit value of one CVIR (degrees for angles, else natural
+        units — nm or dimensionless).  Same contract as _cv_report_units;
+        the kind-driven special paths live in _cv_expression_value."""
+        return self._cv_report_units(cv, positions)
 
     # -- energy evaluation ---------------------------------------------
 
@@ -564,8 +615,9 @@ class FakeKernel:
 
     def _cv_report_units(self, cv: CVIR, positions: np.ndarray) -> float:
         """CV value in the grid's natural units (degree for torsion/angle
-        CVs, nm otherwise) — matching how colvars grids are declared."""
-        value = self._cv_expression_value(cv, positions)  # nm / radians
+        CVs; nm or dimensionless otherwise) — matching how colvars grids are
+        declared."""
+        value = self._cv_expression_value(cv, positions)  # nm / rad / raw
         if cv_is_angular(cv):
             return math.degrees(value)
         return value
@@ -618,7 +670,42 @@ class FakeKernel:
                 for name, p in cv.bond_params.items()}
 
     def _cv_expression_value(self, cv: CVIR, positions: np.ndarray) -> float:
-        """CV value in openmm canonical units (nm / radians) for expressions."""
+        """CV value in openmm canonical units (nm / radians / raw
+        dimensionless).
+
+        Kind-driven CVs (W1-b, the RMSDForce precedent) take numpy special
+        paths; expression-driven ones go through the restricted interpreter.
+        """
+        if cv.kind == "RMSDForce":
+            if cv.ref_positions is None or cv.indices is None:
+                raise ValueError(
+                    f"cv {cv.label!r}: RMSDForce needs ref_positions and indices")
+            sel = list(cv.indices)
+            reference = np.asarray(cv.ref_positions, dtype=np.float64)[sel]
+            return _kabsch_rmsd(np.asarray(positions, dtype=np.float64)[sel],
+                                reference)
+        if cv.kind == "CustomNonbondedForce":
+            if len(cv.groups) != 2:
+                raise ValueError(
+                    f"cv {cv.label!r}: CustomNonbondedForce needs 2 groups")
+            params = {name: _convert_param(p.value, p.unit)
+                      for name, p in cv.bond_params.items()}
+            return _coordination_pair_sum(
+                positions, cv.groups, params["r0"], params["nn"],
+                params["mm"], minimum_image=self._minimum_image)
+        if cv.kind == "PathCV":
+            if (cv.ref_positions is None or np.asarray(cv.ref_positions).ndim != 3
+                    or cv.indices is None or cv.expression not in ("s", "z")):
+                raise ValueError(
+                    f"cv {cv.label!r}: PathCV needs stacked ref_positions "
+                    f"(P, N, 3), indices and expression 's'|'z'")
+            sel = list(cv.indices)
+            lam = _convert_param(cv.bond_params["lambda"].value,
+                                 cv.bond_params["lambda"].unit)
+            images = np.asarray(cv.ref_positions, dtype=np.float64)[:, sel, :]
+            progress, distance = _path_sz(
+                np.asarray(positions, dtype=np.float64)[sel], images, lam)
+            return progress if cv.expression == "s" else distance
         if cv.kind == "CustomTorsionForce":
             torsion = cv.torsion
             if torsion is None and len(cv.groups) == 4:
