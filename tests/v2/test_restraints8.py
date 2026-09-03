@@ -42,9 +42,10 @@ ALA2_SYSTEM_XML = (DATA / "ala2" / "system.xml").read_text()
 ALA2_ATOMS = 22
 
 #: the 9 v1 restraint types (8 Phase-1/2 + the post-flip 179ae35 `distances`)
-ALL_NINE = {"distance", "dihedral", "angle", "funnel",
-            "dist_ref_position", "rmsd", "xyz_box", "vec_restraint",
-            "distances"}
+#: plus boresch (v2-native, W1-d) — the full restraint vocabulary today
+KNOWN_RESTRAINTS = {"distance", "dihedral", "angle", "funnel",
+                    "dist_ref_position", "rmsd", "xyz_box", "vec_restraint",
+                    "distances", "boresch"}
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +160,7 @@ def write_minimal_pdbx(path, rows_angstrom, model_nums=None):
 # ===========================================================================
 
 def test_all_nine_v1_types_registered_at_import():
-    assert set(registered("restraint")) == ALL_NINE
+    assert set(registered("restraint")) == KNOWN_RESTRAINTS
 
 
 def test_unknown_restraint_type_did_you_mean():

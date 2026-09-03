@@ -56,8 +56,12 @@ def base_config(**overrides) -> dict:
 
 def restrained_config() -> dict:
     config = base_config()
+    # a VALID distance spec (the pre-W1-d fixture carried restr_grp keys the
+    # distance schema never accepted — latent until plan validation started
+    # checking restraint spec keys against the registry schemas)
     config["restraint"] = {
-        "restr_com": {"type": "distance", "restr_grp": "4,21", "restr_k": 1000}
+        "restr_com": {"type": "distance", "grp1": "4", "grp2": "21",
+                      "restr_k": 1000}
     }
     config["output"]["report_restraint"] = True
     return config

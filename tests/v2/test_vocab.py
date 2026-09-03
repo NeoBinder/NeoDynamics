@@ -77,10 +77,11 @@ def test_registered_vocabularies_at_import():
         "distance", "dihedral", "angle", "min_distances", "distance_ref",
         "rmsd", "coordination", "path_s", "path_z"}
     # the full v1 surface: Phase 2 item 2.1 (tests/v2/test_restraints8.py)
-    # plus the post-flip 179ae35 `distances` type (same test file)
+    # plus the post-flip 179ae35 `distances` type (same test file) and the
+    # v2-native `boresch` triple (W1-d, tests/v2/test_restraints_boresch.py)
     assert set(registered("restraint")) == {
         "distance", "dihedral", "angle", "funnel", "dist_ref_position",
-        "rmsd", "xyz_box", "vec_restraint", "distances"}
+        "rmsd", "xyz_box", "vec_restraint", "distances", "boresch"}
     # built-in methods since Phase 2 item 2.2 (tests/v2/test_metadynamics.py)
     assert set(registered("method")) == {"metadynamics", "smd"}
     # the plugin plan-schema rack is EMPTY in the core tree (ADR-0002: a

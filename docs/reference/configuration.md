@@ -261,6 +261,29 @@ One-sided walls (`min_degree`/`max_degree`) on the angle between three groups' C
 | `min_degree` | no | float, lower bound (degree) | None |
 | `order` | no | int | 2 |
 
+### `type: boresch`
+
+Boresch orientation restraint for RBFE: 6 harmonic components (3 distances + 2 angles + 1 dihedral) over 3+3 anchor atoms, packed one force per expression kind.
+
+| Key | Required | Description | Default |
+|---|---|---|---|
+| `lig_grp1` | yes | str '1,2,3' or list[int] | — |
+| `lig_grp2` | yes | str '1,2,3' or list[int] | — |
+| `lig_grp3` | yes | str '1,2,3' or list[int] | — |
+| `phiA0_degree` | yes | float, equilibrium dihedral a1-a2-a3-b3 (degree) | — |
+| `phiB0_degree` | yes | float, equilibrium dihedral a2-a3-b3-b1 (degree) | — |
+| `phiC0_degree` | yes | float, equilibrium dihedral a3-b3-b1-b2 (degree) | — |
+| `r0_nm` | yes | float, equilibrium distance a3-b3 (nm) | — |
+| `rec_grp1` | yes | str '1,2,3' or list[int] | — |
+| `rec_grp2` | yes | str '1,2,3' or list[int] | — |
+| `rec_grp3` | yes | str '1,2,3' or list[int] | — |
+| `restr_k_phi` | yes | float, kJ/mol for ALL three dihedrals ((k/2)(1-cos(phi-phi0)); effective near-equilibrium constant k/2 kJ/mol/rad^2) | — |
+| `restr_k_r` | yes | float, kJ/mol per nm^2 (v1 convention: bare kJ/mol value) | — |
+| `restr_k_theta` | yes | float, kJ/mol per rad^2 for BOTH angles (v1 convention: bare kJ/mol value) | — |
+| `thetaA0_degree` | yes | float, equilibrium angle a1-a3-b3 (degree) | — |
+| `thetaB0_degree` | yes | float, equilibrium angle a3-b3-b1 (degree) | — |
+| `is_periodic` | no | bool | True |
+
 ### `type: dihedral`
 
 Periodic wall keeping a dihedral between `min_degree` and `max_degree`.

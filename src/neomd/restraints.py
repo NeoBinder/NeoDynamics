@@ -45,6 +45,10 @@ shape extensions their reporters need:
     keyed like the v1 reporter line; rmsd returns {} — v1's reporter logged
     the rmsd restraint's ENERGY only (no geometric quantity exists for an
     RMSD over a subset of particles).
+
+Post-flip additions extend the same triple shape: ``distances`` (v1 179ae35
+multi-bond packing) and ``boresch`` (v2-native, from the primary literature —
+no v1 prior art; see the section comment for its provenance).
 """
 
 from __future__ import annotations
@@ -906,3 +910,190 @@ _DISTANCES_ENTRY = Restraint(
 )
 
 register("restraint", "distances", _DISTANCES_ENTRY)
+
+
+# ===========================================================================
+# boresch — v2-native (Wave 1 track W1-d, issue #8 slice)
+#
+# NO v1 prior art (grep of neomd_legacy/bin finds nothing): implemented from
+# the primary literature — Boresch, Karplus et al., "Absolute Binding Free
+# Energies: A Quantitative Approach for Their Calculation", J. Phys. Chem. B
+# 2003, 107, 9535-9551.  The orientation restraint holds a LIGAND to a
+# RECEPTOR through six components over 3+3 anchor atoms:
+#
+#     r      = distance(a3, b3)                    1 term
+#     thetaA = angle(a1, a3, b3)     apex a3       } 2 angle terms
+#     thetaB = angle(a3, b3, b1)     apex b3       }
+#     phiA   = dihedral(a1, a2, a3, b3)            } 3 torsion terms
+#     phiB   = dihedral(a2, a3, b3, b1)            }
+#     phiC   = dihedral(a3, b3, b1, b2)            }
+#
+# Potential (Boresch 2003 eq. 3.4, adapted): quadratic harmonic for r and the
+# two angles — (k/2)(x - x0)^2 with angles in radians inside the expression,
+# exactly like the v1 ``angle`` type's deg-declared params — and the
+# periodic-safe form (k/2)(1 - cos(phi - phi0)) for the three dihedrals (the
+# GROMACS/YANK spelling; a bare quadratic in a torsion diverges across the
+# +/-180 deg wrap).  Near equilibrium the torsion term is (k/4)(phi-phi0)^2,
+# i.e. an effective quadratic constant of k/2 kJ/mol/rad^2 — the W3-a
+# standard-state/analytic-correction work must account for that.
+#
+# Packing (the ``distances`` precedent): ONE CustomCentroidBondForce per
+# expression KIND — [distance, angle, torsion] — sharing the 32-force-group
+# budget, with per-bond parameters (theta0/phi0 in RADIANS per BondIR's
+# canonical-units rule, nm for r0, bare kJ/mol for the constants, mirroring
+# how the v1 ``angle`` type's deg params become radians kernel-side).
+#
+# Reporting: six geometric observables keyed r/thetaA/thetaB/phiA/phiB/phiC
+# (the multi-quantity funnel/distances shape — nm and DEGREES in the report
+# units, radians only inside expressions) plus the bias-energy column.
+# ===========================================================================
+
+_BOESCH_DISTANCE_FUNC = "(k/2)*(distance(g1,g2) - r0)^2"
+_BOESCH_ANGLE_FUNC = "(k/2)*(angle(g1, g2, g3) - theta0)^2"
+_BOESCH_DIHEDRAL_FUNC = "(k/2)*(1 - cos(dihedral(g1,g2,g3,g4) - phi0))"
+
+
+def _boresch_anchors(spec: dict) -> dict:
+    """The six anchor groups, Boresch-named: rec a1/a2/a3, lig b1/b2/b3."""
+    return {
+        "a1": _index_list(spec["rec_grp1"], "rec_grp1"),
+        "a2": _index_list(spec["rec_grp2"], "rec_grp2"),
+        "a3": _index_list(spec["rec_grp3"], "rec_grp3"),
+        "b1": _index_list(spec["lig_grp1"], "lig_grp1"),
+        "b2": _index_list(spec["lig_grp2"], "lig_grp2"),
+        "b3": _index_list(spec["lig_grp3"], "lig_grp3"),
+    }
+
+
+def _make_bias_boresch(name: str, spec: dict) -> list[BiasIR]:
+    anchors = _boresch_anchors(spec)
+    is_periodic = spec.get("is_periodic", True)
+
+    distance_bond = BondIR(
+        groups=[anchors["a3"], anchors["b3"]],
+        params={"k": float(spec["restr_k_r"]), "r0": float(spec["r0_nm"])})
+    angle_bonds = [
+        BondIR(groups=[anchors["a1"], anchors["a3"], anchors["b3"]],
+               params={"k": float(spec["restr_k_theta"]),
+                       "theta0": math.radians(spec["thetaA0_degree"])}),
+        BondIR(groups=[anchors["a3"], anchors["b3"], anchors["b1"]],
+               params={"k": float(spec["restr_k_theta"]),
+                       "theta0": math.radians(spec["thetaB0_degree"])}),
+    ]
+    dihedral_bonds = [
+        BondIR(groups=[anchors["a1"], anchors["a2"], anchors["a3"],
+                       anchors["b3"]],
+               params={"k": float(spec["restr_k_phi"]),
+                       "phi0": math.radians(spec["phiA0_degree"])}),
+        BondIR(groups=[anchors["a2"], anchors["a3"], anchors["b3"],
+                       anchors["b1"]],
+               params={"k": float(spec["restr_k_phi"]),
+                       "phi0": math.radians(spec["phiB0_degree"])}),
+        BondIR(groups=[anchors["a3"], anchors["b3"], anchors["b1"],
+                       anchors["b2"]],
+               params={"k": float(spec["restr_k_phi"]),
+                       "phi0": math.radians(spec["phiC0_degree"])}),
+    ]
+
+    # BiasIR.params declares the per-bond parameter TYPES (units + order);
+    # the values shown are the first bond's, compilation reads BondIR.params
+    return [
+        BiasIR(
+            kind="CustomCentroidBondForce",
+            energy=_BOESCH_DISTANCE_FUNC,
+            params={
+                "k": Param(distance_bond.params["k"], "kJ/mol"),
+                "r0": Param(spec["r0_nm"], "nm"),
+            },
+            bonds=[distance_bond],
+            periodic=is_periodic,
+            label=name,
+        ),
+        BiasIR(
+            kind="CustomCentroidBondForce",
+            energy=_BOESCH_ANGLE_FUNC,
+            params={
+                "k": Param(angle_bonds[0].params["k"], "kJ/mol"),
+                "theta0": Param(spec["thetaA0_degree"], "deg"),
+            },
+            bonds=angle_bonds,
+            periodic=is_periodic,
+            label=name,
+        ),
+        BiasIR(
+            kind="CustomCentroidBondForce",
+            energy=_BOESCH_DIHEDRAL_FUNC,
+            params={
+                "k": Param(dihedral_bonds[0].params["k"], "kJ/mol"),
+                "phi0": Param(spec["phiA0_degree"], "deg"),
+            },
+            bonds=dihedral_bonds,
+            periodic=is_periodic,
+            label=name,
+        ),
+    ]
+
+
+def _observables_boresch(name: str, spec: dict) -> ObservableSpec:
+    # the six current values, keyed like a reporter line (funnel/distances
+    # multi-quantity shape): nm for r, degrees for the angles/dihedrals
+    anchors = _boresch_anchors(spec)
+    return {
+        "r": {
+            "quantity": "distance",
+            "groups": [anchors["a3"], anchors["b3"]],
+        },
+        "thetaA": {
+            "quantity": "angle",
+            "groups": [anchors["a1"], anchors["a3"], anchors["b3"]],
+        },
+        "thetaB": {
+            "quantity": "angle",
+            "groups": [anchors["a3"], anchors["b3"], anchors["b1"]],
+        },
+        "phiA": {
+            "quantity": "dihedral",
+            "groups": [anchors["a1"], anchors["a2"], anchors["a3"],
+                       anchors["b3"]],
+        },
+        "phiB": {
+            "quantity": "dihedral",
+            "groups": [anchors["a2"], anchors["a3"], anchors["b3"],
+                       anchors["b1"]],
+        },
+        "phiC": {
+            "quantity": "dihedral",
+            "groups": [anchors["a3"], anchors["b3"], anchors["b1"],
+                       anchors["b2"]],
+        },
+    }
+
+
+_BOESCH_ENTRY = Restraint(
+    schema={
+        "required": {
+            "rec_grp1": _IDX, "rec_grp2": _IDX, "rec_grp3": _IDX,
+            "lig_grp1": _IDX, "lig_grp2": _IDX, "lig_grp3": _IDX,
+            "r0_nm": "float, equilibrium distance a3-b3 (nm)",
+            "thetaA0_degree": "float, equilibrium angle a1-a3-b3 (degree)",
+            "thetaB0_degree": "float, equilibrium angle a3-b3-b1 (degree)",
+            "phiA0_degree": "float, equilibrium dihedral a1-a2-a3-b3 (degree)",
+            "phiB0_degree": "float, equilibrium dihedral a2-a3-b3-b1 (degree)",
+            "phiC0_degree": "float, equilibrium dihedral a3-b3-b1-b2 (degree)",
+            "restr_k_r": "float, kJ/mol per nm^2 (v1 convention: bare "
+                         "kJ/mol value)",
+            "restr_k_theta": "float, kJ/mol per rad^2 for BOTH angles (v1 "
+                             "convention: bare kJ/mol value)",
+            "restr_k_phi": "float, kJ/mol for ALL three dihedrals "
+                           "((k/2)(1-cos(phi-phi0)); effective near-"
+                           "equilibrium constant k/2 kJ/mol/rad^2)",
+        },
+        "optional": {
+            "is_periodic": ("bool", True),
+        },
+    },
+    make_bias=_make_bias_boresch,
+    observables=_observables_boresch,
+)
+
+register("restraint", "boresch", _BOESCH_ENTRY)

@@ -539,6 +539,8 @@ def _validate_restraint_types(data: Mapping, ctx: _Context, problem) -> None:
             continue  # already reported above
         restraint_type = spec["type"]
         if restraint_type in known:
+            _validate_restraint_spec_keys(name, spec, known[restraint_type],
+                                          problem)
             continue
         candidates = []
         try:
@@ -559,6 +561,45 @@ def _validate_restraint_types(data: Mapping, ctx: _Context, problem) -> None:
             restraint_type,
             candidates=candidates,
         )
+
+
+def _validate_restraint_spec_keys(name: str, spec: Mapping, entry,
+                                  problem) -> None:
+    """Spec-key check against the restraint triple's own schema (collect-all,
+    key-path + did-you-mean — the discipline every new validation follows).
+
+    One problem per missing REQUIRED key and one per UNKNOWN key; the smd
+    section is deliberately NOT checked here (its ramp spelling lets known
+    keys carry value lists — see ``_validate_smd_section``).  Best effort:
+    schemas without the required/optional shape, or entries whose schema is
+    missing entirely, are skipped rather than guessed at.
+    """
+    schema = getattr(entry, "schema", None)
+    if not isinstance(schema, Mapping):
+        return
+    required = schema.get("required") or {}
+    optional = schema.get("optional") or {}
+    if not isinstance(required, Mapping) or not isinstance(optional, Mapping):
+        return  # a schema shape this pass does not understand
+    known_keys = set(required) | set(optional) | {"type"}
+    for key in required:
+        if key not in spec:
+            problem(
+                ConfigValueError,
+                f"restraint entry {name!r} is missing required key "
+                f"{key!r} (type needs all of: "
+                f"{', '.join(sorted(required))})",
+                ("restraint", name, key),
+            )
+    for key in spec:
+        if key not in known_keys:
+            problem(
+                ConfigKeyError,
+                f"unknown key {key!r} in restraint entry {name!r}",
+                ("restraint", name, key),
+                key,
+                known_keys=known_keys,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1170,6 +1211,8 @@ _INDEX_KEYS = (
     "min1_idx1", "min2_idx1", "min_idx2",
     "particles",
     "restr_grp",  # dist_ref_position / rmsd (restraint and smd sections)
+    "rec_grp1", "rec_grp2", "rec_grp3",  # boresch receptor anchors a1/a2/a3
+    "lig_grp1", "lig_grp2", "lig_grp3",  # boresch ligand anchors b1/b2/b3
 )
 
 

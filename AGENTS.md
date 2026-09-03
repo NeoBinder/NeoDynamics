@@ -34,15 +34,20 @@ release together with the `neomd2` script alias.
   factory use).
 - **Knowledge triples** (`restraints.py` + `colvars.py`, methods in
   `methods/`): one module per restraint/CV/method holding schema + force
-  expression + observables, injected via `registry.register()` (9 restraint
+  expression + observables, injected via `registry.register()` (10 restraint
   types incl. `distances` — N pairs packed into one force per side via the
   port's multi-bond `BiasIR.bonds`/`BondIR`; per-bond values are not
-  live-settable — and 9 CVs: the 5 v1-ported expression CVs plus the W1-b
-  kind-driven `rmsd`/`coordination`/`path_s`/`path_z`, whose `CVIR.kind`
-  drives compilation — openmm compiles RMSDForce, a CustomNonbondedForce
-  pair sum and per-image RMSDForce log-sum-exp CustomCVForces; the fake
-  kernel carries mirrored numpy special paths pinned bit-exact against
-  `colvars.evaluate`). Force-group
+  live-settable — and `boresch`, the v2-native orientation restraint over
+  3+3 anchor atoms packed the same way, one force per expression kind;
+  RBFE engine itself is W3-a, see `docs/adr/0003-rbfe-technology-selection.md`;
+  and 9 CVs: the 5 v1-ported expression CVs plus the W1-b kind-driven
+  `rmsd`/`coordination`/`path_s`/`path_z`, whose `CVIR.kind` drives
+  compilation — openmm compiles RMSDForce, a CustomNonbondedForce pair sum
+  and per-image RMSDForce log-sum-exp CustomCVForces; the fake kernel
+  carries mirrored numpy special paths pinned bit-exact against
+  `colvars.evaluate`). Restraint spec keys are validated by `plan.py`
+  against the registry schemas (collect-all: missing required + unknown
+  keys with did-you-mean). Force-group
   ids come from the one allocator `port.pick_free_force_group`. Methods are
   dispatched by `drive()` through the prepare contract:
   `entry.prepare(...) -> PreparedMethod` (biases installed, resume planned,

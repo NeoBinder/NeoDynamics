@@ -116,6 +116,13 @@ with `output.report_smd: false`) alongside the usual artifacts, and a
 static `restraint:` section (e.g. holding the protein) is reported to
 `restraint.tsv` as in any MD run.
 
+The `boresch` restraint type — a v2-native orientation restraint holding a
+ligand to a receptor through 6 components over 3+3 anchor atoms (Boresch
+2003), the standard RBFE anchor, packed like `distances` into one force
+per expression kind — is documented with a full YAML example, the anchor
+geometry and the v2 decisions in
+[docs/methods/boresch.md](docs/methods/boresch.md).
+
 ## Installation
 
 ### (*preferred*) Pixi — custom runtime environment
@@ -172,7 +179,7 @@ flowchart LR
     FAC --> FK["fake kernel<br/>(deterministic CI)"]
     FAC --> RP["replay kernel<br/>(golden tapes)"]
     OM & FK & RP -.-> PORT["KernelPort<br/>closed operation surface"]
-    REG["registry: knowledge triples<br/>9 restraints · 9 CVs · methods · probes"] -.-> DRV
+    REG["registry: knowledge triples<br/>10 restraints · 9 CVs · methods · probes"] -.-> DRV
     MR --> DRV["driver.drive()<br/>boundary-chunked loop"]
     RES["resume.py<br/>restore + trim"] -.-> DRV
     DRV --> PRB["probes + sinks"] --> ART["manifest.json · output.state/dcd/ckpt<br/>last.ckpt/pdbx · colvar.tsv · hills.npz · fes.tsv"]
@@ -210,8 +217,10 @@ holding **schema + force expression + observables**, injected via
 spellings, dual-track kernels and hand-computed geometry pins:
 [docs/methods/cv-library.md](docs/methods/cv-library.md). Built-ins: 9 restraint types
 (`distance`, `dihedral`, `angle`, `funnel`, `dist_ref_position`, `xyz_box`,
-`vec_restraint`, `rmsd`, and `distances` — many pairs packed into one force
-per side, the v1 179ae35 group-economy type), 9 CVs — the 5 v1-ported
+`vec_restraint`, `rmsd`, `distances` — many pairs packed into one force
+per side, the v1 179ae35 group-economy type — and `boresch`, the
+v2-native orientation restraint for RBFE: 6 components over 3+3 anchor
+atoms packed into one force per expression kind), 9 CVs — the 5 v1-ported
 expression CVs (`distance`, `dihedral`, `angle`, `min_distances`,
 `distance_ref`) plus the W1-b kind-driven CVs `rmsd` (Kabsch optimal-rotation
 RMSD to a reference), `coordination` (PLUMED-style rational switching pair
@@ -479,7 +488,7 @@ NeoDynamics/
 │   ├── probes.py / sinks.py   # all artifact writing (LocalDirSink, MemorySink, DCD writer)
 │   ├── system.py / prepare.py # openmm-free SystemBundle + preparation workflow
 │   ├── openmm_privates.py     # ALL private-API touches behind an openmm 8.6.x gate
-│   ├── restraints.py          # 9 restraint knowledge triples
+│   ├── restraints.py          # 10 restraint knowledge triples (incl. boresch)
 │   ├── colvars.py             # 9 collective-variable triples (5 expression + 4 kind-driven)
 │   ├── registry.py            # the extension rack (restraint/cv/method/probe)
 │   ├── methods/metadynamics.py# well-tempered metadynamics

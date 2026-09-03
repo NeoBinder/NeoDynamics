@@ -666,10 +666,12 @@ def test_no_restraint_knowledge_in_the_system_layer():
 
 def test_restraint_sections_are_not_the_system_layers_business():
     # a plan WITH a restraint section describes the same system: the bundle
-    # carries no restraint state for something else to write back
+    # carries no restraint state for something else to write back (the spec
+    # is schema-valid — plan validation checks restraint spec keys now)
     bundle = SystemBundle.from_plan(Plan.from_dict(_minimal_plan(
         SOLV_PDBX, SYSTEM_XML,
-        restraint={"pull": {"type": "distance", "force_constant": 100}},
+        restraint={"pull": {"type": "distance", "grp1": "0", "grp2": "1",
+                            "restr_k": 100.0}},
     )))
     assert set(bundle.modifications) == {"barostat", "particle_masses"}
 

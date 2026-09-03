@@ -232,6 +232,9 @@ _RESTRAINT_MEANINGS = {
     "distances": "N one-sided distance pairs packed into ONE force per side "
                  "(min wall / max wall) with per-bond parameters — v1 "
                  "179ae35 group-economy type.",
+    "boresch": "Boresch orientation restraint for RBFE: 6 harmonic "
+               "components (3 distances + 2 angles + 1 dihedral) over 3+3 "
+               "anchor atoms, packed one force per expression kind.",
 }
 
 #: built-in (driver-dispatched) method names — not registry entries
