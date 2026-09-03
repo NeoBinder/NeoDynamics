@@ -22,6 +22,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from neomd.manifest import MANIFEST_FILENAME
+
 from .errors import AnalysisError
 from .readers import (
     COLVAR_FILENAME,
@@ -35,7 +37,6 @@ from .readers import (
     write_hills,
     write_tsv,
 )
-from neomd.manifest import MANIFEST_FILENAME
 
 __all__ = [
     "MergedRuns",

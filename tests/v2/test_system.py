@@ -37,8 +37,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from openmm import XmlSerializer
-from openmm import app, unit
+from openmm import XmlSerializer, app, unit
 from openmm.app import ForceField
 
 import neomd.system as nsys

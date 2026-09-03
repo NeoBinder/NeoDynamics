@@ -28,7 +28,24 @@ deliberately NOT here: the v1 tree had no flooding tool and the new formats
 do not define the quantity — a documented follow-up once a producer exists.
 """
 
+from .convergence import ConvergenceResult, ConvergenceRow, fes_convergence
 from .errors import AnalysisError
+from .fes import (
+    bias_at_points,
+    bias_on_grid,
+    fes_from_bias,
+    fes_from_hills,
+    reconstruct_bias,
+    write_fes,
+    wt_fes_factor,
+)
+from .merge import (
+    MergedRuns,
+    load_runs,
+    merge_colvars,
+    merge_hills,
+    write_merged_run,
+)
 from .readers import (
     COLVAR_FILENAME,
     FES_FILENAME,
@@ -51,17 +68,6 @@ from .readers import (
     write_hills,
     write_tsv,
 )
-from .fes import (
-    bias_at_points,
-    bias_on_grid,
-    fes_from_bias,
-    fes_from_hills,
-    reconstruct_bias,
-    write_fes,
-    wt_fes_factor,
-)
-from .convergence import ConvergenceResult, ConvergenceRow, fes_convergence
-from .stats import BlockAverageResult, block_average
 from .reweight import (
     ReweightResult,
     bias_series,
@@ -69,13 +75,7 @@ from .reweight import (
     reweighted_fes,
     tp_weights,
 )
-from .merge import (
-    MergedRuns,
-    load_runs,
-    merge_colvars,
-    merge_hills,
-    write_merged_run,
-)
+from .stats import BlockAverageResult, block_average
 
 __all__ = [
     # errors

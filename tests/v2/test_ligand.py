@@ -39,7 +39,6 @@ from neomd.tools.ligand import (  # noqa: E402  (after importorskip)
     main,
 )
 
-
 # ---------------------------------------------------------------------------
 # fixtures — real CCO (ethanol) files, written with openff exactly the way
 # v1 workflows produced their ligand inputs

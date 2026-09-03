@@ -39,8 +39,8 @@ import pytest
 from openmm import app, unit
 
 from neomd.kernel import (
-    BiasIR,
     CVIR,
+    BiasIR,
     EnergyReport,
     KernelFactory,
     KernelSpec,
@@ -481,8 +481,6 @@ def test_adapters_implement_the_closed_port_surface():
 def test_replay_kernel_port_surface_and_documented_refusals():
     """replay: core surface present; box/mass defaults documented; the
     negotiated capabilities refused by absence (no physics to back them)."""
-    import numpy as np
-
     from neomd.kernel import replay as replay_module  # noqa: F401 (registration)
     from neomd.kernel.port import GroupEnergy, StructureWriter
 
@@ -543,8 +541,6 @@ def test_one_unit_vocabulary_three_consumers():
     """port.CANONICAL_FACTORS is THE table: the accepted Param units, the
     canonical factors and the openmm adapter's Quantity map share one
     vocabulary (pinned, so they can never drift apart again)."""
-    import math
-
     from neomd.kernel.openmm import _UNIT_MAP
     from neomd.kernel.port import CANONICAL_FACTORS, UNITS
 

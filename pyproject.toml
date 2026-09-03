@@ -39,3 +39,30 @@ markers = [
   "golden: golden-sample parity tests against v1 tapes (run via `pixi run test-golden`)",
   "legacy: tests exercising frozen v1 (neomd_legacy) live; excluded from CI after the flip (run via `pixi run test-legacy`)",
 ]
+
+[tool.ruff]
+# The project's first lint gate (issue #13 residue): check-only, conservative,
+# no churn to physics code (AGENTS.md settled decision #2 — force expressions
+# are ported verbatim and are not to be "cleaned up").
+extend-exclude = [
+  "src/neomd_legacy", # frozen v1 — bug fixes only, never lint-churned
+  "bin",              # frozen v1 wrappers + standalone v1 analysis tools
+  "examples",         # separate mini-projects (gamd_drill has its own pyproject)
+  "docs",
+  ".worktrees",       # in-repo worktrees carry their own pyproject.toml copies
+]
+# pre-commit passes excluded paths explicitly (it appends filenames to the
+# ruff invocation); without this flag ruff would lint them anyway and the
+# hook would fail on frozen v1 code.
+force-exclude = true
+line-length = 100
+
+[tool.ruff.lint]
+# Ruff's default set (pyflakes + the pycodestyle subsets that are safe:
+# E4 import formatting errors, E7 statement errors, E9 runtime errors) plus
+# isort (I) for deterministic import ordering. E501 and style-opinion rules
+# are deliberately NOT enabled — this gate must stay mechanical.
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["neomd", "neomd_legacy"]

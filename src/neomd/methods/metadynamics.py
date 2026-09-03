@@ -74,8 +74,8 @@ from typing import Callable
 import numpy as np
 
 from neomd.kernel.port import (
-    BiasIR,
     CVIR,
+    BiasIR,
     GridSpec,
     TableSpec,
     cv_is_angular,

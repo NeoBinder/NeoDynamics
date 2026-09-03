@@ -66,8 +66,8 @@ import pickle
 import numpy as np
 
 from .port import (
-    BiasIR,
     CVIR,
+    BiasIR,
     EnergyReport,
     KernelFactory,
     KernelSpec,

@@ -55,7 +55,7 @@ from typing import Callable
 
 import numpy as np
 
-from neomd.kernel.port import BiasIR, BondIR, CVIR, Param
+from neomd.kernel.port import CVIR, BiasIR, BondIR, Param
 from neomd.registry import register
 
 __all__ = ["Restraint", "ObservableSpec"]

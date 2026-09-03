@@ -1,5 +1,7 @@
 # NeoDynamics
 
+[![CI](https://github.com/NeoBinder/NeoDynamics/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/NeoBinder/NeoDynamics/actions/workflows/ci.yml)
+
 **A molecular-dynamics SDK on OpenMM** — generic MD, well-tempered
 metadynamics and steered MD behind a single facade, with a swappable
 physics kernel.
@@ -428,7 +430,14 @@ entry points remain thin wrappers for one release.
 pixi run test          # pytest -m 'not golden and not legacy' — the CI gate (~6 min)
 pixi run test-golden   # bit-exact parity vs recorded v1 tapes (~3 min)
 pixi run test-legacy   # frozen-v1 live tests (opt-in, not in CI)
+uvx ruff check .       # the lint gate (also enforced by pre-commit.ci on every PR)
 ```
+
+Every PR also runs [pre-commit.ci](https://pre-commit.ci) over
+`.pre-commit-config.yaml` — check-only hooks (basic file sanity plus the
+ruff lint gate, configured in `pyproject.toml` with the frozen v1 code in
+`src/neomd_legacy/`, `bin/` and `examples/` excluded). Run everything
+locally with `uvx pre-commit run --all-files`.
 
 - `tests/v2/` — unit + e2e over public interfaces on the fake kernel
   (millisecond tier), including the round-trip-law test and **source-scan

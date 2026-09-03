@@ -72,8 +72,8 @@ import openmm
 from openmm import app, unit
 
 from .port import (
-    BiasIR,
     CVIR,
+    BiasIR,
     EnergyReport,
     KernelFactory,
     KernelSpec,
@@ -347,7 +347,7 @@ class OpenMMKernel:
                 if (system.getParticleMass(p1) > 0 * unit.dalton
                         or system.getParticleMass(p2) > 0 * unit.dalton):
                     dof -= 1
-            if any(type(system.getForce(i)) == openmm.CMMotionRemover
+            if any(type(system.getForce(i)) is openmm.CMMotionRemover
                    for i in range(system.getNumForces())):
                 dof -= 3
             self._dof_cache = dof

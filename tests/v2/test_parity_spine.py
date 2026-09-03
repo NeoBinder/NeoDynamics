@@ -102,8 +102,13 @@ import compare  # noqa: E402  (two-tier comparison helpers, reused not copied)
 import scenarios  # noqa: E402  (the v1 config dicts; also pins CPU threads)
 
 import neomd.restraints  # noqa: E402,F401  (import = restraint registration)
-from neomd import driver, registry  # noqa: E402
-from neomd import compile as compile_run  # noqa: E402  (facade symbol)
+from neomd import (  # noqa: E402
+    compile as compile_run,  # noqa: E402  (facade symbol)
+)
+from neomd import (  # noqa: E402
+    driver,
+    registry,
+)
 from neomd.plan import Plan  # noqa: E402
 
 pytestmark = pytest.mark.golden

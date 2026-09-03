@@ -33,8 +33,8 @@ from neomd.methods.metadynamics import (
     FES_FILENAME,
     HILLS_FILENAME,
     MOLAR_GAS_CONSTANT_R_KJ,
-    MethodResult,
     MetadynamicsRun,
+    MethodResult,
 )
 from neomd.plan import Plan
 from neomd.sinks import LocalDirSink
@@ -112,7 +112,6 @@ def frozen_two_particle_kernel(seed: int = 2026) -> FakeKernel:
 
 
 def test_molar_gas_constant_matches_openmm_bitwise():
-    import openmm
     from openmm import unit
 
     openmm_r = unit.MOLAR_GAS_CONSTANT_R.value_in_unit(

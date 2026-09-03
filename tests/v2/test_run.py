@@ -31,8 +31,12 @@ import pytest
 import yaml
 
 import neomd
-from neomd import compile as compile_run  # the facade symbol (not the builtin)
-from neomd import md_run
+from neomd import (
+    compile as compile_run,  # the facade symbol (not the builtin)
+)
+from neomd import (
+    md_run,
+)
 from neomd.driver import RunOutcome
 from neomd.errors import ConfigKeyError
 from neomd.plan import Plan

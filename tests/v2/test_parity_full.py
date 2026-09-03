@@ -93,10 +93,11 @@ import trim  # noqa: E402  (the tape-side summary arithmetic, reused not copied)
 
 import neomd.colvars  # noqa: E402,F401  (import = cv registration)
 import neomd.restraints  # noqa: E402,F401  (import = restraint registration)
-from neomd import driver, md_run, registry  # noqa: E402
 from neomd import compile as compile_run  # noqa: E402  (facade symbol)
+from neomd import driver, md_run, registry  # noqa: E402
 from neomd.manifest import GENESIS, MANIFEST_FILENAME, RunManifest, epoch_fingerprint  # noqa: E402
-from neomd.methods.metadynamics import HILLS_FILENAME, LABEL as META_LABEL  # noqa: E402
+from neomd.methods.metadynamics import HILLS_FILENAME  # noqa: E402
+from neomd.methods.metadynamics import LABEL as META_LABEL  # noqa: E402
 from neomd.plan import Plan  # noqa: E402
 from neomd.probes import CheckpointProbe  # noqa: E402
 from neomd.sinks import LocalDirSink  # noqa: E402

@@ -16,3 +16,12 @@ repos:
       - id: check-added-large-files
         # tests/data/system.xml (~616 KB) is an intentional committed fixture
         args: [--maxkb=2048]
+
+  # Lint gate (issue #13 residue): check-only, NO --fix — pre-commit.ci must
+  # never rewrite PRs, and frozen v1 code is kept out via the ruff config's
+  # extend-exclude (src/neomd_legacy, bin/, examples/, docs/, .worktrees/),
+  # not by narrowing what pre-commit passes it. Run locally: uvx ruff check .
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.5
+    hooks:
+      - id: ruff

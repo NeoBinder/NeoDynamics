@@ -15,7 +15,6 @@ artifact equality is byte/column-exact, not approximate.
 from __future__ import annotations
 
 import io
-import struct
 
 import numpy as np
 import pytest
@@ -27,6 +26,7 @@ from neomd.kernel.fake import FakeKernel
 from neomd.manifest import RunManifest
 from neomd.methods.metadynamics import HILLS_FILENAME
 from neomd.plan import Plan
+from neomd.probes import CheckpointProbe, StateProbe, TrajectoryProbe
 from neomd.resume import ResumePlan, plan_resume
 from neomd.sinks import (
     DCD_HEADER_SIZE,
@@ -37,7 +37,6 @@ from neomd.sinks import (
     read_dcd_header,
     trim_dcd,
 )
-from neomd.probes import CheckpointProbe, StateProbe, TrajectoryProbe
 
 ensure_adapters()
 
@@ -425,8 +424,6 @@ def test_resume_restraint_tape_single_header(tmp_path):
 
 def test_scheduler_progress_merges_probe_reports():
     from neomd.probes import ProbeScheduler
-
-    sink = MemorySink()
 
     class RecordingProbe:
         def __init__(self, interval, name, steps):

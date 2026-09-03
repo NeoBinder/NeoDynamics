@@ -65,7 +65,6 @@ from neomd.kernel.fake import FakeKernel
 from neomd.manifest import RunManifest
 from neomd.methods.metadynamics import (
     MOLAR_GAS_CONSTANT_R_KJ,
-    MetadynamicsRun,
 )
 from neomd.plan import Plan
 from neomd.sinks import LocalDirSink

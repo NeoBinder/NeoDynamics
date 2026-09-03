@@ -26,7 +26,6 @@ from neomd.errors import (
 from neomd.manifest import GENESIS, Epoch, RunManifest, epoch_fingerprint
 from neomd.plan import Plan, load_plan
 
-
 # ---------------------------------------------------------------------------
 # fixtures / helpers
 # ---------------------------------------------------------------------------

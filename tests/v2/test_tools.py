@@ -32,7 +32,7 @@ from lxml import etree
 from openff.toolkit import Molecule
 from openff.units import unit as openff_unit
 from openmm import NonbondedForce, Vec3, unit
-from openmm.app import ForceField, HBonds, NoCutoff, PME, PDBFile
+from openmm.app import PME, ForceField, HBonds, PDBFile
 
 import neomd.tools.antechamber as _antechamber_module
 import neomd.tools.port as _port_module

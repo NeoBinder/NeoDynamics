@@ -45,7 +45,6 @@ from typing import Mapping, Sequence
 
 import numpy as np
 
-from neomd.errors import suggest
 from neomd.kernel.port import cv_is_angular, to_canonical
 from neomd.manifest import MANIFEST_FILENAME, RunManifest
 from neomd.methods.metadynamics import FES_FILENAME, HILLS_FILENAME
@@ -114,7 +113,8 @@ class TsvData:
         try:
             index = self.columns.index(name)
         except ValueError:
-            candidates = suggest(name, self.columns)
+            # did-you-mean candidates are computed by NeoUserError itself
+            # (key + known_keys); nothing to precompute here.
             message = f"column {name!r} not in {COLVAR_FILENAME}-style tape"
             raise AnalysisError(
                 message, key=name, known_keys=self.columns,
@@ -166,7 +166,7 @@ def read_tsv(path) -> TsvData:
             values = [float(v) for v in parts[1:]]
         except ValueError:
             raise AnalysisError(
-                f"tsv row does not parse (expected int step + floats)",
+                "tsv row does not parse (expected int step + floats)",
                 source=path, line=number, value=stripped[:80]) from None
         steps.append(step)
         rows.append(values)

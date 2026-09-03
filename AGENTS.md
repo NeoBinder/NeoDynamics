@@ -88,6 +88,7 @@ release together with the `neomd2` script alias.
 pixi run test          # pytest -m 'not golden and not legacy'  (~6 min, the CI gate)
 pixi run test-golden   # golden-sample parity vs v1 tapes, bit-exact (~3 min)
 pixi run test-legacy   # frozen v1 live tests (excluded from CI after the flip)
+uvx ruff check .       # the lint gate (E4/E7/E9/F + isort; config + excludes in pyproject.toml)
 neomd run|prepare|migrate|validate|version
 ```
 
@@ -100,9 +101,11 @@ re-runs on the recording machine.
 
 CI (`.github/workflows/ci.yml`) runs `pixi run test`, `pixi run test-golden`,
 and the 3HTB smoke on every PR; pre-commit.ci enforces
-`.pre-commit-config.yaml` (check-only hooks — the tree intentionally carries
-frozen v1 code and example data, so no mutating hygiene hooks; run locally
-with `uvx pre-commit run --all-files`).
+`.pre-commit-config.yaml` (check-only hooks — basic file sanity plus the
+ruff lint gate; the tree intentionally carries frozen v1 code and example
+data, so no mutating hygiene hooks and legacy/`bin`/`examples` are kept out
+via the ruff config's excludes; run locally with `uvx pre-commit run
+--all-files`, lint only with `uvx ruff check .`).
 
 ## Settled decisions — do not relitigate
 

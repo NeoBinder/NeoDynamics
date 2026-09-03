@@ -51,10 +51,13 @@ from __future__ import annotations
 
 import fnmatch
 import os
-from typing import Mapping
+from typing import TYPE_CHECKING, Mapping
 
 from .errors import ConfigKeyError
 from .plan import KNOWN_KEYS, Plan, load_plan
+
+if TYPE_CHECKING:  # annotation-only: the runtime import stays lazy in-body
+    from .kernel.port import KernelSpec
 
 __all__ = ["CompiledRun", "compile", "md_run", "build_kernel_spec",
            "PLAN_FILENAMES"]

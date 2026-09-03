@@ -25,8 +25,8 @@ def ensure_adapters() -> None:
     global _done
     if _done:
         return
-    from .openmm import OpenMMKernel
     from .fake import FakeKernel
+    from .openmm import OpenMMKernel
 
     KernelFactory.register_adapter("openmm", OpenMMKernel)
     KernelFactory.register_adapter("fake", FakeKernel)

@@ -22,9 +22,10 @@ import sys
 import numpy as np
 import pytest
 from openmm import unit
-from openmm.app import PDBFile, PDBxFile, Element, Topology
+from openmm.app import Element, PDBFile, PDBxFile, Topology
 
-from neomd.tools.convert import load_file, main as convert_main
+from neomd.tools.convert import load_file
+from neomd.tools.convert import main as convert_main
 
 DATA = pathlib.Path(__file__).resolve().parents[1] / "data"
 ALA2_PDB = DATA / "ala2" / "ala2.pdb"

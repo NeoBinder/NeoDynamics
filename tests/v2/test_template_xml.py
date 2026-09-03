@@ -37,7 +37,6 @@ from neomd.tools.template_xml import (
     prettify_xml,
 )
 
-
 # ===========================================================================
 # fake AmberTools: a canned GAFF mol2 for CCO + a minimal valid frcmod
 # (same fixtures as tests/v2/test_tools.py — no shared conftest)

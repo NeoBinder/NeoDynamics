@@ -33,7 +33,6 @@ from neomd.sinks import (
     write_dcd_frame,
 )
 
-
 # ---------------------------------------------------------------------------
 # shared stubs (a tiny kernel satisfying the KernelPort surface probes touch,
 # wrapped in the public KernelView)

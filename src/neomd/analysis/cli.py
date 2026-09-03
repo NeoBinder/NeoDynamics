@@ -36,7 +36,7 @@ import sys
 
 from .convergence import fes_convergence
 from .errors import AnalysisError
-from .fes import fes_from_bias, reconstruct_bias, write_fes, bias_on_grid
+from .fes import bias_on_grid, fes_from_bias, reconstruct_bias, write_fes
 from .merge import load_runs, write_merged_run
 from .readers import COLVAR_FILENAME, override_meta, read_tsv, run_dirs_arg
 from .reweight import bias_series, reweight_expectation, reweighted_fes

@@ -39,12 +39,12 @@ from pathlib import Path
 
 import numpy as np
 from lxml import etree
+from openff.units import unit as openff_unit
 from openmm import app, unit
 from openmm.app import ForceField
 from openmmforcefields.generators import (
     GAFFTemplateGenerator as _LibraryGAFFTemplateGenerator,
 )
-from openff.units import unit as openff_unit
 
 from neomd.tools.port import SubprocessToolRunner, ToolError, ToolRunner
 

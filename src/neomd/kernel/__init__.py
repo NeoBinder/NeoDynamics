@@ -1,7 +1,7 @@
 from .port import (
+    CVIR,
     BiasIR,
     BiasOps,
-    CVIR,
     EnergyReport,
     GridSpec,
     GroupEnergy,

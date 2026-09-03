@@ -1,9 +1,9 @@
 import os
+
 import pytest
+from box import Box
 
 from neomd_legacy.generic import Pipeline
-
-from box import Box
 from neomd_legacy.metadynamics.pipeline import MetadynamicsPipeline
 
 pytestmark = pytest.mark.legacy

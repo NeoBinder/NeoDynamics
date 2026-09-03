@@ -56,6 +56,7 @@ import os
 import sys
 
 import neomd
+
 from .errors import NeoUserError
 
 __all__ = ["main", "build_parser"]
