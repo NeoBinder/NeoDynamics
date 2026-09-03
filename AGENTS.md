@@ -164,11 +164,14 @@ no gate is skipped.
   verified (commands actually run + results), the worktree path and branch
   name, and the README/AGENTS.md changes this task made (or state that no
   documentation update was needed).
-- **Landing (only after confirmation).** `git pull --ff-only` in the main
-  checkout; if the branch now conflicts with `main`, merge `main` into the
-  branch inside the worktree and resolve first; then
-  `git merge --squash feat/<name>` and one commit whose message covers the
-  whole branch. Before pushing, audit the final diff against the remote tip
+- **Landing (only after confirmation) always squashes.** However many
+  commits the branch accumulated, it lands as exactly one: `git pull
+  --ff-only` in the main checkout; if the branch now conflicts with
+  `main`, merge `main` into the branch inside the worktree and resolve
+  first; then `git merge --squash feat/<name>` and one commit whose
+  message covers the whole branch — multiple commits never reach `main`
+  as-is (no plain merge, no fast-forward of a multi-commit branch).
+  Before pushing, audit the final diff against the remote tip
   path by path: no secrets, `.env*`, personal data, internal addresses,
   build artifacts or temporary files. Push, then
   `git worktree remove .worktrees/<name>` (keep it only for an explicit
