@@ -525,8 +525,8 @@ def _default_probes(plan, sink, resume=None) -> list:
     themselves never decide append/truncate."""
     if sink is None:
         return []
-    from . import registry
     from . import probes as _probes  # noqa: F401  (import = registration)
+    from . import registry
 
     trims = resume.trims if resume is not None else {}
     dt_ps = _plan_dt_ps(plan)
@@ -582,6 +582,64 @@ def _append_restraint_probe(probes: list, plan, sink, kernel, fgroups,
         fgroups=fgroups or None,
         append="restraint.tsv" in trims,
     ))
+
+
+def _run_min_qc(kernel: KernelPort, plan, sink, log) -> None:
+    """The min-tail QC hook (issue #15): quality-check the MINIMIZED
+    coordinates — the class of damage issue #7 documented (a minimize that
+    leaves broken bonds/angles behind).
+
+    Positions come from the kernel (the driver's own seam); everything
+    else — equilibrium parameters, labels, box — comes from the plan's
+    input files through the openmm-free qc module (qc.py never touches the
+    port).  The report lands in the sink; strict mode raises
+    :class:`~neomd.errors.StructureQualityError` after it is written.
+    Files that cannot be read (e.g. a fake-kernel test plan pointing at
+    placeholder paths) degrade to a skipped report, never a crash.
+    """
+    from . import qc
+
+    input_files = getattr(plan, "input_files", None) or {}
+    topology = input_files.get("complex")
+    system_xml = input_files.get("system")
+    qc_config = getattr(plan, "qc", None)
+    try:
+        geometry = qc.read_system_geometry(
+            str(topology), str(system_xml),
+            ligand_json=input_files.get("ligands"),
+            positions=kernel.positions(),
+        )
+    except (OSError, ValueError) as error:
+        log.warning("min-tail QC skipped: could not read the plan's system "
+                    "files (%s)", error)
+        if sink is None:
+            return
+        report = qc.QCReport(
+            stage="min", n_atoms=kernel.num_particles,
+            mode=qc.qc_mode(qc_config),
+            thresholds=qc.QCThresholds.from_config(qc_config).as_dict(),
+            checks=(qc.CheckResult(
+                "qc", "skipped", (),
+                (f"system files unreadable, quality checks skipped: {error}",)),),
+            ligand=None,
+            source=f"topology={topology} system={system_xml}")
+        qc.write_qc_report(sink, report)
+        return
+    report = qc.run_qc(geometry, stage="min", qc_config=qc_config)
+    report_path = None
+    if sink is not None:
+        qc.write_qc_report(sink, report)
+        try:
+            report_path = str(sink.path(qc.QC_REPORT_FILENAME))
+        except NotImplementedError:
+            report_path = qc.QC_REPORT_FILENAME
+    n_findings = sum(len(check.findings) for check in report.checks)
+    if report.ligand:
+        n_findings += sum(len(check.get("findings", ()))
+                          for check in report.ligand["checks"])
+    log.info("min-tail QC verdict: %s (%d findings)", report.verdict,
+             n_findings)
+    qc.enforce_mode(report, report_path)
 
 
 _MIN_METHODS = ("min",)
@@ -729,6 +787,9 @@ def drive(
       derived intervals (state/trajectory/checkpoint, plus the
       :class:`~neomd.probes.RestraintProbe` when the derived
       ``restraint_interval`` asks for it; no probes without a sink).
+      The min leg additionally runs the openmm-free QC pass on the
+      MINIMIZED coordinates (``_run_min_qc``; ``qc_report.json`` through
+      the sink, strict mode raises after it is written).
       Anything else dispatches through the method extension rack
       (``registry.get("method", ...)``, did-you-mean on miss) — metadynamics
       and steered MD live there: the method PREPARES (installs its biases,
@@ -771,8 +832,9 @@ def drive(
     fgroups: dict[str, list[int]] = {}
     restraint = getattr(plan, "restraint", None)
     if restraint:
-        from . import registry
         import neomd.restraints  # noqa: F401  (import = triple registration)
+
+        from . import registry
 
         for name, spec in restraint.items():
             entry = registry.get("restraint", spec["type"])
@@ -785,6 +847,7 @@ def drive(
     results: list = []
     if method in _MIN_METHODS:
         results.append(run_minimization(kernel, plan, sink=sink, logger=log))
+        _run_min_qc(kernel, plan, sink, log)
     elif method in _MD_METHODS:
         from .resume import plan_resume
 
@@ -812,7 +875,7 @@ def drive(
         # the restraint tape plus the method's switch-gated tapes — so no
         # method plugin ever sees restraint wiring (review decision; the
         # interim restraint_fgroups dispatch kwarg is gone).
-        from . import methods, registry
+        from . import registry
 
         entry = registry.get("method", method)  # KeyError w/ did-you-mean
         prepared = entry.prepare(kernel=kernel, plan=plan, sink=sink,

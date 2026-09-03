@@ -63,6 +63,13 @@ release together with the `neomd2` script alias.
   lives in `openmm_privates.py` behind a pinned-version gate
   (`UpstreamVersionError` outside openmm 8.6.x) — add new private touches
   there, never inline.
+- **QC** (`qc.py`): openmm-free structure quality checks (pure numpy
+  geometry over SystemBundle files — never via the kernel port); hooked at
+  the `prepare.py` tail and the driver's min tail, writing
+  `qc_report.json` through sinks (collect-all findings, then
+  `StructureQualityError` in strict mode; default soft). Thresholds +
+  rationale live in its module docstring; the issue #7 repro is its
+  regression (tests/v2/test_qc.py).
 - **Tools** (`tools/`): external-process adapters (antechamber, orca,
   ligand, convert, fix_protein, template_xml). Subprocess-isolated tmpdirs;
   `os.chdir` is forbidden.

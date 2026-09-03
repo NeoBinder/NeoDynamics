@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, field
-from typing import Any, Callable, Mapping, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Protocol, runtime_checkable
 
 import numpy as np
 
@@ -37,6 +37,9 @@ from .openmm_privates import (
     custom_addH,
     custom_bonds,
 )
+
+if TYPE_CHECKING:  # runtime import is lazy (system.py re-exports this module)
+    from .system import SystemBundle
 
 __all__ = [
     "ForceFieldBuilder",
@@ -272,8 +275,8 @@ def _default_forcefield_builder(gaff=None):
 def _ligand_from_path(ligand_path: str):
     """Port of v1 ``Ligand.from_path`` (rdkit file -> openff Molecule)."""
     try:
-        from rdkit import Chem
         from openff.toolkit.topology import Molecule as openff_Molecule
+        from rdkit import Chem
     except ImportError as error:
         raise ConfigValueError(
             f"loading ligand {ligand_path!r} requires rdkit + openff-toolkit "
@@ -572,6 +575,12 @@ def prepare_system(config: Mapping, *, forcefield: ForceFieldBuilder | None = No
     by the default path when ligands must be parameterized (lazily imported
     from ``neomd.tools.antechamber``; clear error when absent).
 
+    After writing the artifacts, the openmm-free QC pass
+    (:func:`neomd.qc.check_prepared_system`) reads the trio back and leaves
+    ``qc_report.json`` in ``output_dir`` (config key ``qc``; default soft
+    mode reports without gating — strict mode raises
+    :class:`~neomd.errors.StructureQualityError` after the report lands).
+
     Returns the :class:`SystemBundle` pointing at the written files.
     """
     # lazy: system.py re-exports this module's names, so importing its
@@ -621,7 +630,7 @@ def prepare_system(config: Mapping, *, forcefield: ForceFieldBuilder | None = No
     app.PDBxFile.writeFile(
         top, pos, open(solv_path, "w"), keepIds=config.get("output_keepid", False)
     )
-    if not ligands is None:
+    if ligands is not None:
         with open(ligand_path, "w") as f:
             ligands_json = json.dumps(
                 [json.loads(ligand.to_json()) for ligand in ligands]
@@ -633,7 +642,7 @@ def prepare_system(config: Mapping, *, forcefield: ForceFieldBuilder | None = No
         print("\n *********system done***********\n")
         f.write(XmlSerializer.serialize(system))
 
-    return SystemBundle(
+    bundle = SystemBundle(
         topology_file=solv_path,
         system_xml=system_path,
         ligands=ligands,
@@ -642,3 +651,19 @@ def prepare_system(config: Mapping, *, forcefield: ForceFieldBuilder | None = No
                        config.get("templates"))),
         modifications=_extract_modifications(config),
     )
+
+    # QC hook (issue #15): quality-check the artifacts just written — the
+    # same files a downstream run consumes — and leave qc_report.json next
+    # to them.  Default mode soft: raw preparation inputs routinely carry
+    # fixable clashes (that is what minimization is for), so the report
+    # documents rather than gates unless qc.mode says strict.
+    from . import qc as _qc
+
+    _qc.check_prepared_system(
+        topology_file=solv_path,
+        system_xml=system_path,
+        ligand_json=ligand_path if ligands is not None else None,
+        qc_config=config.get("qc"),
+        output_dir=output_dir,
+    )
+    return bundle

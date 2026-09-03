@@ -273,6 +273,52 @@ def test_min_leg(prep, runbook):
     assert minimized.topology.getNumAtoms() == raw.topology.getNumAtoms()
 
 
+# ---------------------------------------------------------------------------
+# 2b. the QC hooks (issue #15 + the #7 regression home)
+# ---------------------------------------------------------------------------
+
+
+@needs_antechamber
+def test_prepare_qc_report_documents_the_known_raw_clash(prep):
+    """The prepare-tail hook runs inside prepare_system (soft mode, the
+    default): the qc_report.json in the prepared directory documents the
+    input protein's REAL ASN163/LEU164 clash (see the module docstring) —
+    a true positive, reported without gating the run."""
+    report_path = os.path.join(os.path.dirname(prep["complex"]), "qc_report.json")
+    assert os.path.isfile(report_path), report_path
+    with open(report_path, encoding="utf-8") as handle:
+        payload = json.load(handle)
+    assert payload["stage"] == "prepare"
+    assert payload["mode"] == "soft"
+    assert payload["verdict"] == "fail"
+    clash = next(c for c in payload["checks"] if c["name"] == "clashes")
+    assert clash["n_findings"] >= 1
+    assert any("ASN" in f["detail"] or "LEU" in f["detail"]
+               for f in clash["findings"])
+    # the JZ4 ligand is scoped (ligand.json names it) and clean in the input
+    assert payload["ligand"]["selection"] == "JZ4"
+    assert payload["ligand"]["verdict"] == "pass"
+
+
+@needs_antechamber
+def test_min_leg_qc_report_passes_on_the_minimized_structure(prep, runbook):
+    """The min-tail hook: QC over the MINIMIZED coordinates — the damage
+    class issue #7 documented (a minimize leaving broken geometry behind).
+    The smoke's 200-iteration minimization resolves the raw clash: the
+    minimized structure is the clean calibration ground truth (verdict
+    pass, no false positives at the shipped thresholds)."""
+    stage = runbook["stages"]["min"]
+    report_path = os.path.join(stage["output_dir"], "qc_report.json")
+    assert os.path.isfile(report_path), report_path
+    with open(report_path, encoding="utf-8") as handle:
+        payload = json.load(handle)
+    assert payload["stage"] == "min"
+    verdicts = {c["name"]: c["verdict"] for c in payload["checks"]}
+    assert verdicts["bond_lengths"] == "pass", payload["checks"]
+    assert verdicts["bond_angles"] == "pass", payload["checks"]
+    assert payload["verdict"] == "pass", payload
+
+
 @needs_antechamber
 def test_eq_restraints_leg(prep, runbook):
     stage = runbook["stages"]["eq_restraints"]

@@ -69,6 +69,7 @@ KNOWN_KEYS = frozenset(
         "input_files",
         "output",
         "min_params",
+        "qc",  # structure quality checks (neomd.qc; hooks at prepare/min tail)
         "debug",
         "system_modification",
         "forcefield",  # dead/unreachable in v1 (neosystem.py:52 behind a key
@@ -111,6 +112,7 @@ _MAPPING_KEYS = (
     "smd",
     "min_params",
     "forcefield",
+    "qc",
 )
 
 
@@ -485,6 +487,9 @@ def _validate(data: Any, ctx: _Context) -> list:
 
     # -- the smd section (steered-MD entries; same registry vocabulary) ------
     _validate_smd_section(data, ctx, problem)
+
+    # -- the qc section (structure quality checks; neomd.qc) ------------------
+    _validate_qc_section(data, ctx, problem)
     return errors
 
 
@@ -688,6 +693,62 @@ def _validate_smd_section(data: Mapping, ctx: _Context, problem) -> None:
             smd_type,
             candidates=suggest(smd_type, known),
         )
+
+
+def _validate_qc_section(data: Mapping, ctx: _Context, problem) -> None:
+    """The ``qc`` section (structure quality checks, :mod:`neomd.qc`).
+
+    Vocabulary: ``mode`` (``soft`` | ``strict``) + the threshold keys owned
+    by :attr:`neomd.qc.QCThresholds.KEYS`.  Everything is optional; the
+    defaults and their calibration live in the qc module docstring.  Shape
+    errors are collected in one pass like everywhere else.
+    """
+    qc = data.get("qc")
+    if not qc:
+        return
+    if not isinstance(qc, Mapping):
+        return  # the _MAPPING_KEYS pass already reported the shape problem
+
+    from .qc import QC_MODES, QCThresholds
+
+    known_keys = frozenset(("mode", *QCThresholds.KEYS))
+    for key in qc:
+        if not isinstance(key, str) or key not in known_keys:
+            problem(
+                ConfigKeyError,
+                f"unknown qc key {key!r}",
+                ("qc", key) if isinstance(key, str) else ("qc",),
+                known_keys=known_keys,
+            )
+    mode = qc.get("mode")
+    if mode is not None and (
+            not isinstance(mode, str) or mode.lower() not in QC_MODES):
+        problem(
+            ConfigValueError,
+            f"qc.mode must be one of {list(QC_MODES)} (soft reports only, "
+            f"strict raises after the report is written), got {mode!r}",
+            ("qc", "mode"),
+            mode,
+        )
+    for key in QCThresholds.KEYS:
+        value = qc.get(key)
+        if value is None:
+            continue
+        if not _is_number(value) or value <= 0:
+            problem(
+                ConfigValueError,
+                f"qc.{key} must be a number > 0",
+                ("qc", key),
+                value,
+            )
+        elif key in ("bond_relative_tolerance", "box_escape_fraction") \
+                and value > 1:
+            problem(
+                ConfigValueError,
+                f"qc.{key} is a fraction and must be <= 1, got {value!r}",
+                ("qc", key),
+                value,
+            )
 
 
 def _derive(raw: Mapping, ctx: _Context) -> dict:
@@ -1156,6 +1217,7 @@ def check_plan_files(data: Mapping, *, source: str | None = None,
     if method not in ("min", "eq", "md", "prod"):
         try:
             import neomd.methods  # noqa: F401  (import = registration)
+
             from . import registry
 
             entry = registry.get("method", method)

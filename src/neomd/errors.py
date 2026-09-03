@@ -22,6 +22,9 @@ Subclasses:
     PlanValidationError   structural garbage (e.g. config root is not a mapping)
     PlanValidationErrors  the collect-all aggregate (>= 2 problems in one pass)
     UpstreamVersionError  an upstream private-API pin refuses this version
+    StructureQualityError strict-mode QC verdict "fail" (neomd.qc; the report
+                          is written before this raises, so every finding is
+                          already on disk when the run stops)
 """
 
 from __future__ import annotations
@@ -36,6 +39,7 @@ __all__ = [
     "PlanValidationError",
     "PlanValidationErrors",
     "UpstreamVersionError",
+    "StructureQualityError",
     "suggest",
 ]
 
@@ -211,3 +215,36 @@ class UpstreamVersionError(NeoUserError):
     """
 
     kind = "upstream version error"
+
+
+class StructureQualityError(NeoUserError):
+    """A structure quality check failed in strict mode (neomd.qc).
+
+    Raised by the QC hooks (prepare tail / min tail) only when the plan's
+    ``qc.mode`` is ``strict`` AND the collect-all report verdict is
+    ``fail`` — the ``qc_report.json`` artifact is written FIRST, so the
+    operator reads every finding and then the gate closes.  Soft mode (the
+    default) reports without raising.
+    """
+
+    kind = "structure quality error"
+
+    def __init__(self, message, *, stage: str | None = None,
+                 report_path: str | None = None,
+                 failed: list[str] | None = None, **kwargs):
+        self.stage = stage
+        self.report_path = report_path
+        self.failed = list(failed or [])
+        super().__init__(message, **kwargs)
+
+    def _extra_lines(self) -> list[str]:
+        lines = []
+        if self.stage is not None:
+            lines.append(f"  stage: {self.stage}")
+        if self.failed:
+            lines.append(f"  failed checks: {', '.join(self.failed)}")
+        if self.report_path is not None:
+            lines.append(f"  full findings: {self.report_path}")
+        lines.append(
+            "  soft mode (qc.mode: soft) reports without stopping the run")
+        return lines

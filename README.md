@@ -234,9 +234,54 @@ architecture; the W1-b CVs are new physics from the primary literature
 | `colvar.tsv` | `ColvarProbe` (metadynamics) | CV values in natural units (e.g. degrees) |
 | `hills.npz` | metadynamics | hill ledger `{steps, positions, heights}` |
 | `fes.tsv` | metadynamics | free-energy surface at run end |
+| `qc_report.json` | `neomd.qc` (hooks below) | structure quality report: every finding with atom indices, measured value, threshold, per-check + overall verdict |
 
 All writing goes through `ArtifactSink` implementations (`LocalDirSink` for
 runs, `MemorySink` for tests) — `md_run` itself writes nothing.
+
+### Structure quality checks (`qc`) — openmm-free
+
+Method doc with issue #7/#15 background, threshold calibration and the
+report schema: [docs/methods/qc.md](docs/methods/qc.md).
+
+`neomd.qc` is a pure-numpy geometry module (no openmm import, not routed
+through the kernel port): it reads coordinates from the topology file
+(or the live minimized coordinates) and equilibrium values from the
+serialized `system.xml`, then runs every check in one collect-all pass —
+NaN/Inf coordinates, atoms escaping the periodic box, PBC-aware
+minimum-image clashes (1-2/1-3/1-4 bonded pairs excluded), bond-length
+deviations from the system's own `r0`s, and angle deviations from its
+`theta0`s. When the system carries a ligand (`input_files.ligands`), the
+same checks run scoped to it and report under a `ligand` block; an absent
+ligand is `skipped`, never an error.
+
+Two hooks write `qc_report.json` through the sink: the tail of
+`prepare_system` (over the freshly written `solv.pdbx`/`system.xml`) and
+the tail of every `min` leg (over the minimized coordinates — the failure
+mode issue #7 documented, a minimize that leaves broken geometry behind).
+Configure through the plan's `qc:` section; everything is optional:
+
+```yaml
+qc:
+  mode: soft                # soft (default): report only; strict: raise
+                            # StructureQualityError after the report is written
+  clash_heavy_nm: 0.2       # heavy-heavy clash line (2.0 A — below the
+                            # shortest legitimate H-bond donor/acceptor pair)
+  clash_hydrogen_nm: 0.1    # pairs involving H (H-bond H...acceptor ~1.5 A)
+  bond_relative_tolerance: 0.25   # |r - r0| fraction (floor: 0.03 nm)
+  bond_absolute_nm: 0.03
+  angle_tolerance_deg: 30   # |theta - theta0|
+  box_escape_fraction: 0.5  # > half a box outside the cell = broken
+```
+
+The defaults are calibrated against the issue #7 repro data (its broken
+minimize left bonds 53 % off and angles 57 deg off, while healthy minimized
+structures sit within ~1 % / ~3 deg) and the shipped fixtures: the minimized
+3HTB smoke and the ala2 micro-fixture pass with zero findings. `soft` is
+the default because raw preparation inputs routinely carry fixable clashes
+— minimization is exactly what resolves them; `strict` is the opt-in gate
+for pipelines that want one. `neomd validate` checks the `qc:` section with
+the usual collect-all diagnostics (key path + did-you-mean).
 
 ### Resume — deterministic continuation
 
