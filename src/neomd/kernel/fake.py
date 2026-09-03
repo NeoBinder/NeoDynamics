@@ -68,10 +68,12 @@ Public helpers beyond the port operations (used by driver/probe tests):
 ``bias_values()`` — geometric value of each installed bias in report units
 (distance in nm, angle/dihedral in degrees), matching the v1 reporter and
 neomd.colvars evaluate conventions; ``group_energy(groups)`` — per-force-
-group bias-energy sum for the restraint reporter.  The fake deliberately
-has NO ``write_structure`` (the driver's final-positions artifact seam):
-a PDBx writer needs a real topology, so fake-kernel runs skip ``last.pdbx``
-(the ``last.ckpt`` snapshot is still written).
+group bias-energy sum for the restraint reporter; ``energy_with_params()``
+— the port.ParamEnergy capability (bias-potential evaluation at
+temporarily-perturbed global parameters, the RBFE du tape seam).  The fake
+deliberately has NO ``write_structure`` (the driver's final-positions
+artifact seam): a PDBx writer needs a real topology, so fake-kernel runs
+skip ``last.pdbx`` (the ``last.ckpt`` snapshot is still written).
 """
 
 from __future__ import annotations
@@ -100,6 +102,9 @@ __all__ = ["FakeKernel"]
 
 #: molar gas constant in kJ/(mol K) — openmm unit.MOLAR_GAS_CONSTANT_R
 _R_KJ_MOL_K = 8.31446261815324e-3
+
+#: sentinel: "this parameter had no override before energy_with_params"
+_UNSET = object()
 
 
 # ----------------------------------------------------------------------
@@ -639,6 +644,39 @@ class FakeKernel:
                 f"no installed bias declares global parameter {name!r} "
                 f"(installed: {sorted(known) or 'none'})")
         self._param_overrides[name] = float(value)
+
+    def energy_with_params(self, params) -> float:
+        """Potential energy at temporarily-perturbed GLOBAL parameters
+        (port.ParamEnergy — the RBFE du tape's λ-evaluation seam, ADR-0007).
+
+        The fake's potential is the sum of its installed bias energies, so
+        this evaluates ``_bias_potential`` with ``params`` temporarily
+        merged into ``_param_overrides`` (canonical floats, exactly like
+        ``set_bias_param``) and restores the prior override state on exit —
+        no stepping, no RNG draw, bit-deterministic for a given input.
+        Unknown names raise like ``set_bias_param``.  Note the multi-bond
+        forces (BiasIR.bonds) take their per-bond VALUES, not overrides —
+        the same documented limitation as set_bias_param.
+        """
+        known = {pname for _, bias in self._biases for pname in bias.params}
+        unknown = sorted(set(params) - known)
+        if unknown:
+            raise KeyError(
+                f"no installed bias declares global parameter(s) "
+                f"{', '.join(repr(n) for n in unknown)} "
+                f"(installed: {sorted(known) or 'none'})")
+        saved = {name: self._param_overrides.get(name, _UNSET)
+                 for name in params}
+        try:
+            self._param_overrides.update(
+                {name: float(value) for name, value in params.items()})
+            return self._bias_potential(self._positions)
+        finally:
+            for name, prior in saved.items():
+                if prior is _UNSET:
+                    self._param_overrides.pop(name, None)
+                else:
+                    self._param_overrides[name] = prior
 
     def bias_values(self, positions: np.ndarray | None = None) -> dict[str, float]:
         """Geometric value of each installed bias in report units.

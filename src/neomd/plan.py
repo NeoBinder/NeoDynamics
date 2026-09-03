@@ -78,6 +78,7 @@ KNOWN_KEYS = frozenset(
         #               assembled by the openmm adapter, never in system.xml
         "forcefield",  # dead/unreachable in v1 (neosystem.py:52 behind a key
         #                 the whitelist never let through) — a real key in v2
+        "alchemical",  # RBFE λ window state (method 'rbfe'; ADR-0003/0007)
         "plugins",  # the plugin plan-schema namespace (ADR-0002): each
         #            registered plugin owns plugins.<name>.* keys
     }
@@ -120,11 +121,16 @@ _MAPPING_KEYS = (
     "gamd",
     "min_params",
     "forcefield",
+    "alchemical",
     "plugins",
     "opes_set",
     "ml_region",
     "qc",
 )
+
+#: keys of the ``alchemical`` section (method ``"rbfe"``; ADR-0003/0007)
+_ALCHEMICAL_KEYS = frozenset(
+    {"lambda_values", "ladder", "mock_bias"})
 
 #: the opes_set vocabulary (methods/opes.py owns the semantics; this is the
 #: collect-all structural tier — the spec's 3-input design: pace, barrier,
@@ -522,6 +528,9 @@ def _validate(data: Any, ctx: _Context) -> list:
     _validate_opes_section(data, ctx, problem)
     # -- the qc section (structure quality checks; neomd.qc) ------------------
     _validate_qc_section(data, ctx, problem)
+
+    # -- the alchemical section (method "rbfe"; ADR-0003/0007) ---------------
+    _validate_alchemical_section(data, ctx, problem)
     return errors
 
 
@@ -1176,6 +1185,124 @@ def _validate_qc_section(data: Mapping, ctx: _Context, problem) -> None:
             )
 
 
+def _validate_lambda_values(section: str, key: str, values, path: tuple,
+                            problem) -> bool:
+    """One ``{parameter name: λ}`` mapping check (numbers in [0, 1]).
+
+    ``path``/``problem`` follow the collect-all conventions.  Returns
+    whether the value was structurally a mapping (so callers can skip
+    dependent checks after a reported shape error).
+    """
+    if not isinstance(values, Mapping):
+        problem(
+            ConfigValueError,
+            f"{section}.{key} must be a mapping of Context global-parameter "
+            f"name -> lambda value in [0, 1], got "
+            f"{type(values).__name__}",
+            path,
+            values,
+        )
+        return False
+    ok = True
+    for name, value in values.items():
+        if not _is_number(value) or not 0.0 <= float(value) <= 1.0:
+            problem(
+                ConfigValueError,
+                f"{section}.{key}.{name} must be a number in [0, 1] "
+                f"(lambda convention), got {value!r}",
+                path + (name,) if isinstance(name, str) else path,
+                value,
+            )
+            ok = False
+    return ok
+
+
+def _validate_alchemical_section(data: Mapping, ctx: _Context, problem) -> None:
+    """The ``alchemical`` section (method ``"rbfe"``, the RBFE λ window
+    state — ADR-0003/0007).
+
+    Shape: ``lambda_values`` (THIS window's λ, a ``{parameter name: value
+    in [0,1]}`` mapping — openmmtools names like ``lambda_electrostatics``
+    / ``lambda_sterics``, or the fake path's ``lambda_alchemical``),
+    ``ladder`` (every window's ``lambda_values`` in ladder order — the du
+    tape's column vocabulary) and the optional fake-kernel ``mock_bias``.
+    Collected in one pass like every other section.
+    """
+    alchemical = data.get("alchemical")
+    if not alchemical:
+        return
+    if not isinstance(alchemical, Mapping):
+        return  # the _MAPPING_KEYS pass already reported the shape problem
+    for key in alchemical:
+        if not isinstance(key, str) or key not in _ALCHEMICAL_KEYS:
+            problem(
+                ConfigKeyError,
+                f"unknown alchemical key {key!r}",
+                ("alchemical", key) if isinstance(key, str) else ("alchemical",),
+                known_keys=_ALCHEMICAL_KEYS,
+            )
+
+    values_ok = "lambda_values" not in alchemical or _validate_lambda_values(
+        "alchemical", "lambda_values", alchemical["lambda_values"],
+        ("alchemical", "lambda_values"), problem)
+
+    ladder = alchemical.get("ladder")
+    if ladder is not None:
+        if not isinstance(ladder, (list, tuple)) or not ladder:
+            problem(
+                ConfigValueError,
+                "alchemical.ladder must be a non-empty list of per-window "
+                "lambda_values mappings (the du tape's column vocabulary)",
+                ("alchemical", "ladder"),
+                ladder,
+            )
+        else:
+            for index, entry in enumerate(ladder):
+                _validate_lambda_values(
+                    "alchemical", f"ladder[{index}]", entry,
+                    ("alchemical", "ladder", index), problem)
+            if values_ok and isinstance(alchemical.get("lambda_values"), Mapping):
+                if not any(dict(entry) == dict(alchemical["lambda_values"])
+                           for entry in ladder
+                           if isinstance(entry, Mapping)):
+                    problem(
+                        ConfigValueError,
+                        "alchemical.lambda_values must be one of the "
+                        "alchemical.ladder entries (a window runs AT a ladder "
+                        "λ, not beside it)",
+                        ("alchemical", "lambda_values"),
+                        dict(alchemical["lambda_values"]),
+                    )
+
+    mock = alchemical.get("mock_bias")
+    if mock is not None:
+        if not isinstance(mock, Mapping):
+            problem(
+                ConfigValueError,
+                f"alchemical.mock_bias must be a mapping, got "
+                f"{type(mock).__name__}",
+                ("alchemical", "mock_bias"),
+                mock,
+            )
+        else:
+            for key in ("grp1_idx", "grp2_idx", "k_kj_mol_nm2", "r0_nm"):
+                if key not in mock:
+                    problem(
+                        ConfigValueError,
+                        f"alchemical.mock_bias is missing required key "
+                        f"{key!r} (the fake kernel's λ-scaled distance bias)",
+                        ("alchemical", "mock_bias", key),
+                    )
+            for key in ("k_kj_mol_nm2", "r0_nm"):
+                if key in mock and (not _is_number(mock[key]) or mock[key] <= 0):
+                    problem(
+                        ConfigValueError,
+                        f"alchemical.mock_bias.{key} must be a number > 0",
+                        ("alchemical", "mock_bias", key),
+                        mock[key],
+                    )
+
+
 def _derive(raw: Mapping, ctx: _Context) -> dict:
     """Compute the derived view; the raw dict is never touched.
 
@@ -1770,6 +1897,21 @@ def check_plan_files(data: Mapping, *, source: str | None = None,
                         f"ml_region.model.path does not exist: "
                         f"{model['path']!r}",
                         key="path", value=model["path"], source=source))
+
+        # the alchemical mock bias's atom groups (one level deeper than the
+        # restraint/colvar/smd entries — method "rbfe", fake-kernel windows)
+        alchemical = data.get("alchemical")
+        if isinstance(alchemical, Mapping):
+            mock = alchemical.get("mock_bias")
+            if isinstance(mock, Mapping):
+                for key in ("grp1_idx", "grp2_idx"):
+                    for index in _flatten_indices(mock.get(key)):
+                        if index < 0 or index >= n_particles:
+                            errors.append(ConfigValueError(
+                                f"alchemical.mock_bias.{key} index {index} is "
+                                f"out of bounds: the system has {n_particles} "
+                                f"particles (0..{n_particles - 1})",
+                                key=key, value=index, source=source))
 
     # method-required keys through the registry schema (best effort)
     method = (data.get("method") or "md")

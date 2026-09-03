@@ -79,6 +79,13 @@ _TOP_LEVEL = {
         "knobs). Assembled by the openmm adapter pre-Context; the fake "
         "kernel ignores it.",
     ),
+    "alchemical": (
+        "mapping",
+        "RBFE λ-window state (method `rbfe`, ADR-0003/0007): "
+        "`lambda_values` (this window's λ, {param: value in [0,1]}), "
+        "`ladder` (every window's λ — the du.tsv column vocabulary) and "
+        "the fake-kernel `mock_bias`.",
+    ),
     "gamd": (
         "mapping",
         "GaMD boost parameters (method `gamd`, ADR-0005): `mode` "

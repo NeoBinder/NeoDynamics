@@ -16,8 +16,10 @@ Built-in methods:
     opes           on-the-fly probability enhanced sampling, standard/explore
                    modes (issue #11 path B; cyrushu's spec comment + the
                    Invernizzi–Parrinello 2020/2022 papers)
+    rbfe           ONE RBFE λ window (du tape; the ladder orchestrator is
+                   neomd.rbfe) — issue #8 / W3-a, ADR-0003/0007
 """
 
-from . import gamd, metadynamics, opes, smd
+from . import gamd, metadynamics, opes, rbfe, smd
 
-__all__ = ["gamd", "metadynamics", "opes", "smd"]
+__all__ = ["gamd", "metadynamics", "opes", "rbfe", "smd"]

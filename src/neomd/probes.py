@@ -37,7 +37,13 @@ from typing import Callable, Iterable, Mapping, Protocol, Sequence, runtime_chec
 
 import numpy as np
 
-from .kernel.port import EnergyReport, GroupEnergy, KernelPort, provides
+from .kernel.port import (
+    EnergyReport,
+    GroupEnergy,
+    KernelPort,
+    ParamEnergy,
+    provides,
+)
 from .registry import register
 from .sinks import ArtifactSink, init_dcd, read_dcd_header, write_dcd_frame
 
@@ -52,6 +58,7 @@ __all__ = [
     "RestraintProbe",
     "SmdProbe",
     "GamdProbe",
+    "DuProbe",
     "ProbeScheduler",
     "ProbePreset",
 ]
@@ -61,6 +68,7 @@ _DCD_FILENAME = "output.dcd"
 _CKPT_FILENAME = "output.ckpt"
 _COLVAR_FILENAME = "colvar.tsv"
 _SMD_FILENAME = "smd.tsv"
+_DU_FILENAME = "du.tsv"
 _GAMD_FILENAME = "gamd.tsv"
 
 #: v1 header line, byte-identical to openmm StateDataReporter with v1's flags
@@ -799,6 +807,91 @@ class GamdProbe:
 
 
 # ---------------------------------------------------------------------------
+# the RBFE du tape (methods/rbfe.py's artifact — brand-new format)
+# ---------------------------------------------------------------------------
+
+
+class DuProbe:
+    """Appends cross-λ potential-energy rows to ``du.tsv`` (new v2 format).
+
+    The BAR/MBAR input tape of an RBFE λ window (ADR-0007): one row per
+    observation, one column ``u_%03d`` per LADDER entry — the system's total
+    potential energy (kJ/mol) evaluated at THAT entry's λ through the
+    negotiated :class:`~neomd.kernel.port.ParamEnergy` capability
+    (re-parameterization + energy read WITHOUT stepping; parameters are
+    restored by the kernel, so the dynamics state is never disturbed).
+    Energies include everything (alchemical forces, the boresch anchor,
+    ...) — per-sample constants common to all λ cancel exactly in the
+    BAR/MBAR estimators.
+
+    The tape is self-describing: after the ``# step u_000 ...`` header, one
+    comment row per λ PARAMETER (``# lambda_sterics <v> <v> ...`` with one
+    value per column) reconstructs the whole ladder — comment lines survive
+    resume trimming (:mod:`neomd.resume`), so a resumed window's tape
+    stays one uninterrupted step-ascending record.  ``append=True`` resumes
+    without rewriting the header.
+
+    ``ladder``: the per-window λ vectors (``list[{param name: value}]`` in
+    ladder order, exactly the plan's ``alchemical.ladder``).
+    """
+
+    def __init__(
+        self,
+        sink: ArtifactSink,
+        interval: int,
+        ladder: Sequence[Mapping[str, float]],
+        append: bool = False,
+        resume_step: int | None = None,
+    ):
+        if not ladder:
+            raise ValueError("DuProbe needs a non-empty λ ladder")
+        self.sink = sink
+        self.interval = _check_interval(interval)
+        self.ladder = [dict(entry) for entry in ladder]
+        self.append = bool(append)
+        self._wrote_header = False
+        #: last already-on-tape step (the resume plan's trim) so a resumed
+        #: window's du_last_step reports reality even when it appends nothing
+        self._last_step: int | None = resume_step
+
+    @property
+    def last_step(self) -> int | None:
+        """The last step this probe wrote (None before the first row)."""
+        return self._last_step
+
+    def progress(self):
+        if self._last_step is None:
+            return None
+        return (_DU_FILENAME, self._last_step)
+
+    def _headers(self) -> list[str]:
+        lines = ["# step\t" + "\t".join(f"u_{i:03d}" for i in
+                                        range(len(self.ladder)))]
+        names = sorted({name for entry in self.ladder for name in entry})
+        for name in names:
+            lines.append("# " + name + "\t" + "\t".join(
+                str(entry.get(name, "")) for entry in self.ladder))
+        return lines
+
+    def observe(self, view: RunView) -> None:
+        kernel = view.kernel
+        if not provides(kernel, ParamEnergy):
+            raise NotImplementedError(
+                f"kernel {kernel.name!r} does not provide the ParamEnergy "
+                f"capability (energy_with_params); the RBFE du tape cannot "
+                f"evaluate neighboring λ states")
+        energies = [float(kernel.energy_with_params(entry))
+                    for entry in self.ladder]
+        row = "\t".join(str(v) for v in [view.step, *energies])
+        with self.sink.text_writer(_DU_FILENAME) as fh:
+            if not self._wrote_header and not self.append:
+                fh.write("".join(line + "\n" for line in self._headers()))
+                self._wrote_header = True
+            fh.write(row + "\n")
+        self._last_step = int(view.step)
+
+
+# ---------------------------------------------------------------------------
 # scheduling
 # ---------------------------------------------------------------------------
 
@@ -902,4 +995,9 @@ register("probe", "gamd", ProbePreset(
     artifact=_GAMD_FILENAME,
     make=lambda **kw: GamdProbe(**kw),
     description="GaMD boost traces (dV/P/scale per channel) to gamd.tsv",
+))
+register("probe", "du", ProbePreset(
+    artifact=_DU_FILENAME,
+    make=lambda **kw: DuProbe(**kw),
+    description="cross-λ potential energies to du.tsv (RBFE λ windows)",
 ))

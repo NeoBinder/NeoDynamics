@@ -61,6 +61,7 @@ TAPE_ARTIFACTS: dict[str, str] = {
     "colvar.tsv": "tsv",
     "restraint.tsv": "tsv",
     "smd.tsv": "tsv",
+    "du.tsv": "tsv",
     "gamd.tsv": "tsv",
     "hills.npz": "hills",
     "kernels.npz": "kernels",

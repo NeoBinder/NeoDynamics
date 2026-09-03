@@ -397,6 +397,14 @@ class OpenMMKernel:
             if box_vectors is None:
                 box_vectors = self.system.getDefaultPeriodicBoxVectors()
             simulation.context.setPeriodicBoxVectors(*box_vectors)
+            # KernelSpec.global_parameters (the RBFE λ seam, ADR-0003/0007):
+            # applied BEFORE the resume branches so a fresh run starts under
+            # the window's λ, while a resumed run keeps the checkpoint's own
+            # parameter values (checkpoints carry them — restoring the run's
+            # λ exactly; a λ changed between crash and resume must not
+            # silently re-weight a restored ensemble).
+            for name, value in (self.spec.global_parameters or {}).items():
+                simulation.context.setParameter(name, float(value))
             resume = self.spec.resume or {}
             checkpoint = resume.get("checkpoint")
             state = resume.get("state")
@@ -658,6 +666,27 @@ class OpenMMKernel:
         constructors land in the Context's md unit system.
         """
         self.simulation.context.setParameter(name, float(value))
+
+    def energy_with_params(self, params) -> float:
+        """Potential energy at temporarily-perturbed GLOBAL parameters
+        (port.ParamEnergy — the RBFE du tape's λ-evaluation seam, ADR-0007).
+
+        ``setParameter`` + ``getState(getEnergy=True)`` + restore, no
+        stepping and no state disturbance: positions/velocities/step are
+        untouched and every touched parameter is restored to its exact
+        prior float.  Unknown parameter names raise (openmm's own
+        ``getParameter`` error) — a typo'd λ name must not silently no-op.
+        """
+        context = self.simulation.context
+        saved = {name: context.getParameter(name) for name in params}
+        try:
+            for name, value in params.items():
+                context.setParameter(name, float(value))
+            return context.getState(getEnergy=True).getPotentialEnergy() \
+                .value_in_unit(unit.kilojoule_per_mole)
+        finally:
+            for name, value in saved.items():
+                context.setParameter(name, value)
 
     def _compile_centroid(self, force: openmm.CustomCentroidBondForce,
                           groups: list[list[int]], params: dict[str, Param],

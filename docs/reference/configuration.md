@@ -17,6 +17,7 @@ key path and a did-you-mean suggestion.
 
 | Key | Required | Type | Meaning |
 |---|---|---|---|
+| `alchemical` | no | mapping | RBFE λ-window state (method `rbfe`, ADR-0003/0007): `lambda_values` (this window's λ, {param: value in [0,1]}), `ladder` (every window's λ — the du.tsv column vocabulary) and the fake-kernel `mock_bias`. |
 | `barostat` | no | mapping | Barostat settings (e.g. `frequency` in steps, `pressure`); the plan seed is injected as `seed` at kernel-spec build time. Absent means no barostat. |
 | `colvars` | no | mapping name -> spec | Collective variables for metadynamics (1-3 CVs); each spec needs `type` plus the CV vocabulary's keys (see the CV table below). |
 | `continue_md` | no | bool | Resume the run from its checkpoint: the single resume owner restores the kernel and trims every tape to the checkpoint step. Derived default: false. |
@@ -121,6 +122,17 @@ sampling methods register through the extension rack (`neomd.methods`).
 | `opes_set.mode` | no | 'standard' (default; well-tempered target, convergence-oriented) or 'explore' (uniform-exploration target, KDE of the sampled distribution) | None |
 | `opes_set.no_zed` | no | bool, default false; true sets Z_n = 1 (no normalization over the explored region) | None |
 | `output.*` | no | output_dir + state/trajectory/checkpoint intervals (plan-level; the colvar recorder always fires on opes_set.pace) | None |
+
+### `method: rbfe`
+
+| Key | Required | Description | Default |
+|---|---|---|---|
+| `alchemical` | yes | mapping with lambda_values (THIS window's λ, {Context parameter: value in [0,1]}) and ladder (every window's lambda_values, in ladder order — the du tape's column vocabulary); optional mock_bias {grp1_idx, grp2_idx, k_kj_mol_nm2, r0_nm} for fake-kernel windows | — |
+| `steps` | yes | int, total steps of the window leg (plan-level key) | — |
+| `temperature` | yes | number, kelvin (plan-level key) | — |
+| `continue_md` | no | bool; resume this window from its output.ckpt (the ladder orchestrator sets it when a window was interrupted) | None |
+| `output.*` | no | output_dir + report_interval (the du tape cadence) + state/trajectory/checkpoint intervals | None |
+| `restraint` | no | the anchoring section — boresch over 3+3 anchor atoms keeps the decoupled ligand oriented | None |
 
 ### `method: smd`
 

@@ -29,11 +29,20 @@ docs = { features = ["engine", "docs"], solve-group = "default" }
 # 8.6.* when a tracking build lands (a settled-decision-#10 explicit event).
 # Separate solve-group: the pin must never leak into default/test/dev.
 ml = { features = ["ml"], solve-group = "ml" }
+# rbfe: the openmmtools-gated RBFE tier (ADR-0003: prepare-boundary dependency,
+# ADR-0007: env scope).  Separate solve-group: openmmtools drags its own
+# dependency set (pymbar, mdtraj, netcdf, ...) that the default env must not
+# inherit; the pin itself follows decision #10 (version bumps are explicit
+# events).
+rbfe = { features = ["engine", "rbfe", "test"], solve-group = "rbfe" }
 
 [tasks]
 test = "pytest tests/ -m 'not golden and not legacy'"
 test-golden = "pytest tests/ -m 'golden and not legacy'"
-test-legacy = "pytest tests/ -m 'legacy -q'"
+test-legacy = "pytest tests/ -m legacy -q"
+# the rbfe env's gate: the default tier (import-gated tests skip there) plus
+# the openmmtools-gated alchemy smoke (tests/v2/test_rbfe_alchemy.py)
+test-rbfe = "pytest tests/ -m 'not golden and not legacy'"
 
 [pypi-options]
 index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
@@ -55,6 +64,14 @@ docs-gen = "python docs/generate_reference.py"
 [feature.test.dependencies]
 pytest = "*"
 pdbfixer = "*"
+
+# rbfe feature (W3-a, issue #8): openmmtools pinned per ADR-0003/ADR-0007
+# (decision #10 version discipline).  0.26 (conda-forge, MIT) is the line
+# audited against our openmm 8.6.x pin; it additionally pulls scipy, pymbar,
+# mdtraj, netcdf/hdf5 stacks — none of which land in the default env
+# (separate solve-group above).
+[feature.rbfe.dependencies]
+openmmtools = "0.26.*"
 
 # dev: extra environment for bin/hills_ana.py (mdtraj + MDAnalysis + local NeoTopology/ttk)
 [feature.dev.dependencies]

@@ -166,14 +166,16 @@ def test_import_outside_package_self_registers():
             assert not module_file.is_relative_to(CORE)
             # the import added exactly one method + one plugin section
             assert set(registry.registered("method")) == {
-                "metadynamics", "smd", "opes", "gamd", "gamd_drill"}
+                "metadynamics", "smd", "opes", "gamd", "rbfe",
+                "gamd_drill"}
             assert set(registry.registered("plugin")) == {"gamd_drill"}
         finally:
             registry.unregister("method", "gamd_drill")
             registry.unregister("plugin", "gamd_drill")
     finally:
         sys.path.remove(str(SRC))
-    assert set(registry.registered("method")) == {"metadynamics", "smd", "opes", "gamd"}
+    assert set(registry.registered("method")) == {
+        "metadynamics", "smd", "opes", "gamd", "rbfe"}
     assert set(registry.registered("plugin")) == set()
 
 

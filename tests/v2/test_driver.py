@@ -636,8 +636,8 @@ def test_builtin_probes_register_through_the_rack():
     from neomd import registry
 
     presets = registry.registered("probe")
-    assert sorted(presets) == ["checkpoint", "colvar", "gamd", "restraint",
-                               "smd", "state", "trajectory"]
+    assert sorted(presets) == ["checkpoint", "colvar", "du", "gamd",
+                               "restraint", "smd", "state", "trajectory"]
     sink = MemorySink()
     assert isinstance(presets["state"].make(
         sink=sink, interval=10, total_steps=100, dt_ps=0.002), StateProbe)

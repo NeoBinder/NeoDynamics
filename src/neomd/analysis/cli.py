@@ -25,6 +25,12 @@ exit 2).  No plotting — numbers only.
     analysis merge RUN_DIR [RUN_DIR ...] --out DIR
                   -> materialize a merged multi-walker run dir (hills.npz +
                      colvar.tsv + the first walker's manifest.json)
+    analysis bar RUN_DIR_A RUN_DIR_B [--temperature T] [--out PATH]
+                  -> Bennett acceptance ratio over one adjacent RBFE λ
+                     window pair (their du.tsv tapes, both directions)
+    analysis mbar RUN_DIR [RUN_DIR ...] [--temperature T] [--out PATH]
+                  -> MBAR over a whole RBFE λ ladder (every window's
+                     du.tsv; one window per ladder state)
 """
 
 from __future__ import annotations
@@ -37,6 +43,7 @@ import sys
 from .convergence import fes_convergence
 from .errors import AnalysisError
 from .fes import bias_on_grid, fes_from_bias, reconstruct_bias, write_fes
+from .freeenergy import bar_from_tapes, mbar_from_tapes
 from .merge import load_runs, write_merged_run
 from .readers import COLVAR_FILENAME, override_meta, read_tsv, run_dirs_arg
 from .reweight import bias_series, reweight_expectation, reweighted_fes
@@ -137,6 +144,28 @@ def add_analysis_parser(parser) -> None:
                        help="directory to write merged hills.npz + "
                             "colvar.tsv + manifest.json into")
     merge.set_defaults(func=_cmd_merge)
+
+    bar = sub.add_parser(
+        "bar", help="Bennett acceptance ratio over one RBFE window pair")
+    bar.add_argument("run_dir", nargs=2, metavar="RUN_DIR",
+                     help="the two adjacent λ window directories (their "
+                          "du.tsv tapes provide both directions)")
+    bar.add_argument("--temperature", type=float, default=None, metavar="T",
+                     help="override the manifests' temperature (kelvin)")
+    bar.add_argument("--out", default=None, metavar="PATH",
+                     help="write the json summary here (default: stdout)")
+    bar.set_defaults(func=_cmd_bar)
+
+    mbar = sub.add_parser(
+        "mbar", help="MBAR over a whole RBFE λ ladder")
+    mbar.add_argument("run_dir", nargs="+", metavar="RUN_DIR",
+                      help="the λ window directories (together covering "
+                           "every ladder state exactly once)")
+    mbar.add_argument("--temperature", type=float, default=None, metavar="T",
+                      help="override the manifests' temperature (kelvin)")
+    mbar.add_argument("--out", default=None, metavar="PATH",
+                      help="write the json summary here (default: stdout)")
+    mbar.set_defaults(func=_cmd_mbar)
 
 
 # ---------------------------------------------------------------------------
@@ -299,3 +328,44 @@ def _cmd_merge(args) -> int:
     print(f"analysis complete: tool=merge runs={len(args.run_dir)} "
           f"hills={merged.hills.n_hills} out={out}")
     return 0
+
+
+def _cmd_bar(args) -> int:
+    run_dirs_arg(args.run_dir)
+    result = bar_from_tapes(args.run_dir[0], args.run_dir[1],
+                            temperature=args.temperature)
+    payload = json.dumps({
+        "tool": "bar",
+        "run_a": args.run_dir[0],
+        "run_b": args.run_dir[1],
+        "delta_f": result.delta_f,
+        "stderr": result.stderr,
+        "n_forward": result.n_forward,
+        "n_reverse": result.n_reverse,
+        "temperature": args.temperature,
+    }, indent=2) + "\n"
+    return _emit(
+        payload, args.out,
+        f"analysis complete: tool=bar delta_f={result.delta_f:.6g} "
+        f"+/- {result.stderr:.3g} kJ/mol n={result.n_forward}+"
+        f"{result.n_reverse} out={args.out}")
+
+
+def _cmd_mbar(args) -> int:
+    run_dirs_arg(args.run_dir)
+    result = mbar_from_tapes(args.run_dir, temperature=args.temperature)
+    payload = json.dumps({
+        "tool": "mbar",
+        "run_dirs": args.run_dir,
+        "delta_f": result.delta_f.tolist(),
+        "n_eff": [float(v) for v in result.n_eff],
+        "n_samples": result.n_samples.tolist(),
+        "converged": result.converged,
+        "n_iterations": result.n_iterations,
+        "temperature": args.temperature,
+    }, indent=2) + "\n"
+    return _emit(
+        payload, args.out,
+        f"analysis complete: tool=mbar states={result.delta_f.size} "
+        f"total_dF={result.delta_f[-1]:.6g} kJ/mol "
+        f"converged={result.converged} out={args.out}")

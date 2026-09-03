@@ -67,7 +67,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Iterable, Protocol, runtime_checkable
+from typing import Iterable, Mapping, Protocol, runtime_checkable
 
 import numpy as np
 
@@ -399,6 +399,13 @@ class KernelSpec:
     #: XML-serializable).  The fake kernel IGNORES it (documented; the
     #: torch-free pipeline tier runs the mock through the openmm adapter).
     ml_region: dict | None = None
+    #: RBFE window λ (ADR-0003/0007): ``{Context global parameter: value}``
+    #: applied at Context creation, before any resume branch — a fresh run
+    #: starts under the window's λ.  On resume the checkpoint's parameter
+    #: values overwrite them — correct resume semantics (the checkpoint was
+    #: written under the window's own λ).  The openmm adapter implements it;
+    #: the fake kernel ignores it (its λ rides a mock bias in the window plan).
+    global_parameters: Mapping[str, float] | None = None
 
 
 @runtime_checkable
@@ -443,6 +450,37 @@ class BiasParamOps(Protocol):
 
     def set_bias_param(self, name: str, value: float) -> None:
         """Set one installed-bias global parameter (canonical units)."""
+        ...
+
+
+@runtime_checkable
+class ParamEnergy(Protocol):
+    """OPTIONAL capability: potential-energy probes at perturbed GLOBAL
+    parameters (ADR-0007's λ-evaluation seam).
+
+    The RBFE du tape needs, at every report interval, the potential energy of
+    the CURRENT configuration evaluated at the NEIGHBORING λ windows' values
+    — re-parameterization plus an energy read, WITHOUT stepping and without
+    disturbing the dynamics state.  ``params`` maps Context global-parameter
+    names (exactly the keys the bias/system declares, e.g. openmmtools'
+    ``lambda_electrostatics`` / ``lambda_sterics`` or a mock bias's
+    ``lambda_alchemical``) to kernel-canonical floats; implementations must
+    restore every touched parameter and leave positions/velocities/step
+    untouched.  Kernels that cannot re-evaluate energies under parameters do
+    not provide this capability — the RBFE window method refuses cleanly.
+
+    A tiny op, justified in ADR-0007: it is the port-shaped spelling of
+    "setParameter + getState(getEnergy) + setParameter back", and doing it as
+    a capability (rather than probe-side BiasParamOps pushes) keeps the
+    save/restore pairing atomic and the du probe kernel-agnostic.  The
+    openmm and fake adapters implement it deterministically; the replay
+    kernel does not (a played-back tape has no parameters).
+    """
+
+    def energy_with_params(self, params: Mapping[str, float]) -> float:
+        """Total potential energy (kJ/mol) at the current configuration with
+        the named global parameters temporarily set to ``params`` (canonical
+        floats); every touched parameter is restored on return."""
         ...
 
 

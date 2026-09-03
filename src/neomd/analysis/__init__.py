@@ -22,6 +22,7 @@ Contents:
     stats        block averaging (mean + statistical error)
     reweight     Tiwary–Parrinello c(t) reweighting
     merge        multi-walker hills/colvar merge
+    freeenergy   BAR / MBAR over the RBFE λ windows' du tapes (#8, W3-a)
 
 numpy-only, openmm-free, deterministic.  Flooding-style dynamics analysis is
 deliberately NOT here: the v1 tree had no flooding tool and the new formats
@@ -38,6 +39,19 @@ from .fes import (
     reconstruct_bias,
     write_fes,
     wt_fes_factor,
+)
+from .freeenergy import (
+    DU_FILENAME,
+    R_KJ_MOL_K,
+    BarResult,
+    DuTape,
+    MbarResult,
+    bar_delta_f,
+    bar_from_tapes,
+    beta,
+    mbar_delta_f,
+    mbar_from_tapes,
+    read_du,
 )
 from .merge import (
     MergedRuns,
@@ -101,4 +115,8 @@ __all__ = [
     # merge
     "MergedRuns", "merge_hills", "merge_colvars", "load_runs",
     "write_merged_run",
+    # free energy (BAR/MBAR, RBFE λ ladders)
+    "DU_FILENAME", "R_KJ_MOL_K", "beta", "BarResult", "MbarResult",
+    "DuTape", "bar_delta_f", "mbar_delta_f", "read_du",
+    "bar_from_tapes", "mbar_from_tapes",
 ]

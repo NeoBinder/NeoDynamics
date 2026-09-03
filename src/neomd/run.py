@@ -250,6 +250,20 @@ def _dummy_exceptions(system_modification) -> tuple[tuple[int, int], ...] | None
     return tuple(pairs) or None
 
 
+def _global_parameters(alchemical) -> dict | None:
+    """``{Context global parameter: value}`` from the raw ``alchemical``
+    section's ``lambda_values`` (method ``"rbfe"``; ADR-0003/0007) — the
+    per-window λ pushed through the KernelSpec seam the same way
+    ``set_bias_param`` pushes ramps mid-run.  ``None`` when absent.
+    """
+    if not alchemical or not isinstance(alchemical, Mapping):
+        return None
+    values = alchemical.get("lambda_values")
+    if not values:
+        return None
+    return {str(name): float(value) for name, value in values.items()}
+
+
 def build_kernel_spec(plan: Plan, *, kind: str = "openmm",
                       platform: str = "cpu") -> KernelSpec:
     """Compile the plan into a :class:`~neomd.kernel.port.KernelSpec`.

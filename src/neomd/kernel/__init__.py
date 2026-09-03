@@ -9,6 +9,7 @@ from .port import (
     KernelPort,
     KernelSpec,
     Param,
+    ParamEnergy,
     StructureWriter,
     SystemData,
     TableSpec,
@@ -18,6 +19,7 @@ from .port import (
 __all__ = [
     "BiasIR",
     "BiasOps",
+    "BiasParamOps",
     "CVIR",
     "EnergyReport",
     "GridSpec",
@@ -26,6 +28,7 @@ __all__ = [
     "KernelPort",
     "KernelSpec",
     "Param",
+    "ParamEnergy",
     "StructureWriter",
     "SystemData",
     "TableSpec",
