@@ -13,6 +13,11 @@ Physics (documented simplifications):
   ``numpy.random.RandomState(spec.seed)`` — the same stream continues as the
   Langevin noise source, so trajectories are bit-stable for a given seed
   (float64 arithmetic is deterministic).
+* ``spec.ml_region`` is IGNORED (ADR-0004's documented choice, "fake 忽略"):
+  the fake has no MM forces to embed and propagates zero forces, so a
+  numerical mock-NNP copy here would guard nothing — the torch-free ML/MM
+  pipeline tier runs the mock NNP through the OPENMM adapter instead
+  (KernelSpec.ml_region + model type "mock", no torch needed).
 * installed biases are evaluated geometrically (the v1 cores:
   calculate_com / angle_3points_rad / calculate_dihedral from
   src/neomd/restraints/reporter.py, ported to numpy below) and their energy

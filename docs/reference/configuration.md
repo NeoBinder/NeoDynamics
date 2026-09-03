@@ -27,6 +27,7 @@ key path and a did-you-mean suggestion.
 | `meta_set` | no | mapping | Method settings carried inside one whitelisted mapping — also the documented ride-along for plugin settings. Metadynamics reads `biasFactor` (> 1.0), `height` (kJ/mol) and `frequency` (steps between hills) from it. |
 | `method` | no | str | Sampling method: a driver-dispatched phase (`min`, `eq`, `md`, `prod`) or a registry method (`metadynamics`, `smd`). Defaults to `md` when absent. |
 | `min_params` | no | mapping | Minimizer settings for method `min`; keys `tolerance`, `maxiter`, `maxiterations`, `max_iterations` (v1 aliases). Defaults: tolerance 10, max_iterations 10000. |
+| `ml_region` | no | mapping | ML/MM coupling (ADR-0004): `indices` (0-based particle list or comma string) + `model` (`type: torchscript\|mock`, `path`, `periodic`, `long_range_electrostatics`; mock adds tether/repulsion knobs). Assembled by the openmm adapter pre-Context; the fake kernel ignores it. |
 | `opes_set` | no | mapping | OPES method parameters (method `opes`): `pace` (steps between bias updates), `barrier` (expected free-energy barrier, kJ/mol), optional `mode` (standard\|explore) and tuning knobs (`fixed_sigma`, `kernel_cutoff`, `compression_threshold`, `no_zed`). |
 | `output` | yes | mapping | Output settings: the output directory, reporting intervals and tape switches (see the `output` table below). |
 | `plugins` | no | mapping | The plugin plan-schema namespace (ADR-0002): each registered plugin owns its `plugins.<name>.*` keys; validated against the live plugin rack (entry-point scanned). |

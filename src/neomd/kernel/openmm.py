@@ -61,6 +61,13 @@ Force-group assignment ports v1 ``max_force_grps`` (builder/neosystem.py:12-18,
 94-122): the bias force takes ``max(freeGroups)`` where free groups are
 ``set(range(32)) - groups already used by system forces``; exhausting all 32
 groups raises the v1 RuntimeError.
+
+ML/MM (ADR-0004): ``KernelSpec.ml_region`` is assembled in ``__init__`` —
+mechanical embedding (ported verbatim from openmm-ml, ``neomd.ml.embedding``)
+plus the NNP force (mock or openmm-torch TorchScript), BEFORE the lazy
+``simulation`` property creates a Context, through ``neomd.ml.assemble``.  The
+NNP Force is not XML-serializable, so the assembly is adapter-side only and
+this System is never re-serialized; the prepare layer must never see it.
 """
 
 from __future__ import annotations
@@ -188,6 +195,35 @@ def _apply_system_modifications(system: openmm.System, spec: KernelSpec) -> None
             nonbonded[0].addException(particle, partner, 0, 1, 0)
 
 
+def _assemble_ml_region(system: openmm.System, spec: KernelSpec, positions):
+    """ML/MM assembly (ADR-0004): mechanical embedding + the NNP force.
+
+    Delegated to ``neomd.ml.assemble`` (the coupling module's adapter-side
+    entry); this wrapper only supplies the force-group allocator — the one
+    port policy (``pick_free_force_group``), holders named after the live
+    forces OF THE SYSTEM BEING BUILT (the embedding returns a new System;
+    allocating against the original would hand every ML force the same id).
+    The embedding's XML round-trip happens while the System is still pure
+    MM; the NNP Force (TorchForce/mock) is added AFTER it and this System is
+    never serialized again — which is the whole reason ml_region lives
+    adapter-side and never touches system.xml at the prepare layer.  Runs
+    pre-Context (called from ``__init__``), like the v1 modification order.
+    """
+
+    def pick_group(target: openmm.System) -> int:
+        forces = list(target.getForces())
+        return pick_free_force_group(
+            (force.getForceGroup() for force in forces),
+            {force.getForceGroup(): force.getName() or type(force).__name__
+             for force in forces})
+
+    from ..ml.assemble import assemble_ml_region
+
+    new_system, _region, _installed = assemble_ml_region(
+        system, spec.ml_region, positions, pick_group)
+    return new_system
+
+
 class OpenMMKernel:
     """KernelPort implementation backed by an ``openmm.app.Simulation``."""
 
@@ -198,6 +234,14 @@ class OpenMMKernel:
         self.system = _deserialize_system(spec.system_xml)
         _apply_system_modifications(self.system, spec)
         self._structure = _load_structure(spec.topology_file)
+        if spec.ml_region:
+            # ML/MM (ADR-0004): mechanical embedding + NNP force, pre-Context.
+            # The structure is loaded first — the mock NNP's tethers anchor to
+            # the INPUT geometry.  The embedding returns a NEW System (its XML
+            # round-trip); everything downstream (contexts, install_bias group
+            # allocation) sees the assembled one.
+            self.system = _assemble_ml_region(
+                self.system, spec, self._structure.positions)
         # eager validation of integrator/platform without creating a Context
         self._integrator = _make_integrator(spec)
         self._platform_kwargs = _platform_config(spec)

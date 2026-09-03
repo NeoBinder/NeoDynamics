@@ -73,6 +73,8 @@ KNOWN_KEYS = frozenset(
         "qc",  # structure quality checks (neomd.qc; hooks at prepare/min tail)
         "debug",
         "system_modification",
+        "ml_region",  # ML/MM coupling (ADR-0004): {"indices", "model"} —
+        #               assembled by the openmm adapter, never in system.xml
         "forcefield",  # dead/unreachable in v1 (neosystem.py:52 behind a key
         #                 the whitelist never let through) — a real key in v2
         "plugins",  # the plugin plan-schema namespace (ADR-0002): each
@@ -116,6 +118,7 @@ _MAPPING_KEYS = (
     "opes_set",
     "min_params",
     "forcefield",
+    "ml_region",
     "plugins",
     "qc",
 )
@@ -500,6 +503,8 @@ def _validate(data: Any, ctx: _Context) -> list:
     # -- restraint types (registry-aware, best effort) -----------------------
     _validate_restraint_types(data, ctx, problem)
 
+    # -- the ml_region section (ML/MM, ADR-0004; same collect-all pass) ------
+    _validate_ml_region_section(data, ctx, problem)
     # -- colvar types (registry-aware, best effort; W1-b — same treatment
     #    the restraint section gets, so an unknown cv type is a collect-all
     #    plan error with did-you-mean instead of a runtime KeyError)
@@ -626,6 +631,132 @@ def _validate_restraint_spec_keys(name: str, spec: Mapping, entry,
 # ---------------------------------------------------------------------------
 
 
+def _validate_ml_region_section(data: Mapping, ctx: _Context, problem) -> None:
+    """The ``ml_region`` section (ML/MM coupling, ADR-0004).
+
+    Shape: ``{"indices": [...], "model": {"type": "mock"|"torchscript", ...}}``
+    — indices accept the restraint spellings (int / list / comma-string).
+    Every problem is collected in one pass like everywhere else; the
+    vocabulary (keys, model types, per-type required keys) is owned by
+    ``neomd.ml.spec`` (single source of truth; the checks degrade away when
+    unimportable, like the smd RAMP_KEYS precedent).
+    """
+    ml_region = data.get("ml_region")
+    if not ml_region:
+        return
+    if not isinstance(ml_region, Mapping):
+        return  # the _MAPPING_KEYS pass already reported the shape problem
+    try:
+        from .ml.spec import (
+            ML_REGION_KEYS,
+            MODEL_KEYS,
+            MODEL_TYPES,
+            REQUIRED_MODEL_KEYS,
+            flatten_indices,
+        )
+    except ImportError:  # pragma: no cover - the package ships both
+        return
+
+    for key in ml_region:
+        if not isinstance(key, str) or key not in ML_REGION_KEYS:
+            problem(
+                ConfigKeyError,
+                f"unknown ml_region key {key!r}",
+                ("ml_region", key) if isinstance(key, str) else ("ml_region",),
+                known_keys=ML_REGION_KEYS,
+            )
+
+    # indices: non-empty, non-negative 0-based particle indices (the
+    # ml.spec flattener accepts the comma-string spelling like the
+    # restraint group keys do)
+    raw_indices = ml_region.get("indices")
+    if raw_indices in (None, "", [], ()):
+        problem(
+            ConfigValueError,
+            "ml_region requires 'indices' (the ML region's 0-based particle "
+            "indices; ligand-only in this phase)",
+            ("ml_region", "indices"),
+        )
+    else:
+        indices = flatten_indices(raw_indices)
+        if not indices or indices[0] < 0:
+            problem(
+                ConfigValueError,
+                "ml_region.indices must be 0-based particle indices (ints, a "
+                "list of ints, or the comma-string spelling)",
+                ("ml_region", "indices"),
+                raw_indices,
+            )
+        else:
+            for index in indices:
+                if index < 0:
+                    problem(
+                        ConfigValueError,
+                        f"ml_region.indices must be non-negative, got {index}",
+                        ("ml_region", "indices"),
+                        index,
+                    )
+
+    # model: mapping with a known type, type-appropriate required keys
+    model = ml_region.get("model")
+    if model is None:
+        problem(
+            ConfigValueError,
+            "ml_region requires 'model' (a mapping with a string 'type': "
+            f"{list(MODEL_TYPES)})",
+            ("ml_region", "model"),
+        )
+    elif not isinstance(model, Mapping):
+        problem(
+            ConfigValueError,
+            f"ml_region.model must be a mapping, got {type(model).__name__}",
+            ("ml_region", "model"),
+            model,
+        )
+    else:
+        model_type = model.get("type")
+        if not isinstance(model_type, str):
+            problem(
+                ConfigValueError,
+                f"ml_region.model must have a string 'type' (one of "
+                f"{list(MODEL_TYPES)}), got {type(model_type).__name__}",
+                ("ml_region", "model", "type"),
+            )
+        elif model_type not in MODEL_TYPES:
+            problem(
+                ConfigValueError,
+                f"unknown ml_region model type {model_type!r}",
+                ("ml_region", "model", "type"),
+                model_type,
+                candidates=list(MODEL_TYPES),
+            )
+        else:
+            for required in REQUIRED_MODEL_KEYS[model_type]:
+                value = model.get(required)
+                if value is None or (isinstance(value, str) and not value.strip()):
+                    problem(
+                        ConfigValueError,
+                        f"ml_region.model type {model_type!r} requires "
+                        f"{required!r}",
+                        ("ml_region", "model", required),
+                    )
+        for key in model:
+            if not isinstance(key, str) or key not in MODEL_KEYS:
+                problem(
+                    ConfigKeyError,
+                    f"unknown ml_region.model key {key!r}",
+                    ("ml_region", "model", key)
+                    if isinstance(key, str) else ("ml_region", "model"),
+                    known_keys=MODEL_KEYS,
+                )
+        for bool_key in ("periodic", "long_range_electrostatics"):
+            if bool_key in model and not isinstance(model[bool_key], bool):
+                problem(
+                    ConfigValueError,
+                    f"ml_region.model.{bool_key} must be a boolean",
+                    ("ml_region", "model", bool_key),
+                    model[bool_key],
+                )
 def _validate_colvar_types(data: Mapping, ctx: _Context, problem) -> None:
     """The ``colvars`` section against the cv registry (mirrors
     ``_validate_restraint_types``): entries must be mappings with a string
@@ -1454,6 +1585,34 @@ def check_plan_files(data: Mapping, *, source: str | None = None,
                                 f"bounds: the system has {n_particles} particles "
                                 f"(0..{n_particles - 1})",
                                 key=key, value=index, source=source))
+
+        # ml_region.indices live one level shallower than restraint index keys
+        # (and accept the comma-string spelling — ml.spec's flattener)
+        ml_region = data.get("ml_region")
+        if isinstance(ml_region, Mapping):
+            try:
+                from .ml.spec import flatten_indices as _ml_flatten
+            except ImportError:  # pragma: no cover - the package ships both
+                _ml_flatten = _flatten_indices
+            for index in _ml_flatten(ml_region.get("indices")):
+                if index < 0 or index >= n_particles:
+                    errors.append(ConfigValueError(
+                        f"ml_region.indices index {index} is out of bounds: "
+                        f"the system has {n_particles} particles "
+                        f"(0..{n_particles - 1})",
+                        key="indices", value=index, source=source))
+            model = ml_region.get("model")
+            if (isinstance(model, Mapping)
+                    and model.get("type") == "torchscript"
+                    and isinstance(model.get("path"), str)):
+                resolved_path = model["path"]
+                if base_dir and not os.path.isabs(resolved_path):
+                    resolved_path = os.path.join(base_dir, resolved_path)
+                if not os.path.exists(resolved_path):
+                    errors.append(ConfigValueError(
+                        f"ml_region.model.path does not exist: "
+                        f"{model['path']!r}",
+                        key="path", value=model["path"], source=source))
 
     # method-required keys through the registry schema (best effort)
     method = (data.get("method") or "md")

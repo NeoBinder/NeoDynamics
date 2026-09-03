@@ -375,6 +375,15 @@ class KernelSpec:
     #: ``(particle, partner)`` pairs; applied pre-Context by the openmm
     #: adapter, ignored by kernels without a NonbondedForce
     dummy_exceptions: tuple[tuple[int, int], ...] | None = None
+    #: ML/MM region (ADR-0004), the raw plan section verbatim:
+    #: ``{"indices": [...], "model": {"type": "torchscript"|"mock", ...}}``.
+    #: Like barostat/dummy_exceptions this is a PRE-CONTEXT System-assembly
+    #: instruction — but the openmm adapter assembles it through
+    #: ``neomd.ml.assemble`` (mechanical embedding + NNP force) and NEVER
+    #: serializes the result back to system.xml (the NNP Force is not
+    #: XML-serializable).  The fake kernel IGNORES it (documented; the
+    #: torch-free pipeline tier runs the mock through the openmm adapter).
+    ml_region: dict | None = None
 
 
 @runtime_checkable

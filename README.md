@@ -3,8 +3,8 @@
 [![CI](https://github.com/NeoBinder/NeoDynamics/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/NeoBinder/NeoDynamics/actions/workflows/ci.yml)
 
 **A molecular-dynamics SDK on OpenMM** — generic MD, well-tempered
-metadynamics, steered MD and OPES behind a single facade, with a swappable
-physics kernel.
+metadynamics, steered MD, OPES and ML/MM coupling behind a single facade,
+with a swappable physics kernel.
 
 Python 3.12+ · OpenMM 8.6.x · MIT license · version derived from git tags
 
@@ -12,9 +12,9 @@ NeoDynamics is NeoBinder's open-source project for molecular dynamics built
 on top of [OpenMM](https://openmm.org/). The package contains:
 
 - OpenMM pipelines for generic MD (`min` / `eq` / `md` / `prod`),
-  well-tempered metadynamics, steered MD and OPES (QM/MM, GaMD and
-  ML-powered MD are planned as 2.x plugins — see the extension section
-  below)
+  well-tempered metadynamics, steered MD, OPES and ML/MM coupling with any
+  TorchScript NNP (ADR-0004; QM/MM and GaMD are planned as 2.x plugins —
+  see the extension section below)
 - OpenMM system-building tools (protein + ligand + solvent)
 - Ligand forcefield creation and support for externally supplied ligand
   forcefields (AM1-BCC/GAFF via antechamber, RESP2 charges via ORCA, or
@@ -44,6 +44,10 @@ on top of [OpenMM](https://openmm.org/). The package contains:
 - **Deterministic resume** — a single owner restores the checkpoint and
   trims every tape to the resume step; `manifest.json` chains epochs and
   records the plan fingerprint.
+- **ML/MM coupling (ADR-0004)** — a `ml_region` plan section drives
+  mechanical embedding (ported verbatim from openmm-ml, with attribution) +
+  any TorchScript NNP through openmm-torch; a mock NNP keeps the whole
+  pipeline testable without torch.
 
 ## Quick start
 
@@ -334,6 +338,51 @@ charge fitting), `ligand` (RDKit/openff processing), `convert`, `fix_protein`
 `openmm_privates.py` behind a pinned-version gate (openmm 8.6.x) that raises
 `UpstreamVersionError` otherwise.
 
+## ML/MM coupling
+
+One plan section turns a region (ligand-only in this phase) into an
+ML-potential region:
+
+```yaml
+ml_region:
+  indices: [1234, 1235, 1236]        # 0-based particle indices (or "1234,1235,...")
+  model:
+    type: torchscript                # or: mock
+    path: my_nnp.pt                  # torchscript: the model file IS the interface
+    long_range_electrostatics: false # periodic systems must declare this
+    periodic: true                   # optional; defaults to the system's
+    # mock-only knobs: tether_k (500 kJ/mol/nm^2), repulsion_k (1 kJ/mol),
+    #                 repulsion_sigma (0.15 nm)
+```
+
+The openmm adapter assembles it **before** the Context exists (never inside
+`system.xml` — the NNP Force is not XML-serializable): mechanical embedding
+removes the ML-ML MM terms (the ML atoms keep their MM charges for the
+ML↔MM electrostatics; ported verbatim from openmm-ml 1.7, MIT, with
+attribution — see `src/neomd/ml/embedding.py`), then installs the NNP force
+with a force group from the shared allocator. Two model tiers:
+
+- `torchscript` — openmm-torch `TorchForce` over your `.pt` model. Unit
+  contract: the model receives the **full system's** positions (`float32`,
+  `(N, 3)`, **nm** — bake the region indices into the model, TorchForce has
+  no subset parameter) and must return the energy in **kJ/mol**; box vectors
+  `(3, 3)` nm are fed on periodic systems. Å/eV/kcal-trained models convert
+  inside their `forward`.
+- `mock` — a deterministic toy potential from standard openmm custom forces
+  (tethers + soft repulsion; **not physics**) that runs the whole pipeline
+  with **no torch installed** — the CI tier of the two-adapters discipline.
+
+The fake kernel ignores `ml_region` (documented). openmm-ml is deliberately
+NOT a dependency (ADR-0004): only its mechanical embedding was useful, the
+per-model registry was not; it survives as an optional, import-gated
+cross-validation reference. The `ml` pixi environment carries the pinned
+openmm-torch + torch stack (`pixi run -e ml test-ml` runs the torch-tier
+tests); the default gate stays torch-free. Demo:
+[examples/mlmm_ligand](examples/mlmm_ligand) (3HTB + JZ4 ligand region, min +
+100 ps). Decisions and environment resolution:
+[ADR-0004](docs/adr/0004-mlmm-in-tree-coupling.md); full background, the
+issue #12 mapping and the unit contracts live in
+[docs/methods/mlmm.md](docs/methods/mlmm.md).
 ## Analyzing runs
 
 Method doc with background, conventions and the analytic double-well test
@@ -504,6 +553,7 @@ entry points remain thin wrappers for one release.
 pixi run test          # pytest -m 'not golden and not legacy' — the CI gate (~6 min)
 pixi run test-golden   # bit-exact parity vs recorded v1 tapes (~3 min)
 pixi run test-legacy   # frozen-v1 live tests (opt-in, not in CI)
+pixi run -e ml test-ml # ML/MM torch tier (openmm-torch + torch env; see ADR-0004)
 uvx ruff check .       # the lint gate (also enforced by pre-commit.ci on every PR)
 ```
 
@@ -516,7 +566,11 @@ locally with `uvx pre-commit run --all-files`.
 - `tests/v2/` — unit + e2e over public interfaces on the fake kernel
   (millisecond tier), including the round-trip-law test and **source-scan
   tests** that enforce the architecture: no `kernel.simulation` reach-through
-  outside `kernel/`, no openmm private API outside `openmm_privates.py`.
+  outside `kernel/`, no openmm private API outside `openmm_privates.py`, no
+  torch/openmmtorch imports outside `src/neomd/ml/`.
+- `tests/v2/test_mlmm.py` — the ML/MM coupling: mock pipeline + embedding
+  semantics in the default (torch-free) gate; TorchScript round-trip and the
+  openmm-ml cross-validation behind `pytest.importorskip` (ml env).
 - `tests/golden/` — the record / trim / compare harness and 9 committed v1
   tapes. Golden comparisons are bit-exact in CI; across environments use
   `NEO_GOLDEN_TOLERANT=1` for the statistical tier. Golden samples catch
@@ -542,6 +596,9 @@ NeoDynamics/
 │   ├── colvars.py             # 9 collective-variable triples (5 expression + 4 kind-driven)
 │   ├── registry.py            # the extension rack (restraint/cv/method/probe)
 │   ├── methods/metadynamics.py# well-tempered metadynamics
+│   ├── ml/                    # ML/MM coupling (ADR-0004): spec, embedding
+│   │                          # (verbatim openmm-ml port), mock NNP,
+│   │                          # TorchScript loader, adapter assembly
 │   ├── analysis/              # post-run analysis: readers, WT FES, convergence,
 │   │                          # block averaging, TP reweighting, multi-walker
 │   │                          # merge (+ the `neomd analysis` CLI commands)
@@ -551,7 +608,8 @@ NeoDynamics/
 ├── src/neomd_legacy/          # frozen v1 (bug fixes only, one deprecation release)
 ├── tests/v2/                  # unit + e2e on the fake kernel
 ├── tests/golden/              # golden-tape harness + 9 committed v1 tapes
-├── examples/                  # 3HTB_complex walkthrough, ala_meta, gamd_drill plugin
+├── examples/                  # 3HTB_complex walkthrough, ala_meta, gamd_drill plugin,
+│                              # mlmm_ligand (ML/MM demo)
 ├── docs/                      # v2 migration plan, improvements log, DAG board, ADR
 └── bin/                       # thin v1 compatibility wrappers + standalone
                                 # v1 analysis tools (protein/trajectory/
@@ -565,6 +623,7 @@ NeoDynamics/
 - [docs/v2-improvements.md](docs/v2-improvements.md) — post-flip improvement items and settled debates
 - [docs/v2-dag.md](docs/v2-dag.md) — execution board and post-flip verification numbers
 - [docs/adr/0001-neomd2-strangler-migration.md](docs/adr/0001-neomd2-strangler-migration.md) — ADR: why a same-repo strangler migration
+- [docs/adr/0004-mlmm-in-tree-coupling.md](docs/adr/0004-mlmm-in-tree-coupling.md) — ADR: in-tree `KernelSpec.ml_region`, the no-openmm-ml decision, the pinned ml environment
 
 ## Versioning and license
 

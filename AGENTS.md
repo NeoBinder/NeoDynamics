@@ -87,6 +87,17 @@ release together with the `neomd2` script alias.
   lives in `openmm_privates.py` behind a pinned-version gate
   (`UpstreamVersionError` outside openmm 8.6.x) — add new private touches
   there, never inline.
+- **ML/MM** (`ml/`, ADR-0004): `KernelSpec.ml_region` (the barostat-shaped
+  pre-Context assembly spec `{"indices", "model": {"type":
+  "torchscript"|"mock", ...}}`) is assembled by the openmm adapter via
+  `ml.assemble` — mechanical embedding ported VERBATIM from openmm-ml 1.7
+  (MIT, attribution in `ml/embedding.py`) + the NNP force; never written
+  into system.xml (the NNP Force is not XML-serializable). openmm-ml is NOT
+  a dependency (registry rejected; import-gated cross-validation only); the
+  model file is the interface (nm-in / kJ/mol-out unit contract documented
+  in `ml/torchscript.py`); the mock NNP keeps the whole pipeline testable
+  without torch (fake kernel ignores ml_region — documented). torch /
+  openmmtorch imports live only under `ml/` (source-scanned).
 - **QC** (`qc.py`): openmm-free structure quality checks (pure numpy
   geometry over SystemBundle files — never via the kernel port); hooked at
   the `prepare.py` tail and the driver's min tail, writing
@@ -120,6 +131,9 @@ release together with the `neomd2` script alias.
 pixi run test          # pytest -m 'not golden and not legacy'  (~6 min, the CI gate)
 pixi run test-golden   # golden-sample parity vs v1 tapes, bit-exact (~3 min)
 pixi run test-legacy   # frozen v1 live tests (excluded from CI after the flip)
+pixi run -e ml test-ml # ML/MM torch tier (openmm-torch + torch env, ADR-0004;
+                       #   carries a TEMPORARY openmm 8.5.* pin until conda-forge
+                       #   openmm-torch tracks 8.6 — see pixi.toml + ADR-0004)
 uvx ruff check .       # the lint gate (E4/E7/E9/F + isort; config + excludes in pyproject.toml)
 pixi run docs-gen      # regenerate docs/reference/configuration.md from the live package
 pixi run docs-build    # mkdocs build --strict (the docs-site gate)
@@ -194,7 +208,9 @@ and update the docs if one changes.
   fail-on-first.
 - **Keep the source-scan guarantees green**: no `kernel.simulation`
   reach-through outside `kernel/`; no openmm private-API access outside
-  `openmm_privates.py`. Extend those scans if you add adjacent seams.
+  `openmm_privates.py`; no torch/openmmtorch imports outside
+  `src/neomd/ml/` and `src/neomd/mlcv/` (the default environments are
+  torch-free). Extend those scans if you add adjacent seams.
 - Version is derived by versioningit from git tags — do not hardcode.
 
 ## Development workflow — worktree isolation, land on main after confirmation

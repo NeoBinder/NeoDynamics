@@ -46,6 +46,8 @@ min(200 iters) ~80 s + eq(250 steps) ~20 s + full-tolerance attempt capped
 at 150 s -> module total ~4.5-5.5 min.  The full-tolerance attempt is
 expected to be reported as "skipped": |F|max plateaus near 2.4e3
 kJ/mol/nm, two orders of magnitude above the example's tolerance 10.
+The ML/MM ligand smoke (section 4) adds ~60 s in-process (min 25 iters +
+3 MD steps, single-threaded, mock NNP — no torch needed).
 
 Translator round-trip (item 3.3): every YAML under examples/ translates —
 prepare-configs with the documented refusal, run-configs into valid Plans,
@@ -478,3 +480,64 @@ def test_3htb_run_configs_compile(prep, yaml_name):
     assert compiled.kernel.name == "openmm"
     assert compiled.kernel.num_particles > 5000
     assert compiled.plan.fingerprint
+
+
+# ---------------------------------------------------------------------------
+# 4. ML/MM ligand-region smoke (W2-d, ADR-0004): the prepared 3HTB system
+# with ml_region over the JZ4 ligand (mock NNP — no torch in the default
+# gate), a reduced minimization + a few dynamics steps through the public
+# facade.  The real 100 ps demo is examples/mlmm_ligand/, not a test.
+# ---------------------------------------------------------------------------
+
+
+@needs_antechamber
+def test_ml_region_ligand_mock_smoke(prep):
+    """JZ4 as the ML region: mechanical embedding + mock NNP, min + MD.
+
+    The md leg consumes the min leg's ``last.pdbx`` — the same minimized-
+    geometry bridge the runbook needs (raw prepared positions carry the
+    ASN163/LEU164 clash; see the module docstring, finding 2).
+    """
+    from openmm import app as openmm_app
+
+    from neomd import compile as compile_run
+    from neomd import md_run
+
+    topology = openmm_app.PDBxFile(prep["complex"]).topology
+    ligand = [atom.index for atom in topology.atoms()
+              if atom.residue.name == "JZ4"]
+    assert len(ligand) >= 15  # CCCc1ccccc1O with hydrogens: 22 atoms
+    ml_region = {"indices": ligand, "model": {"type": "mock"}}
+
+    # -- the min leg (reduced: 25 iterations, ~40 s single-threaded) -------
+    min_dir = os.path.join(prep["workdir"], "mlmm_min")
+    min_plan = {
+        "method": "min",
+        "min_params": {"tolerance": 10, "maxiter": 25},
+        "seed": 3,
+        "integrator": {"dt": 0.001, "friction_coeff": 1.0},
+        "input_files": {"complex": prep["complex"], "system": prep["system"]},
+        "output": {"output_dir": min_dir},
+        "ml_region": ml_region,
+    }
+    outcome = compile_run(min_plan, platform="cpu").run()
+    final_energy = outcome.results[0].final_energy
+    assert final_energy == final_energy and final_energy < -1e4
+    for name in ("output.ckpt", "manifest.json", "last.pdbx"):
+        assert os.path.isfile(os.path.join(min_dir, name)), name
+
+    # -- the md leg, from the minimized geometry (3 steps) ----------------
+    md_dir = os.path.join(prep["workdir"], "mlmm_md")
+    md_plan = {
+        "method": "md", "steps": 3, "seed": 3, "temperature": 298,
+        "integrator": {"dt": 0.001, "friction_coeff": 1.0},
+        "input_files": {"complex": os.path.join(min_dir, "last.pdbx"),
+                        "system": prep["system"]},
+        "output": {"output_dir": md_dir, "report_interval": 1},
+        "ml_region": ml_region,
+    }
+    outcome = md_run(md_plan, platform="cpu")
+    result = outcome.results[0]
+    assert result.steps_done == 3
+    energy = result.final_energy
+    assert energy == energy and abs(energy) < 1e10  # finite, not blown up

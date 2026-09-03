@@ -71,6 +71,14 @@ _TOP_LEVEL = {
         "plugin owns its `plugins.<name>.*` keys; validated against the "
         "live plugin rack (entry-point scanned).",
     ),
+    "ml_region": (
+        "mapping",
+        "ML/MM coupling (ADR-0004): `indices` (0-based particle list or "
+        "comma string) + `model` (`type: torchscript|mock`, `path`, "
+        "`periodic`, `long_range_electrostatics`; mock adds tether/repulsion "
+        "knobs). Assembled by the openmm adapter pre-Context; the fake "
+        "kernel ignores it.",
+    ),
     "opes_set": (
         "mapping",
         "OPES method parameters (method `opes`): `pace` (steps between "

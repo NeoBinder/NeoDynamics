@@ -269,6 +269,10 @@ def build_kernel_spec(plan: Plan, *, kind: str = "openmm",
       adapter takes pressure/frequency from it and defaults temperature to
       the plan temperature, exactly like v1 defaulted it from the config;
     * ``particle_masses`` from ``system_modification`` (see above).
+    * ``ml_region`` (ADR-0004) is the RAW section verbatim — the openmm
+      adapter assembles the mechanical embedding + NNP force from it BEFORE
+      creating a Context (it must never reach system.xml: the NNP Force is
+      not XML-serializable); the fake kernel ignores it.
     """
     from .kernel.port import KernelSpec
 
@@ -290,6 +294,10 @@ def build_kernel_spec(plan: Plan, *, kind: str = "openmm",
     if barostat:
         barostat = {**dict(barostat), "seed": int(plan.seed)}
 
+    ml_region = getattr(plan, "ml_region", None)
+    if ml_region:
+        ml_region = dict(ml_region)  # off the frozen plan containers
+
     input_files = plan.input_files
     return KernelSpec(
         kind=kind,
@@ -305,6 +313,7 @@ def build_kernel_spec(plan: Plan, *, kind: str = "openmm",
             getattr(plan, "system_modification", None)),
         dummy_exceptions=_dummy_exceptions(
             getattr(plan, "system_modification", None)),
+        ml_region=ml_region,
     )
 
 

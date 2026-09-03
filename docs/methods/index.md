@@ -2,6 +2,8 @@
 
 每个特性一份独立方法文档；本文件只做索引。
 
+- [mlmm.md](mlmm.md) —— ML/MM 耦合：ml_region + TorchScript/mock NNP 两适配器
+  （issue #12 W2-d，ADR-0004）
 - [mlcv.md](mlcv.md) —— ML 集体变量期 1：featurize/train/convert CLI
   （issue #9 期 1，W2-c，ADR-0006）
 - [opes.md](opes.md) —— OPES 增强采样方法（KDE bias、kernels.npz 回放；

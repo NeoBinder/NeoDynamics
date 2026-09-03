@@ -8,26 +8,38 @@ NeoDynamics = { path = ".", editable = true }
 python-box = ">=7.3.2"
 numpy = "*"
 
+# The engine stack lives in a FEATURE (not workspace [dependencies]) so the
+# `ml` environment can carry its own openmm pin (ADR-0004): pixi intersects
+# a workspace-level spec with feature specs, and the temporary ml openmm
+# 8.5.* would be unsolvable next to a workspace-level 8.6.*.
+[feature.engine.dependencies]
+openmm = "8.6.*"
+openmmforcefields = ">=0.16,<0.17"
+openff-toolkit = ">=0.19,<0.20"
+pytest = "*"
+
 [environments]
-default = { solve-group = "default" }
-test = { features = ["test"], solve-group = "default" }
-dev = { features = ["dev"], solve-group = "dev" }
-docs = { features = ["docs"], solve-group = "default" }
+default = { features = ["engine"], solve-group = "default" }
+test = { features = ["engine", "test"], solve-group = "default" }
+dev = { features = ["engine", "dev"], solve-group = "dev" }
+docs = { features = ["engine", "docs"], solve-group = "default" }
+# ML/MM (ADR-0004): openmm-torch needs torch; every conda-forge openmm-torch
+# build (1.5.1, latest as of 2026-09-03) caps openmm < 8.6, so this
+# environment carries an EXPLICIT temporary openmm 8.5.* pin.  Upgrade to
+# 8.6.* when a tracking build lands (a settled-decision-#10 explicit event).
+# Separate solve-group: the pin must never leak into default/test/dev.
+ml = { features = ["ml"], solve-group = "ml" }
 
 [tasks]
 test = "pytest tests/ -m 'not golden and not legacy'"
 test-golden = "pytest tests/ -m 'golden and not legacy'"
-test-legacy = "pytest tests/ -m legacy -q"
+test-legacy = "pytest tests/ -m 'legacy -q'"
 
 [pypi-options]
 index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 
 [dependencies]
 python = "3.12.*"
-openmm = "8.6.*"
-openmmforcefields = ">=0.16,<0.17"
-openff-toolkit = ">=0.19,<0.20"
-pytest = "*"
 
 # docs site (issue #17): the docs environment carries mkdocs-material on top
 # of the default features (the package itself included — docs-gen introspects
@@ -52,3 +64,21 @@ mdanalysis = "*"
 
 [feature.dev.pypi-dependencies]
 NeoTopology = { path = "../NeoTopology", editable = true }
+
+# ml: the ML/MM environment (ADR-0004) — openmm-torch (TorchForce plugin) +
+# torch, pinned per settled decision #10.  openff-toolkit rides along so the
+# mlmm_ligand demo can run its GAFF preparation stage in this environment
+# too (it drags ambertools/rdkit; the default gate stays torch-free).
+# Real-torch tests are importorskip-gated and run here:
+#   pixi run -e ml test-ml
+[feature.ml.dependencies]
+openmm = "8.5.*"          # TEMPORARY (see the [environments] note above)
+openmm-torch = "1.5.*"
+pytorch = "2.12.*"
+openff-toolkit = ">=0.19,<0.20"
+openmmforcefields = ">=0.16,<0.17"  # the tools.ligand workflow (demo prepare)
+ambertools = "*"          # the demo's GAFF ligand parameterization stage
+pytest = "*"
+
+[feature.ml.tasks]
+test-ml = "pytest tests/v2/test_mlmm.py -v"
