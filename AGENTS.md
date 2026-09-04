@@ -193,6 +193,21 @@ Consequences:
   "previously…" notes, stale version history, or completed-migration
   narrative into living docs.
 
+### Method pages (docs/methods/) — content policy (issue #17)
+
+In the AI era most procedural documentation is dead weight: the paper IS
+the documentation. Per-method pages therefore keep exactly four things:
+
+1. **原理简述** — a short (≤1 paragraph) statement of what the method
+   does and when to use it; do NOT restate the paper's derivations,
+   full math, or design history.
+2. **使用** — runnable plan/CLI examples and key options.
+3. **产物** — the artifacts it writes and their resume semantics.
+4. **参考文献** — the papers the implementation is based on, with
+   DOI/arXiv links (the user-interaction-point traceability this issue
+   established). Design decisions and issue-delta narratives live in
+   ADRs and issues — link them, never restate them.
+
 ## Settled decisions — do not relitigate
 
 Challenge these only with new evidence, and update the docs if one changes.
