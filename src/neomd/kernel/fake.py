@@ -1,78 +1,9 @@
-"""FakeKernel — the deterministic CI workhorse on the KernelPort seam.
+"""FakeKernel — the deterministic, openmm-free textbook-Langevin adapter:
+the CI workhorse whose trajectories are bit-stable for a given seed.
 
-NO openmm import: pure numpy textbook physics.  The fake deliberately does
-NOT mimic OpenMM
-corner-case behavior — it exists so driver/probe/method tests run fast and
-bit-reproducibly; the parity suite and golden tapes guard the real physics.
-
-Physics (documented simplifications):
-* dynamics: Euler-Maruyama Langevin on free particles,
-  ``v += (F/m)*dt - gamma*v*dt + sqrt(2*gamma*kT/m*dt)*N(0,1)``,
-  ``x += v*dt``, with F = 0 (a "resting" force field).  Velocities are
-  initialized by textbook Maxwell-Boltzmann: ``N(0,1) * sqrt(kT/m)`` from
-  ``numpy.random.RandomState(spec.seed)`` — the same stream continues as the
-  Langevin noise source, so trajectories are bit-stable for a given seed
-  (float64 arithmetic is deterministic).
-* boost channels (port.BoostOps, ADR-0005) implement GaMD in the same loop:
-  with channels installed, the fake propagates its OWN (geometric bias)
-  potential's forces — per force group, via the central finite-difference
-  gradient ``minimize`` already uses — rescaled per channel by
-  ``s(g) = 1 - sum_c k_c*(E_c - P_c)`` over channels targeting g (the exact
-  gradient of ``V* = sum_g V_g + sum_c dV_c(P_c)``; the F = 0 simplification
-  above holds only when NO boost is installed).  Channel target energies are
-  the summed energies of their force groups (``()`` = every installed bias);
-  the applied ``dV/P/s`` of the most recent step is readable through
-  ``boost_potentials()`` (the reweighting trace).  ``install_boost`` must
-  come after every ``install_bias`` — later bias installs are refused, so a
-  stale channel set can never silently mis-scale new forces.
-* ``spec.ml_region`` is IGNORED (ADR-0004's documented choice, "fake 忽略"):
-  the fake has no MM forces to embed and propagates zero forces, so a
-  numerical mock-NNP copy here would guard nothing — the torch-free ML/MM
-  pipeline tier runs the mock NNP through the OPENMM adapter instead
-  (KernelSpec.ml_region + model type "mock", no torch needed).
-* installed biases are evaluated geometrically (mass-weighted COM / angle /
-  dihedral numpy helpers below) and their energy
-  expression is evaluated by a restricted arithmetic interpreter (the subset
-  of the openmm expression language in use: + - * / ^ (=power) ,
-  max/min/abs/sqrt/exp/atan/tan/sin/cos, distance()/angle()/dihedral()
-  between group centroids g1..g4, xN/yN/zN centroid coordinates,
-  ``";"``-separated intermediate assignments).  The kind-driven CVs
-  (RMSDForce / CustomNonbondedForce / PathCV — rmsd, coordination, path
-  s/z) bypass the interpreter with direct numpy paths in
-  ``_cv_expression_value`` (Kabsch RMSD, the coordination pair sum with the
-  orthorhombic minimum image on periodic systems, and the path-CV
-  log-sum-exp closed forms — the MIRROR of colvars.py's evaluate track,
-  pinned in agreement by tests; this also makes the rmsd RESTRAINT runnable
-  on the fake kernel, whose CustomCVForce("...RMSD...") needs the CV value).
-* forces are always reported as ZERO (the fake does not propagate bias
-  forces into the dynamics); kinetic energy comes from its own velocities
-  and temperature from 2*KE/(dof*R) with dof = 3N (the openmm
-  StateDataReporter convention minus constraints, which the fake has none).
-* energy_report().potential = sum of installed bias energies, kJ/mol.
-* units inside expressions follow openmm's canonicalization: nm, kJ/mol,
-  dimensionless, and radians — Param(unit="deg") is converted to radians
-  (verified: openmm converts unit.degree global parameters to radians).
-* minimize(): deterministic steepest descent on the geometric bias
-  potentials (central finite-difference gradients), and velocities are
-  zeroed, as minimization conventionally does.
-* periodic boxes: orthorhombic minimum-image convention only (the default
-  synthetic system is non-periodic anyway).
-
-Snapshot/restore pickles (positions, velocities, step, installed biases,
-group counter, the RandomState state, and the steered-MD parameter
-overrides) — restoring mid-run reproduces the subsequent trajectory
-bit-for-bit.
-
-Public helpers beyond the port operations (used by driver/probe tests):
-``bias_values()`` — geometric value of each installed bias in report units
-(distance in nm, angle/dihedral in degrees), matching the
-neomd.colvars evaluate conventions; ``group_energy(groups)`` — per-force-
-group bias-energy sum for the restraint reporter; ``energy_with_params()``
-— the port.ParamEnergy capability (bias-potential evaluation at
-temporarily-perturbed global parameters, the RBFE du tape seam).  The fake
-deliberately has NO ``write_structure`` (the driver's final-positions
-artifact seam): a PDBx writer needs a real topology, so fake-kernel runs
-skip ``last.pdbx`` (the ``last.ckpt`` snapshot is still written).
+Physics simplifications and bit-stability contracts live at
+:class:`FakeKernel`; see ``docs/architecture.md`` and
+``docs/adr/0005-gamd-boost-seam.md``.
 """
 
 from __future__ import annotations
@@ -240,10 +171,12 @@ def _evaluate_expression(source: str, variables: dict[str, float],
                          coms: np.ndarray | None = None) -> float:
     """Evaluate an openmm-style custom-force expression in numpy.
 
-    Supports: numbers, names, unary +/-, + - * / and ``^``
-    (power), the math functions above, distance()/angle()/dihedral() over
-    group centroids g1..gN, and ``";"``-separated intermediate assignments
-    (openmm's statement syntax).  Anything else is rejected loudly.
+    Restricted to the subset of the openmm expression language in use:
+    numbers, names, unary +/-, + - * / and ``^`` (power), max/min/abs/
+    sqrt/exp/atan/tan/sin/cos, distance()/angle()/dihedral() between group
+    centroids g1..gN, xN/yN/zN centroid coordinates, and ``";"``-separated
+    intermediate assignments (openmm's statement syntax).  Anything else
+    is rejected loudly.
 
     ``^`` is rewritten to ``**`` BEFORE parsing: openmm treats ``^`` as power
     with power precedence (``k*x^2`` == ``k*(x^2)``), whereas Python's ``^``
@@ -338,7 +271,23 @@ def _convert_param(value: float, unit_name: str) -> float:
 # ----------------------------------------------------------------------
 
 class FakeKernel:
-    """Deterministic textbook-Langevin KernelPort implementation."""
+    """Deterministic textbook-Langevin KernelPort implementation.
+
+    Pure numpy, NO openmm import.  Dynamics: Euler-Maruyama Langevin on
+    free particles (``v += (F/m)*dt - gamma*v*dt +
+    sqrt(2*gamma*kT/m*dt)*N(0,1)``, ``x += v*dt``, with F = 0) with
+    Maxwell-Boltzmann velocity seeding ``N(0,1)*sqrt(kT/m)`` from
+    ``numpy.random.RandomState(spec.seed)`` — the same stream continues as
+    the Langevin noise source, so trajectories are BIT-STABLE for a given
+    seed.  The fake deliberately does NOT mimic OpenMM corner-case
+    behavior (settled decision 9): the parity suite and golden tapes guard
+    the real physics, not this kernel.  It also deliberately has NO
+    ``write_structure`` (a PDBx writer needs a real topology, so
+    fake-kernel runs skip ``last.pdbx``; the ``last.ckpt`` snapshot is
+    still written) and IGNORES ``spec.ml_region`` (ADR-0004): with no MM
+    forces to embed, the torch-free ML/MM pipeline tier runs its mock NNP
+    through the OPENMM adapter instead.
+    """
 
     name = "fake"
 
@@ -403,6 +352,11 @@ class FakeKernel:
         return None if self._box is None else self._box.copy()
 
     def energy_forces(self) -> EnergyReport:
+        """Bias potential (kJ/mol, sum of installed bias energies) + ZERO
+        forces (bias forces are not propagated into the dynamics); kinetic
+        energy from the kernel's own velocities, temperature from
+        2*KE/(dof*R) with dof = 3N (the openmm StateDataReporter convention
+        minus constraints, which the fake has none)."""
         potential = self._bias_potential(self._positions)
         kinetic = 0.5 * float((self._masses
                                * (self._velocities ** 2).sum(axis=1)).sum())
@@ -445,9 +399,21 @@ class FakeKernel:
     def install_boost(self, channels) -> None:
         """Install (replace) the GaMD boost channels, verbatim IR params.
 
+        With channels installed, the fake propagates its OWN (geometric
+        bias) potential's forces — per force group, via the central
+        finite-difference gradient :meth:`minimize` uses — rescaled per
+        channel by ``s(g) = 1 - sum_c k_c*(E_c - P_c)`` (the exact
+        gradient of ``V* = sum_g V_g + sum_c dV_c(P_c)``; the F = 0
+        simplification holds only when NO boost is installed).  Channel
+        target energies are the summed energies of their force groups
+        (``()`` = every installed bias); the applied dV/P/s of the most
+        recent step is readable via :meth:`boost_potentials` (the
+        reweighting trace).  Must come after every ``install_bias``:
+        later bias installs are refused (see :meth:`install_bias`), so a
+        stale channel set can never silently mis-scale new forces.
+
         Typically installed at zero strength (k=0) and calibrated later via
-        :meth:`set_boost_param`.  Must come after every ``install_bias``:
-        later bias installs are refused (see :meth:`install_bias`).
+        :meth:`set_boost_param`.
         """
         installed = {}
         for channel in channels:
@@ -867,8 +833,15 @@ class FakeKernel:
         dimensionless).
 
         Kind-driven CVs (RMSDForce / coordination / PathCV) take numpy
-        special
-        paths; expression-driven ones go through the restricted interpreter.
+        special paths — Kabsch RMSD, the coordination pair sum with the
+        orthorhombic minimum image on periodic systems, and the path-CV
+        log-sum-exp closed forms: the MIRROR of colvars.py's evaluate
+        track, PINNED BIT-EXACT against it (and against the openmm
+        adapter) by tests; this also makes the rmsd RESTRAINT runnable on
+        the fake kernel, whose CustomCVForce("...RMSD...") needs the CV
+        value.  Expression-driven CVs go through the restricted
+        interpreter.  Units follow openmm's canonicalization: nm, kJ/mol,
+        dimensionless, radians — Param(unit="deg") converts to radians.
         """
         if cv.kind == "RMSDForce":
             if cv.ref_positions is None or cv.indices is None:
@@ -923,6 +896,10 @@ class FakeKernel:
     # ------------------------------------------------------------------
 
     def snapshot(self) -> bytes:
+        """Pickle of (positions, velocities, step, installed biases, group
+        counter, tables, the RandomState state, steered-MD parameter
+        overrides, boost channels + last readings) — restoring mid-run
+        reproduces the subsequent trajectory BIT-FOR-BIT."""
         payload = {
             "format": "neomd-fake-kernel-v2",
             "positions": self._positions,
@@ -944,6 +921,8 @@ class FakeKernel:
         return pickle.dumps(payload, protocol=4)
 
     def restore(self, data: bytes) -> None:
+        """Restore a :meth:`snapshot` blob (accepts the older v1 payload
+        format too); mid-run restores continue the trajectory bit-for-bit."""
         payload = pickle.loads(data)
         if payload.get("format") not in ("neomd-fake-kernel-v1",
                                          "neomd-fake-kernel-v2"):

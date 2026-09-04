@@ -1,66 +1,9 @@
-"""OpenMMKernel — the production adapter on the KernelPort seam.
+"""OpenMMKernel — the production adapter on the KernelPort seam and the
+ONLY core module allowed to import openmm.
 
-This is the ONLY core module allowed to import openmm.  Building blocks:
-
-* ``_create_simulation``: deserialize the System, load topology+positions
-  (PDBxFile for .pdbx/.cif, PDBFile for .pdb), build the integrator, set
-  the context box from the COMPLEX FILE HEADER (the loaded topology),
-  falling back to the System's default box when the file carries none,
-  then the resume branches in order: ``checkpoint`` wins over ``state``,
-  else ``setPositions`` + ``setVelocitiesToTemperature``.
-* ``get_integrator``: LangevinIntegrator with
-  temperature in K, ``friction_coeff / picoseconds``, ``dt * picoseconds``,
-  ``setRandomNumberSeed(spec.seed)``; any other ``integrator_name`` raises
-  ``NotImplementedError("integrator not defined")``.
-* ``get_platform``: "cuda" -> CUDA platform with
-  ``CudaPrecision=single`` and ``DeviceIndex`` honoring CUDA_VISIBLE_DEVICES
-  (first visible device), "cpu" -> CPU platform.
-
-Velocity seeding: ``setVelocitiesToTemperature`` is always called WITH
-``spec.seed`` — an unseeded draw picks a fresh random velocity set per
-Context and is not bit-reproducible.  Pair it with a NONZERO
-``spec.seed`` (OpenMM treats seed 0 as "pick a unique random seed") for
-reproducible runs.
-
-Determinism notes (empirical, openmm 8.6 / CPU platform):
-* bit-exact run-to-run reproducibility on the CPU platform additionally
-  requires a fixed thread count — pin ``OPENMM_CPU_THREADS=1`` (or any fixed
-  number) before the first Context is created; the value is cached at first
-  platform load.  The golden harness and tests/v2 do exactly this.
-* ``snapshot()``/``restore()`` use Context checkpoints (opaque bytes), which
-  include positions, velocities, parameters, the step count, AND the random
-  number generator state — so restoring mid-run continues bit-identically.
-* adding/removing bias forces goes through ``system.addForce`` /
-  ``system.removeForce`` followed by ``context.reinitialize(preserveState=True)``
-  (the openmm-sanctioned way to mutate a System after Context creation; the
-  context keeps positions/velocities/parameters across the reinitialization).
-
-Bias compilation mirrors v1 force construction verbatim (the physics, never
-"improved"):
-``CustomCentroidBondForce(len(groups), energy)`` + ``addGroup`` per group +
-``addBond(range(n))`` + ``addGlobalParameter`` per typed Param
-(kJ/mol -> kilojoules_per_mole, nm -> nanometer, deg -> degree,
-dimensionless -> bare float) + ``setUsesPeriodicBoundaryConditions(bias.periodic)``;
-``CustomTorsionForce(energy)`` + ``addTorsion(bias.torsion)``; and
-``CustomCVForce(energy)`` wrapping the BiasIR's CVIR (same centroid/torsion
-compilation, with CVIR.bond_params becoming per-bond parameters for the
-RMSD-style reference-position CVs colvars.py emits).  The kind-driven
-CVs compile to their own inner forces (``_compile_cv``): coordination is a
-CustomNonbondedForce whose per-pair membership product selects the grp1 x
-grp2 cross pairs, and the path CVs are CustomCVForces over one RMSDForce
-per reference frame with the Branduardi closed-form expressions (nesting
-inside the metadynamics table's CustomCVForce verified on 8.6 / CPU).
-
-Force-group assignment: the bias force takes ``max(freeGroups)`` where free
-groups are ``set(range(32)) - groups already used by system forces``;
-exhausting all 32 groups raises RuntimeError.
-
-ML/MM (ADR-0004): ``KernelSpec.ml_region`` is assembled in ``__init__`` —
-mechanical embedding (ported verbatim from openmm-ml, ``neomd.ml.embedding``)
-plus the NNP force (mock or openmm-torch TorchScript), BEFORE the lazy
-``simulation`` property creates a Context, through ``neomd.ml.assemble``.  The
-NNP Force is not XML-serializable, so the assembly is adapter-side only and
-this System is never re-serialized; the prepare layer must never see it.
+Adapter-internal contracts (lazy Simulation, determinism seeding, verbatim
+bias compilation, ML/MM pre-Context assembly) live at :class:`OpenMMKernel`
+and the methods implementing them; see ``docs/architecture.md``.
 """
 
 from __future__ import annotations
@@ -105,6 +48,9 @@ def _to_quantity(param: Param):
 
 
 def _make_integrator(spec: KernelSpec) -> openmm.Integrator:
+    """LangevinIntegrator with temperature in K, ``friction_coeff /
+    picoseconds``, ``dt * picoseconds``, seeded with ``spec.seed``; any
+    other ``integrator_name`` raises ``NotImplementedError``."""
     integrator_name = spec.integrator.get("integrator_name", "langevinintegrator")
     if integrator_name.lower() == "langevinintegrator":
         integrator = openmm.LangevinIntegrator(
@@ -221,7 +167,16 @@ def _make_boost_integrator(spec: KernelSpec, channels: dict,
 
 
 def _platform_config(spec: KernelSpec) -> dict:
-    """Platform selection -> Simulation kwargs."""
+    """Platform selection -> Simulation kwargs.
+
+    "cuda" -> CUDA platform with ``CudaPrecision=single`` and
+    ``DeviceIndex`` honoring CUDA_VISIBLE_DEVICES (first visible device);
+    "cpu" -> CPU platform.  Determinism note (empirical, openmm 8.6 / CPU):
+    bit-exact run-to-run reproducibility additionally requires a FIXED
+    thread count — pin ``OPENMM_CPU_THREADS=1`` (or any fixed number)
+    before the first Context is created (the value is cached at first
+    platform load); the golden harness and tests/v2 do exactly this.
+    """
     if spec.platform.lower() == "cuda":
         platform = openmm.Platform.getPlatformByName("CUDA")
         visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
@@ -325,7 +280,19 @@ def _assemble_ml_region(system: openmm.System, spec: KernelSpec, positions,
 
 
 class OpenMMKernel:
-    """KernelPort implementation backed by an ``openmm.app.Simulation``."""
+    """KernelPort implementation backed by an ``openmm.app.Simulation``.
+
+    ``simulation`` / ``system`` are ADAPTER INTERNALS: nothing outside
+    ``kernel/`` may reach through them (source-scanned guarantee).
+    Bias forces mirror v1 force construction verbatim (CustomCentroidBond
+    /CustomTorsion/CustomCV — the physics, never "improved"); the kind-driven
+    CVs compile in :meth:`_compile_cv`.  ML/MM ``spec.ml_region`` is
+    assembled in ``__init__`` — mechanical embedding (ported verbatim from
+    openmm-ml, ``neomd.ml.embedding``) plus the NNP force, BEFORE the lazy
+    ``simulation`` property creates a Context, via ``neomd.ml.assemble``;
+    the NNP Force is not XML-serializable, so this System is never
+    re-serialized and the prepare layer never sees it (ADR-0004).
+    """
 
     name = "openmm"
 
@@ -368,7 +335,14 @@ class OpenMMKernel:
         velocities at the 1e-2 nm/ps level, which breaks trajectory-level
         parity (proven by the golden tapes); the pre-Context path avoids it
         entirely.  Mid-run installs (bias epochs) still take the
-        reinitialize path.
+        reinitialize path.  The Context box comes from the COMPLEX FILE
+        HEADER (the loaded topology), falling back to the System's default
+        when the file carries none; the resume branches run in order —
+        ``checkpoint`` wins over ``state``, else ``setPositions`` +
+        ``setVelocitiesToTemperature``.  Velocity seeding: that call ALWAYS
+        passes ``spec.seed`` — an unseeded draw is not bit-reproducible —
+        paired with a NONZERO seed (OpenMM treats 0 as "pick a unique
+        random seed").
         """
         if self._simulation is None:
             simulation = app.Simulation(
@@ -562,6 +536,14 @@ class OpenMMKernel:
             {force.getForceGroup(): type(force).__name__ for force in forces})
 
     def _compile_bias(self, bias: BiasIR) -> openmm.Force:
+        """Compile one BiasIR verbatim (the v1 force construction, never
+        "improved"): ``CustomCentroidBondForce(len(groups), energy)`` +
+        ``addGroup`` per group + ``addBond(range(n))`` + ``addGlobalParameter``
+        per typed Param (kJ/mol, nm, deg, dimensionless) +
+        ``setUsesPeriodicBoundaryConditions(bias.periodic)``;
+        ``CustomTorsionForce(energy)`` + ``addTorsion``; ``CustomCVForce``
+        wrapping the CVIR (``bias.cv.bond_params`` become per-bond
+        parameters); ``CustomCVTableForce`` -> :meth:`_compile_table`."""
         if bias.kind == "CustomCentroidBondForce":
             if bias.bonds is not None:
                 return self._compile_centroid_bonds(bias)
