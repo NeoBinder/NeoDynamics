@@ -1,36 +1,8 @@
-"""Tiwary–Parrinello reweighting — c(t) weights from the bias history.
+"""Tiwary–Parrinello reweighting — c(t) weights ``exp(c / (R*T))`` from the bias history.
 
-Well-tempered (and plain) metadynamics samples the biased ensemble
-``p_b(s) ∝ p_0(s) exp(-beta * V(s, t))``; unbiased expectations follow by
-reweighting every sampled frame with
-
-    w(t) = exp(+beta * c(t)),    c(t) = V(s(t), t)
-
-(the +beta*deltaF constant cancels in normalized averages, so plain
-``exp(beta * c(t))`` weights suffice).  This module:
-
-* :func:`bias_series` reconstructs c(t) for every ``colvar.tsv`` row from the
-  hills ledger — no bias-energy column is needed (the colvar tape carries
-  CV values only); the bias is rebuilt from the hills themselves.
-* :func:`reweight_expectation` — weighted mean + delta-method block error +
-  effective sample size.
-* :func:`reweighted_fes` — the reweighted (unbiased) free-energy profile of
-  any observable, from a weighted histogram.
-
-Conventions (documented, deterministic):
-
-* ``c(t)`` uses hills deposited STRICTLY BEFORE the colvar row's step: the
-  driver fires probes BEFORE the ``on_step`` hook at a shared boundary, so
-  the row's configuration was sampled under exactly that bias — the first
-  row (nothing deposited yet) gets ``c = 0``.
-* weights are shifted by the max bias before exponentiation (a constant
-  factor; normalized averages are unchanged).
-* ``beta = 1 / (R * T)`` with ``R`` the molar gas constant in kJ/(mol K)
-  bit-identical to the metadynamics method's constant (one definition point,
-  :data:`neomd.methods.metadynamics.MOLAR_GAS_CONSTANT_R_KJ`).
-
-Cost note: :func:`bias_series` is O(n_rows * n_hills) exponentials — exact
-and vectorized; for very long ledgers prefer fewer colvar rows.
+Conventions: c(t) uses hills deposited STRICTLY BEFORE each colvar row's step
+(:func:`bias_series`); ``beta = 1 / (R*T)`` shares the metadynamics method's
+one constant.  Reference: docs/methods/analysis.md.  numpy-only, deterministic.
 """
 
 from __future__ import annotations
@@ -101,11 +73,16 @@ def bias_series(hills: HillsData, colvar: TsvData,
     """c(t) — the bias acting on every colvar row, kJ/mol.
 
     For the row sampled at step ``t``: the sum of Gaussians from hills
-    deposited STRICTLY BEFORE ``t`` (see module docstring), evaluated at the
-    row's CV values (converted from the tape's natural units).  Multi-walker
-    ledgers work unchanged: hand in merged hills + merged colvars and the
-    strictly-before rule applies on the merged timeline, the standard
-    multiple-walkers convention.
+    deposited STRICTLY BEFORE ``t`` (the driver fires probes BEFORE the
+    ``on_step`` hook at a shared boundary, so the row's configuration was
+    sampled under exactly that bias; the first row gets ``c = 0``),
+    evaluated at the row's CV values (converted from the tape's natural
+    units).  Multi-walker ledgers work unchanged: hand in merged hills +
+    merged colvars and the strictly-before rule applies on the merged
+    timeline, the standard multiple-walkers convention.  ``beta = 1/(R*T)``
+    shares the metadynamics method's one constant
+    (:data:`neomd.methods.metadynamics.MOLAR_GAS_CONSTANT_R_KJ`); cost is
+    O(n_rows * n_hills) exponentials — exact and vectorized.
     """
     if hills.n_hills and hills.positions.shape[1] != meta.n_cvs:
         raise AnalysisError(

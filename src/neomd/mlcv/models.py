@@ -1,27 +1,9 @@
-"""ML-CV model families + the model artifact (ADR-0006, numpy-only).
+"""ML-CV model families + the versioned model artifact (ADR-0006, numpy-only).
 
-Two phase-1 families, both LINEAR in the featurized columns and both
-solvable honestly in numpy:
-
-* **TICA** (time-structure-independent component analysis, Molgedey &
-  Schuster 1994 / Pérez-Hernández et al. 2013) for UNLABELED feature
-  streams: the slow linear combinations are the generalized eigenproblem
-  ``C_tau v = lambda C_0 v`` over the mean-free covariance C_0 and the
-  lag-tau correlation C_tau.  Solved via Cholesky whitening (C_0 = L L^T,
-  standard ``eigh`` of ``L^-1 C_tau L^-T``, components mapped back through
-  ``L^-T``) — no scipy.  Per-run lagged pairs are pooled WITHOUT crossing
-  run boundaries (two runs' frames are not a single trajectory); the
-  estimators and their denominators are documented in :func:`train_tica`.
-* **logistic regression** for LABELED two-basin data: full-batch gradient
-  descent (deterministic zero init, no shuffling) on standardized features
-  with optional L2; the standardization is FOLDED into the stored weights,
-  so the model artifact is the plain ``sigmoid(x @ w + b)`` in raw feature
-  units.
-
-The model artifact is one versioned npz (``MODEL_FORMAT_VERSION``): a
-json-string ``header`` (model type, feature names, hyperparameters,
-diagnostics) plus the model's float64 arrays.  ``apply_model`` is the one
-evaluation route (tests and the TorchScript export both pin against it).
+Both phase-1 families LINEAR: TICA (generalized eigenproblem; lagged pairs
+pooled WITHOUT crossing run boundaries — train_tica) and logistic regression
+(standardization folded into the stored weights).  apply_model is the one
+evaluation route, pinned by the TorchScript export.  Reference: docs/methods/mlcv.md.
 """
 
 from __future__ import annotations
@@ -232,6 +214,14 @@ def train_tica(values: np.ndarray, run_index: np.ndarray, feature_names,
                *, lag: int = 1, components: int | None = None,
                ridge: float = 0.0):
     """Fit TICA; returns (header, arrays) for :func:`save_model`.
+
+    TICA semantics: the slow linear combinations solve the generalized
+    eigenproblem ``C_tau v = lambda C_0 v`` over the mean-free covariance C0
+    and the lag-tau correlation C_tau, via Cholesky whitening (C0 = L L^T,
+    ``eigh`` of ``L^-1 C_tau L^-T``, components mapped back through
+    ``L^-T``) — no scipy.  Lagged pairs are pooled across runs WITHOUT
+    crossing run boundaries (two runs' frames are not one trajectory) and
+    the covariance normalization divides by the total pooled pair count.
 
     ``components`` limits the stored projection to the top-k slowest
     components (all eigenvalues are kept in the header).  ``ridge`` adds

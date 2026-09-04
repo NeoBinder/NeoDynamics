@@ -1,65 +1,9 @@
-"""BAR and MBAR free-energy estimators (ADR-0007).
+"""BAR and MBAR free-energy estimators over the RBFE λ windows' du tapes (ADR-0007).
 
-The RBFE λ ladder's analysis half: the du tapes (``du.tsv``, one per λ
-window — see :class:`neomd.probes.DuProbe`) hold, for every sample of a
-window, the potential energy evaluated at EVERY ladder λ.  BAR consumes
-adjacent pairs (both directions), MBAR consumes the whole matrix.
-
-Both estimators are numpy-only and deterministic (no RNG here — feed them
-tapes or synthetic samples).  Units: energies arrive in kJ/mol, temperature
-in kelvin; the solvers work in reduced units internally (``beta * u``).
-
-BAR — Bennett acceptance ratio
-------------------------------
-Given forward reduced works ``x_i = beta*(u_B - u_A)`` sampled from state A
-and reverse reduced works ``y_j = beta*(u_A - u_B)`` sampled from state B,
-the Bennett estimator of ``d = beta*DeltaF`` solves (Bennett 1976; Shirts &
-Pande 2005 — the form below is the K=2 stationarity condition of MBAR,
-which IS Bennett's equation; the identity is checked in the tests):
-
-    g(d) = sum_F sigma(x_i - d + ln(N_A/N_B))
-         + sum_R sigma(-y_j - d + ln(N_A/N_B)) - N_B = 0,
-
-with ``sigma(z) = 1/(1 + e^z)``.  ``g`` is strictly increasing (each term's
-d-derivative is ``sigma(1-sigma) > 0``), from ``-N_B`` at ``d -> -inf`` to
-``+N_A`` at ``d -> +inf``, so the root is unique: bracketed by geometric
-expansion and refined by bisection to ``tol`` (bisection — not Newton —
-because the guarantee matters more than the last few iterations at these
-sizes).  All Fermi sums are computed through ``logaddexp`` so extreme
-works cannot overflow.
-
-The stderr is the delta-method estimate with the Bernoulli-style proxy
-(each Fermi term is a bounded random variable whose first-order variance
-proxy is ``sigma^2 (1-sigma)^2``):
-
-    Var(d) ~= [ sum_F s_F^2(1-s_F)^2 + sum_R s_R^2(1-s_R)^2 ]
-              / [ sum_F s_F(1-s_F) + sum_R s_R(1-s_R) ]^2.
-
-MBAR — the multistate Bennett estimator
----------------------------------------
-Shirts & Chodera 2008.  ``u_kn[k, n]`` is the (kJ/mol) energy of sample n
-at state k, ``n_samples[k]`` samples came from state k.  In reduced units,
-the dimensionless free energies ``f_k = -ln Z_k (+gauge)`` satisfy the
-self-consistency equations (maximum of the mixture likelihood; derived in
-Shirts & Chodera eq. 10-13):
-
-    e^{f_k} = N_tot / sum_n [ e^{-u_n(k)} / D_n ],
-    D_n = sum_k (N_k/N_tot) e^{-u_n(k) + f_k},
-
-defined up to one additive constant (the gauge fixed by ``f_0 = 0``).
-Solved by successive substitution with per-sample stabilization (each
-sample's energies shifted by its OWN state's energy — a per-sample constant
-that cancels identically in every ratio), re-gauged every sweep, iterated
-to ``tol`` or ``maxiter``.  Per-state Kish-style effective sample sizes
-come back as a diagnostic (``n_eff``); a full covariance matrix is out of
-scope here — pymbar, when installed, remains the reference cross-check
-(gated test only, never a dependency).
-
-The analytic ground truth both estimators are pinned against
-(tests/v2/test_freeenergy.py): 1-D harmonic wells ``u_k(x) = (k_k/2)(x -
-mu_k)^2`` in reduced units have ``Z_k = sqrt(2*pi/k_k)`` exactly, so
-``DeltaF_{0->k} = (1/2) ln(k_k/k_0)`` in closed form — samples are drawn
-from the exact Gaussians and the estimators must land on the closed form.
+Contract: energies kJ/mol, temperature kelvin (reduced units internally); a
+du.tsv tape holds, per sample, the energy at EVERY ladder λ — BAR consumes
+adjacent pairs both ways, MBAR the whole matrix; numpy-only, deterministic.
+Reference: docs/methods/rbfe.md, docs/adr/0007-rbfe-technology-selection.md.
 """
 
 from __future__ import annotations

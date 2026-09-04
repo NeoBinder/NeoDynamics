@@ -1,29 +1,8 @@
-"""neomd.analysis — post-run analysis of the artifact formats.
+"""neomd.analysis — openmm-free post-run analysis of the run artifact formats (colvar.tsv / hills.npz / smd.tsv / du.tsv).
 
-Reads the ``colvar.tsv`` / ``hills.npz`` / ``smd.tsv`` formats (plus the run
-manifest for grid metadata); no v1 compatibility.
-
-Two surfaces, one implementation:
-
-* this package — the importable API later tracks consume (GaMD reweighting,
-  OPES FES, RBFE BAR/MBAR, ML-CV convergence diagnostics);
-* ``neomd analysis ...`` — the thin CLI (:mod:`neomd.analysis.cli`), mapped
-  subcommand-for-subcommand onto the functions below.
-
-Contents:
-
-    readers      colvar/smd/restraint tapes, the hills ledger, run-dir
-                 metadata (grids through the PUBLIC cv registry)
-    fes          well-tempered FES reconstruction from hills (the
-                 producer's conventions, ported verbatim)
-    convergence  window-split FES convergence ("收敛差值")
-    stats        block averaging (mean + statistical error)
-    reweight     Tiwary–Parrinello c(t) reweighting
-    merge        multi-walker hills/colvar merge
-    freeenergy   BAR / MBAR over the RBFE λ windows' du tapes
-
-numpy-only, openmm-free, deterministic.  Flooding-style dynamics analysis is
-deliberately out of scope: no producer defines the quantity yet.
+One implementation, two surfaces: this importable API (consumed by method
+tracks) and the thin ``neomd analysis`` CLI (analysis/cli.py).  User guide:
+docs/methods/analysis.md.  numpy-only, openmm-free, deterministic.
 """
 
 from .convergence import ConvergenceResult, ConvergenceRow, fes_convergence

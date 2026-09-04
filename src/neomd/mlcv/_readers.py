@@ -1,29 +1,9 @@
 """Run-directory artifact readers for the mlcv featurizer.
 
-Reads back EXACTLY what v2 runs write — through the core producers' own
-formats, never a parallel one:
-
-* per-frame positions: ``output.dcd`` (:mod:`neomd.sinks`' CHARMM/openmm
-  byte layout — header via the public ``sinks.read_dcd_header``, frames via
-  the reader below which mirrors ``sinks.write_dcd_frame``'s record layout).
-* masses: the run's openmm ``system.xml`` (``<Particle mass=.../>`` elements
-  in document order, stdlib ElementTree — the particle order IS the DCD
-  position order), reached through the run's ``manifest.json`` ->
-  ``plan_raw.input_files.system`` (:class:`neomd.manifest.RunManifest`).
-* step-indexed tapes (``colvar.tsv`` / ``restraint.tsv``): delegated to
-  :mod:`neomd.analysis`'s canonical reader when that package is importable,
-  with a minimal local fallback carrying the same semantics otherwise.
-
-Honest data limitations (documented in the README ML-CV section too):
-
-* DCD stores float32 Angstrom coordinates, so every geometry feature is
-  computed from float32-quantized positions (~1e-7 relative); the
-  round-trip tier here is float32.
-* runs WITHOUT a trajectory probe (``trajectory_interval: 0``) persist no
-  per-frame positions; the featurizer then serves tape features only and
-  refuses position-dependent features with a clean user error.
-
-numpy + stdlib only; no openmm, no torch.
+Reads the core producers' own formats: output.dcd (sinks' byte layout),
+masses from the run's system.xml via the manifest, step tapes via
+neomd.analysis's canonical reader; DCD is float32 Angstrom — the round-trip
+tier here is float32.  numpy + stdlib only.
 """
 
 from __future__ import annotations

@@ -1,16 +1,7 @@
-"""FES convergence — the standard window-split difference ("收敛差值").
+"""FES convergence — window-split FES differences of a metadynamics run ("收敛差值").
 
-Split the hills ledger into successive cumulative windows (the FES each
-window's hills imply), then report how much the surface moves between
-consecutive windows and against the final one: ``max`` and ``mean`` of
-``|FES_k - FES_ref|`` over the deposition grid, in kJ/mol.  A converged
-metadynamics run shows the differences shrinking toward zero as windows
-approach the end; a persistently large max difference flags an unconverged
-region.
-
-Windows are CUMULATIVE PREFIXES of the ledger: window ``k`` of ``nblocks``
-holds the first ``k * n_hills // nblocks`` hills (so the last window is the
-full run — half-splits are ``nblocks=2``, quarters ``nblocks=4``).
+Windows are cumulative prefixes of the hills ledger; see
+:func:`fes_convergence`.  Reference: docs/methods/analysis.md.
 """
 
 from __future__ import annotations

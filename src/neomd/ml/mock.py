@@ -1,37 +1,8 @@
 """mock — the mock NNP: a deterministic pipeline stand-in, NOT physics (ADR-0004).
 
-Assembled from standard openmm custom forces over the ML region so the FULL
-pipeline (spec parse -> mechanical embedding -> adapter assembly -> run) works
-with NO torch installed (the CI/default-gate tier of the two-adapters
-discipline; the fake kernel ignores ml_region instead — documented in
-``kernel/fake.py``).  The potential is::
-
-    E_mock = sum_i          0.5 * k_teth * |r_i - r0_i|^2   (harmonic tethers
-                                                              to the INPUT
-                                                              structure's ML
-                                                              positions)
-           + sum_{i<j in ML} k_rep * (sigma_rep / r_ij)^12  (soft-sphere pair
-                                                              repulsion over
-                                                              every ML-ML pair,
-                                                              one per-pair bond
-                                                              term)
-
-knobs (``ml_region.model``): ``tether_k`` (kJ/mol/nm^2, default 500),
-``repulsion_k`` (kJ/mol, default 1), ``repulsion_sigma`` (nm, default 0.15).
-It exists to exercise plumbing deterministically; substituting it for a real
-NNP produces nonsense chemistry by construction.
-
-Implementation note: the pair repulsion is a CustomBondForce over the
-N(N-1)/2 ML pairs, NOT a CustomNonbondedForce with an interaction group —
-the mechanical embedding adds exceptions to the system's NonbondedForce, and
-openmm requires every CustomNonbondedForce to carry an IDENTICAL exclusion
-set ("All Forces must have identical exclusions"), which would cancel the
-very pairs the mock is supposed to compute.  Bond terms have no such
-coupling, carry their own PBC flag, and a ligand-sized region makes the
-quadratic pair count trivial.
-
-This module is openmm-side (adapter-called): openmm is imported lazily inside
-the functions, mirroring ``prepare.py``'s boundary convention.
+Standard openmm custom forces over the ML region — harmonic tethers + soft-
+sphere ML-ML repulsion (knobs in add_mock_forces) — so the full pipeline runs
+with no torch (the fake kernel ignores ml_region).  Reference: docs/methods/mlmm.md.
 """
 
 from __future__ import annotations
@@ -64,6 +35,14 @@ def add_mock_forces(system, region: MLRegion, positions,
     documented mock semantic).  ``pick_group``: the force-group allocator
     (the port's ``pick_free_force_group`` wrapped by the adapter) — one group
     per mock force, so the GroupEnergy capability can read them apart.
+
+    The pair repulsion is a CustomBondForce over the N(N-1)/2 ML pairs, NOT a
+    CustomNonbondedForce with an interaction group: the mechanical embedding
+    adds exceptions to the system's NonbondedForce, and openmm requires every
+    CustomNonbondedForce to carry an IDENTICAL exclusion set, which would
+    cancel the very pairs the mock is supposed to compute.  Bond terms have
+    no such coupling, carry their own PBC flag, and a ligand-sized region
+    makes the quadratic pair count trivial.
     """
     import openmm
     from openmm import unit
