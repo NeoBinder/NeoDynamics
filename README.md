@@ -129,23 +129,7 @@ static `restraint:` section (e.g. holding the protein) is reported to
 curl -fsSL https://pixi.sh/install.sh | sh
 ```
 
-2. Install the package into your own environment
-```bash
-mkdir -p /path/to/env && cd /path/to/env
-pixi init neomd && cd neomd
-pixi add "python==3.12.*"
-# git installation
-pixi add --pypi "neodynamics @ git+https://github.com/NeoBinder/NeoDynamics"
-# local installation
-pixi add --pypi "neodynamics @ file:///path/to/NeoDynamics"
-
-pixi add my_custom_conda_package
-pixi add --pypi my_custom_pypi_package
-pixi shell
-```
-
-### Pixi — development environment
-
+### Pixi
 ```bash
 git clone git@github.com:NeoBinder/NeoDynamics.git
 cd NeoDynamics
@@ -153,15 +137,6 @@ pixi install
 pixi shell
 ```
 
-### Conda
-
-```bash
-git clone git@github.com:NeoBinder/NeoDynamics.git
-cd NeoDynamics
-conda env create --name neomd -f environment.yaml
-conda activate neomd
-pip install -e ./    # development-mode installation
-```
 
 ## The model in one minute
 

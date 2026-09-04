@@ -109,15 +109,5 @@ pixi install
 pixi shell
 ```
 
-### Conda
-
-```bash
-git clone git@github.com:NeoBinder/NeoDynamics.git
-cd NeoDynamics
-conda env create --name neomd -f environment.yaml
-conda activate neomd
-pip install -e ./    # development-mode installation
-```
-
 For working on NeoDynamics itself, see the [development
 page](development.md).

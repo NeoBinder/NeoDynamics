@@ -27,7 +27,7 @@
 --select "resname LIG and name CA")。
 
 注意: align/align-seq/rmsd/select 子命令依赖 MDAnalysis, 需用户自行安装
-(不在项目 environment.yaml / pixi.toml 中声明); align-seq 额外依赖 BioPython。
+(不在项目 pixi 环境中声明); align-seq 额外依赖 BioPython。
 replace/append/setbox 子命令为纯文本行级操作, 不依赖任何第三方库, 可独立使用。
 
 用法示例:
