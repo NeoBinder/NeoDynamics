@@ -8,7 +8,8 @@
 ## 背景与动机
 
 OPES（On-the-fly Probability Enhanced Sampling，Invernizzi & Parrinello,
-2020 —— issue 引用写作 *JPCL*，实现参照版本为 *JCTC* 16, 7113）通过 KDE 在线估计概率分布构造偏差，偏差准静态、参数更少
+2020 —— 原始论文见 *J. Phys. Chem. Lett.* 11, 2731，实现参照版本为
+*J. Chem. Theory Comput.* 16, 7113）通过 KDE 在线估计概率分布构造偏差，偏差准静态、参数更少
 （PACE / BARRIER / SIGMA），并分化出 OPES-explore（耐次优 CV）、OPES-flooding
 （结合/解离动力学）等变体，已是 PLUMED 生态的默认推荐。相对 well-tempered
 metadynamics 的网格存储 bias，OPES 摆脱了"每次加 hill 更新整个网格、网格随
@@ -116,12 +117,13 @@ opes_set:
 
 ## 参考文献
 
-- Invernizzi & Parrinello, *JPCL* 11, 2731（2020）—— OPES（issue 引用）。
-- Ray & Parrinello, *JCTC*（2022）—— OPES-explore（issue 引用；实现参照的
-  explore 目标分布出处为 Invernizzi, Piaggi & Parrinello, *JCTC* 18, 3988,
-  2022）。
+- Invernizzi & Parrinello, *J. Phys. Chem. Lett.* 11, 2731（2020）——
+  OPES 原始论文。
+- Ray & Parrinello, *J. Chem. Theory Comput.*（2022）—— OPES-explore；
+  explore 目标分布出处为 Invernizzi, Piaggi & Parrinello,
+  *J. Chem. Theory Comput.* 18, 3988（2022）。
 - PLUMED 文档：`OPES_METAD` / `OPES_METAD_EXPLORE` / `OPES_FLOODING`
-  （issue 引用；实现期仅作文档参照，未复制代码）。
+  （实现期仅作文档参照，未复制代码）。
 - [issue #11](https://github.com/NeoBinder/NeoDynamics/issues/11) ——
   原始需求与路径 B 决策。
 - [AGENTS.md](https://github.com/NeoBinder/NeoDynamics/blob/main/AGENTS.md) "Knowledge triples" 段 —— opes triple 的

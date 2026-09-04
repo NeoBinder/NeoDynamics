@@ -411,42 +411,6 @@ pixi run -e ml test-ml # ML/MM torch tier (openmm-torch + torch env; see ADR-000
   `NEO_GOLDEN_TOLERANT=1` for the statistical tier. Golden samples catch
   behavior changes; they do not prove physical correctness.
 
-## Repository layout
-
-```
-NeoDynamics/
-├── src/neomd/                 # the active v2 package
-│   ├── run.py                 # md_run facade + compile + build_kernel_spec
-│   ├── cli.py                 # neomd console script (run/prepare/migrate/validate/version)
-│   ├── plan.py                # immutable Plan: validate → derive → freeze → fingerprint
-│   ├── errors.py              # NeoUserError family + did-you-mean suggestions
-│   ├── driver.py              # stepping loop, scheduling, RunOutcome
-│   ├── resume.py              # THE resume owner: restore + trim every tape
-│   ├── manifest.py            # fingerprint + epoch-chain provenance
-│   ├── probes.py / sinks.py   # all artifact writing (LocalDirSink, MemorySink, DCD writer)
-│   ├── system.py / prepare.py # openmm-free SystemBundle + preparation workflow
-│   ├── openmm_privates.py     # ALL private-API touches behind an openmm 8.6.x gate
-│   ├── restraints.py          # 9 restraint knowledge triples
-│   ├── colvars.py             # 5 collective-variable triples
-│   ├── registry.py            # the extension rack (restraint/cv/method/probe)
-│   ├── methods/metadynamics.py# well-tempered metadynamics
-│   ├── ml/                    # ML/MM coupling (ADR-0004): spec, embedding
-│   │                          # (verbatim openmm-ml port), mock NNP,
-│   │                          # TorchScript loader, adapter assembly
-│   ├── kernel/                # KernelPort seam: port.py + openmm/fake/replay adapters
-│   ├── tools/                 # external-process adapters (antechamber, orca, ligand, ...)
-│   └── migrate_v1.py          # one-shot v1 YAML → Plan translator (a tool, not runtime)
-├── src/neomd_legacy/          # frozen v1 (bug fixes only, one deprecation release)
-├── tests/v2/                  # unit + e2e on the fake kernel
-├── tests/golden/              # golden-tape harness + 9 committed v1 tapes
-├── examples/                  # 3HTB_complex walkthrough, ala_meta, gamd_drill plugin,
-│                              # mlmm_ligand (ML/MM demo)
-├── docs/                      # user-facing docs site (tutorials, methods, ADRs)
-└── bin/                       # thin v1 compatibility wrappers + standalone
-                                # v1 analysis tools (protein/trajectory/
-                                # parse_ff_params — heavy deps, own env)
-```
-
 ## Documentation
 
 - [AGENTS.md](AGENTS.md) — development workflow (worktree), working discipline and settled architecture decisions

@@ -110,8 +110,9 @@ gamd:
 
 ## 参考文献
 
-- Miao, Feher & McCammon, *JCTC* 11, 5208（2015）—— GaMD（issue 引用）。
-- Miao, *JCP* 2020 —— LiGaMD（issue 引用，trypsin-benzamidine ΔG 与
+- Miao, Feher & McCammon, *J. Chem. Theory Comput.* 11, 5208（2015）——
+  GaMD 原始论文。
+- Miao, *J. Chem. Phys.* 2020 —— LiGaMD（trypsin-benzamidine ΔG 与
   实验吻合）；dual-boost 与阈值两模式另见 Miao 2016。
 - Copeland, Miao 等, *JPCB* 2022 —— gamd-openmm（ADR-0005 引用；
   其 Langevin 更新形式被移植，乘性双 boost 缩放被否决）。
