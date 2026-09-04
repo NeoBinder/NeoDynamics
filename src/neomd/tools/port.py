@@ -5,7 +5,7 @@ External executables are reached ONLY through :class:`ToolRunner`, which
 owns: **isolation** — every command executes inside a directory the runner
 controls (a fresh temporary directory by default, or the caller-supplied
 ``cwd``), switched via ``subprocess.run(cwd=...)``; the interpreter's own
-working directory is never touched (os.chdir is forbidden in neomd);
+working directory is never touched (changing it from Python is forbidden);
 **diagnostics** — a non-zero exit or a missing promised output raises
 :class:`ToolError` carrying the command, captured stdout/stderr and the
 contents of every input file; **testability** — :class:`FakeToolRunner`
