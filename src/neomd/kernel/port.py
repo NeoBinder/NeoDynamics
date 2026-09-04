@@ -1,5 +1,4 @@
-"""KernelPort — the physics-kernel seam of neomd (v2 migration plan §2, D
-foundation; surface closed per the v2 improvements list item 2).
+"""KernelPort — the physics-kernel seam of neomd.
 
 The core operations (the closed surface — everything driver/probes/methods
 may call, do not widen casually):
@@ -18,12 +17,12 @@ see :func:`provides`) and must degrade when a kernel does not provide them:
                      (well-tempered metadynamics); None when unsupported
     BiasParamOps     ``set_bias_param(name, value)`` — live updates of one
                      installed bias's GLOBAL parameter (steered MD's ramp
-                     push, v1 ``context.setParameter``); absent when the
+                     push); absent when the
                      kernel cannot update parameters mid-run
     GroupEnergy      ``group_energy(groups)`` — per-force-group energy reads
                      (the restraint reporter's bias-energy column)
     StructureWriter  ``write_structure(path)`` — final positions as a
-                     structure file (the ``last.pdbx`` half of v1 save_last)
+                     structure file
     BoostOps         ``install_boost / set_boost_param / boost_potentials`` —
                      GaMD-style energy-dependent force scaling (ADR-0005):
                      boost channels over force-group energies whose biased
@@ -33,9 +32,7 @@ Adapter notes:
 
 * ``openmm.py`` — production adapter (the only core module that imports
   openmm).  Its public ``simulation``/``system`` attributes are adapter
-  internals: NOTHING outside ``kernel/`` may reach through them (the
-  driver's former box-vector duck-punching is now the port's
-  ``box_vectors()``).
+  internals: NOTHING outside ``kernel/`` may reach through them.
 * ``fake.py`` — deterministic textbook-Langevin kernel (CI workhorse).
 * ``replay.py`` — golden-tape playback (parity carrier).  It deliberately
   self-registers at import and is NOT covered by
@@ -47,8 +44,7 @@ Documented invariants:
 
 * force-group ids returned by ``install_bias`` are OPAQUE ints, never
   compared across kernels or assumed to follow an allocation order; each
-  adapter's own allocation policy is pinned by its tests (openmm ports v1's
-  max-free-group-first; fake mirrors it).
+  adapter's own allocation policy is pinned by its tests.
 * ``box_vectors()`` returns None for non-periodic systems; a periodic
   system's box may change between calls (NPT).
 
@@ -103,13 +99,13 @@ __all__ = [
 ]
 
 
-#: openmm's hard per-System force-group capacity (v1's max_force_grps bound)
+#: openmm's hard per-System force-group capacity
 MAX_FORCE_GROUPS = 32
 
 
 def pick_free_force_group(used, holders: dict) -> int:
-    """The one force-group allocation policy every adapter shares (v2
-    improvements item 5): max of the free ids, v1 ``max_force_grps`` order.
+    """The one force-group allocation policy every adapter shares: max of
+    the free ids.
 
     ``used``: iterable of already-taken group ids.  ``holders``: ``{group id:
     description}`` of who owns each taken group — the exhaustion error lists
@@ -164,9 +160,9 @@ UNITS = {
     "dimensionless",
 }
 
-#: THE unit-conversion table (v2 improvements item 7): how a declared unit
+#: THE unit-conversion table: how a declared unit
 #: translates into the canonical kernel-space float every expression
-#: evaluator uses — degrees become radians (openmm's md unit system), the
+#: evaluator uses — degrees become radians, the
 #: other units pass through unchanged.  The fake kernel's param conversion
 #: and the metadynamics grid standardization both consume this table; the
 #: openmm adapter's Quantity constructors are keyed by the same vocabulary
@@ -197,8 +193,7 @@ def cv_is_angular(cv: "CVIR") -> bool:
     """Whether a CV's value is an ANGLE: torsion CVs and expressions built
     around ``angle(...)`` are declared in degrees by configs and evaluate to
     radians in kernel space — the one conversion the grid standardizer, the
-    fake kernel's reporters and the colvar tapes all have to agree on
-    (previously three independent sniffers, now one).
+    fake kernel's reporters and the colvar tapes all have to agree on.
     """
     if cv.kind == "CustomTorsionForce":
         return True
@@ -223,11 +218,11 @@ class BiasIR:
 
     Restraint/method knowledge modules (restraints.py, methods/) emit BiasIR
     instead of openmm Force objects so the core stays kernel-agnostic; the
-    OpenMM adapter compiles it into the verbatim v1 openmm force, the fake
+    OpenMM adapter compiles it into the openmm force, the fake
     kernel evaluates what it needs geometrically.
 
-    ``energy`` keeps the v1 force expression *verbatim* (already
-    name-substituted — the ``{0}`` slots of v1 are filled in).  This string is
+    ``energy`` keeps the force expression *verbatim* (already
+    name-substituted).  This string is
     the physics; never "improve" it.
     """
 
@@ -237,8 +232,8 @@ class BiasIR:
     groups: list[list[int]] = field(default_factory=list)  # atom-index groups (centroid forces)
     torsion: tuple[int, int, int, int] | None = None  # 4 atom indices (CustomTorsionForce)
     periodic: bool = True
-    #: multi-bond mode (only kind == "CustomCentroidBondForce", v1 179ae35
-    #: ``distances``): when set, ONE force holds every bond in the list and
+    #: multi-bond mode (only kind == "CustomCentroidBondForce"): when set,
+    #: ONE force holds every bond in the list and
     #: ``params`` declares PER-BOND parameters (their types/units and the
     #: declaration order; the values are ignored) — each bond evaluates the
     #: same ``energy`` expression with its own parameter values, and identical
@@ -275,8 +270,8 @@ class CVIR:
     widths are method-level settings, NOT part of the CV — the CV only knows
     its geometry and intrinsic periodicity.
 
-    Kinds (the kind, not the expression, drives compilation for the W1-b
-    additions — the RMSDForce precedent): ``CustomCentroidBondForce`` /
+    Kinds (the kind, not the expression, drives compilation):
+    ``CustomCentroidBondForce`` /
     ``CustomTorsionForce`` (expression-driven), ``RMSDForce`` (reference-
     positions CV), ``CustomNonbondedForce`` (coordination: the per-pair
     switching kernel in ``expression`` summed over the grp1 x grp2 atom
@@ -294,7 +289,7 @@ class CVIR:
     bond_params: dict[str, Param] = field(default_factory=dict)
     #: RMSDForce: reference positions for the FULL system (N, 3) nm —
     #: openmm requires one reference position per System particle even when
-    #: only ``indices`` are restrained (v1 passed whole-file positions too) —
+    #: only ``indices`` are restrained —
     #: plus the restrained subset indices.  PathCV: the STACKED reference
     #: frames (P, N, 3) nm (full-system rows, one RMSDForce per frame) plus
     #: the selected-atom indices.
@@ -318,17 +313,16 @@ class GridSpec:
 class TableSpec:
     """A tabulated CV bias (well-tempered metadynamics table).
 
-    Compiled by the OpenMM adapter exactly like v1's
-    ``prepare_metadynamics_bias``: CustomCVForce("table(cv0, ...)") wrapping
+    Compiled by the OpenMM adapter as CustomCVForce("table(cv0, ...)") wrapping
     one Continuous{1,2,3}DFunction over the grids; force group assigned from
-    the free groups (v1 max_force_grps logic).  The method keeps a handle via
+    the free groups.  The method keeps a handle via
     ``kernel.bias_ops()`` to read CVs, read the bias energy, and update the
     table mid-run.
     """
 
     cvs: list[CVIR]
     grids: list[GridSpec]
-    initial: np.ndarray  # flattened table values (kJ/mol), C order, reversed-axis convention as v1
+    initial: np.ndarray  # flattened table values (kJ/mol), C order, reversed-axis layout convention
     label: str = "metadynamics"
 
 
@@ -377,20 +371,19 @@ class KernelSpec:
     platform: str = "cpu"  # "cpu" | "cuda"
     device_index: str = "0"
     resume: dict | None = None  # {"checkpoint": path} or {"state": path}
-    #: system modifications applied before the Context exists (port of v1
-    #: NeoSystem.add_barostat / system_modification mass overrides); the openmm
+    #: system modifications applied before the Context exists (barostat
+    #: addition / mass overrides); the openmm
     #: adapter implements them, other kernels may ignore them.
     barostat: dict | None = None  # {"pressure": bar, "frequency": steps, "temperature": K, "seed": int}
     particle_masses: dict[int, float] | None = None  # {particle index: dalton}
-    #: zero-interaction NonbondedForce exceptions (v1 179ae35
-    #: ``system_modification`` ``dummy_atom_Nonbond_Exception``), flattened
+    #: zero-interaction NonbondedForce exceptions, flattened
     #: ``(particle, partner)`` pairs; applied pre-Context by the openmm
     #: adapter, ignored by kernels without a NonbondedForce
     dummy_exceptions: tuple[tuple[int, int], ...] | None = None
     #: ML/MM region (ADR-0004), the raw plan section verbatim:
     #: ``{"indices": [...], "residues": [...], "model": {"type":
     #: "torchscript"|"mock", ...}}`` — EXACTLY ONE of indices/residues (the
-    #: W3-c residue selectors resolve against the loaded complex topology at
+    #: residue selectors resolve against the loaded complex topology at
     #: the openmm adapter's assembly).
     #: Like barostat/dummy_exceptions this is a PRE-CONTEXT System-assembly
     #: instruction — but the openmm adapter assembles it through
@@ -437,9 +430,7 @@ class BiasParamOps(Protocol):
     """OPTIONAL capability: live updates of one installed bias's global
     parameter.
 
-    Steered MD (``methods/smd.py``) ramps restraint parameters mid-run (the
-    v1 ``run_smd`` loop pushed piecewise-linearly interpolated values with
-    ``simulation.context.setParameter(f'{parameter}{force_name}', current)``).
+    Steered MD (``methods/smd.py``) ramps restraint parameters mid-run.
     ``name`` is the bias's global-parameter name — exactly the key the
     knowledge triple put into ``BiasIR.params`` (e.g. ``"k<pull>"``) — and
     ``value`` the kernel-canonical float (``port.to_canonical`` space: nm,

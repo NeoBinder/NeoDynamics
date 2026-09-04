@@ -1,24 +1,21 @@
 """driver — the deep module for minimize/MD loops, progress statistics, and
-periodic scheduling (v2 migration plan §4, §5 item 1.3).
+periodic scheduling.
 
-Everything v1's pipeline/engine pair knew about *running* a simulation lives
-here once, kernel-agnostic on the :class:`~neomd.kernel.port.KernelPort` seam
-(works unchanged with FakeKernel, OpenMMKernel, and the future Replay kernel):
+All stepping/run logic lives here once, kernel-agnostic on the
+:class:`~neomd.kernel.port.KernelPort` seam (works unchanged with the fake,
+openmm, and replay kernels):
 
-* :func:`run_minimization` — v1 ``generic/pipeline.py::run_minimization``
-  (lines 27-39) minus the reporter wiring (probes are the caller's job):
-  ``kernel.minimize`` with ``plan.min_params`` mapped from the v1 key names
+* :func:`run_minimization` — ``kernel.minimize`` with ``plan.min_params``
   (``tolerance`` / ``maxiter``, defaults 10 / 10000), a final
-  ``output.ckpt`` write when a sink is given (v1 ``save_last``) plus the
+  ``output.ckpt`` write when a sink is given plus the
   per-leg ``last.ckpt`` / ``last.pdbx`` pair, and a
   :class:`MinResult` (final energy + positions hash).
-* :func:`run_md` — the stepping loop, a verbatim-in-spirit port of v1
-  ``run_md`` (lines 41-88): resume arithmetic (``remaining = steps -
-  current_step``, the ``current steps:X remaining steps:Y`` first log line),
-  chunked stepping with progress/rate/ETA logging every ``log_interval``
-  steps (v1 ``PROGRESS_INTERVAL = 5000``, exact line format including the
-  Chinese labels), plus the v2 additions — probe scheduling, the
-  ``on_step`` method hook, and the same per-leg ``save_last`` pair when a
+* :func:`run_md` — the stepping loop: resume arithmetic (``remaining =
+  steps - current_step``, the ``current steps:X remaining steps:Y`` first
+  log line), chunked stepping with progress/rate/ETA logging every
+  ``log_interval``
+  steps, probe scheduling, the
+  ``on_step`` method hook, and the per-leg ``save_last`` pair when a
   sink is given.
 * :func:`drive` — the one-call orchestration: Plan → KernelSpec → kernel →
   restraint installation (through the registry knowledge triples) → method
@@ -30,7 +27,7 @@ Loop architecture (chunking + lazy views)
 The loop is **boundary-driven**: the next kernel call always steps to the
 nearest upcoming event — a multiple of some probe interval, of the
 ``on_step`` interval, or of ``log_interval`` — capped at the target step.
-With no probes this degenerates to v1's exact 5000-step turn structure; with
+With no probes this degenerates to plain fixed-size turns; with
 probes the kernel still takes maximally long strides between their firing
 points (never step-by-step unless something genuinely fires every step).
 ``ProbeScheduler.tick(step, view)`` runs at every event boundary (O(#probes)
@@ -39,17 +36,16 @@ when at least one probe or the ``on_step`` hook actually fires, and the view
 itself is lazy — positions/energy hit the kernel at most once per view — so
 scheduling cost is invisible between observations.
 
-The Wave-2 method seam
-----------------------
+The method seam
+---------------
 ``on_step(step, view)`` (+ ``on_step_interval``) is where a sampling method
-hooks the loop: metadynamics will pass ``on_step_interval=meta.frequency``
-and deposit a Gaussian hill inside the callback, exactly where v1's
-``MetadynamicsEngine.run_md`` did (step to the next frequency multiple, then
-``_addGaussian``).  The boundary arithmetic guarantees the callback lands on
+hooks the loop: metadynamics passes ``on_step_interval=meta.frequency``
+and deposits a Gaussian hill inside the callback.  The boundary arithmetic
+guarantees the callback lands on
 exact multiples of the interval regardless of what the probes are doing, and
 the view hands the method the live kernel (for CV queries) at that point.
-Probes tick *before* ``on_step`` at a shared boundary, mirroring v1 where
-reporters fired at step completion and the hill was deposited after.
+Probes tick *before* ``on_step`` at a shared boundary (reporters fired at
+step completion, the hill deposited after).
 
 The method-run contract (prepare → run_prepared_method → finish)
 ---------------------------------------------------------------
@@ -65,8 +61,7 @@ only while its output switch allows (``_TAPE_SWITCHES``) — and runs the
 loop.  Reporting POLICY (which artifacts run) is the driver's; artifact
 CONTENT (column vocabulary, append decisions) stays with the method/probe
 that owns the tape.  Methods therefore never see restraint wiring — no
-dispatch kwarg for it (review decision; replaces the interim
-``restraint_fgroups=`` parameter).
+dispatch kwarg for it.
 
 Box vectors
 -----------
@@ -125,15 +120,15 @@ __all__ = [
 
 LOG = logging.getLogger("neomd.driver")
 
-#: v1 ``generic/pipeline.py`` progress-logging cadence (steps per turn)
+#: progress-logging cadence (steps per turn)
 PROGRESS_INTERVAL = 5000
 
-#: v1 ``save_last`` checkpoint artifact name (written at run/method end)
+#: checkpoint artifact name (written at run/method end)
 CHECKPOINT_FILENAME = "output.ckpt"
 
-#: v1 ``save_last`` per-leg final-state artifacts (plan §5 Phase 3 item 3.2:
-#: every leg leaves its final positions + restorable state behind, so the
-#: next leg can start from them without manual bridging).  ``last.pdbx`` is
+#: per-leg final-state artifacts: every leg leaves its final positions +
+#: restorable state behind, so the
+#: next leg can start from them without manual bridging.  ``last.pdbx`` is
 #: written through the port's StructureWriter capability (kernels without
 #: it — the fake — skip the structure but still get the
 #: ``last.ckpt`` snapshot); ``last.ckpt`` is the same opaque snapshot blob
@@ -179,8 +174,8 @@ class RunOutcome:
 
     phases_run: list[str]  # executed phase names, e.g. ["min"] or ["eq"]
     fgroups: dict[str, list[int]] = field(default_factory=dict)
-    #: restraint name -> force-group ids assigned by the kernel (plan §2.3:
-    #: the fgroup write-back is a return value, never a system mutation)
+    #: restraint name -> force-group ids assigned by the kernel:
+    #: the fgroup write-back is a return value, never a system mutation
     results: list = field(default_factory=list)  # [MinResult] or [RunResult]
     manifest_path: str | None = None  # where manifest.json landed (None: no sink)
 
@@ -230,8 +225,8 @@ def _default_view_factory(kernel: KernelPort) -> ViewFactory:
 
 
 def _write_last_structure(kernel: KernelPort, sink) -> None:
-    """The ``last.pdbx`` half of v1 ``save_last`` — final positions as a
-    structure artifact, written through the port's negotiated
+    """Final positions as a ``last.pdbx`` structure artifact, written
+    through the port's negotiated
     :class:`~neomd.kernel.port.StructureWriter` capability (only the openmm
     adapter has a real topology to write; fake/replay kernels skip the
     artifact by not providing it).  Filesystem-less sinks
@@ -245,7 +240,7 @@ def _write_last_structure(kernel: KernelPort, sink) -> None:
 
 
 # ---------------------------------------------------------------------------
-# progress statistics (v1 generic/pipeline.py lines 63-84, ported verbatim)
+# progress statistics
 # ---------------------------------------------------------------------------
 
 
@@ -290,7 +285,7 @@ def _log_progress(
 # minimization
 # ---------------------------------------------------------------------------
 
-#: v1 ``min_params`` key names -> KernelPort.minimize kwarg (the v1 yaml says
+#: ``min_params`` key names -> KernelPort.minimize kwarg (the plan yaml says
 #: ``maxiter``; the port says ``max_iterations`` — this is the only translation)
 _MIN_PARAM_ALIASES = {
     "tolerance": "tolerance",
@@ -305,7 +300,7 @@ def _minimize_kwargs(plan) -> dict:
     if not isinstance(params, Mapping):
         raise ValueError(
             f"plan.min_params must be a mapping, got {type(params).__name__}")
-    kwargs = {"tolerance": 10.0, "max_iterations": 10000}  # v1 defaults
+    kwargs = {"tolerance": 10.0, "max_iterations": 10000}  # legacy defaults
     for key, value in dict(params).items():
         try:
             kwargs[_MIN_PARAM_ALIASES[key]] = value
@@ -319,11 +314,11 @@ def _minimize_kwargs(plan) -> dict:
 def run_minimization(kernel: KernelPort, plan, sink=None, logger=None) -> MinResult:
     """Minimize the kernel's system per ``plan.min_params``.
 
-    v1 ``run_minimization`` minus the reporter wiring: reporters are probes
-    and the caller's job.  ``min_params`` honors the v1 key names
-    (``tolerance``, ``maxiter``) with v1 defaults (10 kJ/mol/nm, 10000
+    Reporters are not wired here: reporters are probes
+    and the caller's job.  ``min_params`` honors the plan key names
+    (``tolerance``, ``maxiter``) with defaults (10 kJ/mol/nm, 10000
     iterations).  When ``sink`` is given a final ``output.ckpt`` snapshot is
-    written plus the per-leg v1 ``save_last`` pair — ``last.ckpt`` and
+    written plus the per-leg pair — ``last.ckpt`` and
     (through the port's StructureWriter capability) ``last.pdbx``
     carrying the MINIMIZED positions, so the next leg can start from them
     without manual bridging.
@@ -372,7 +367,7 @@ def run_md(
     Parameters
     ----------
     kernel:      any KernelPort; steps count REMAINING steps relative to
-                 ``kernel.current_step`` exactly like v1
+                 ``kernel.current_step``
                  (``remaining = plan.steps - current_step``).
     probes:      probes handed to a :class:`ProbeScheduler` (ignored when
                  ``scheduler`` is given); each fires on multiples of its
@@ -382,16 +377,16 @@ def run_md(
                  kernel in a :class:`~neomd.probes.KernelView` whose box
                  accessor is the kernel's own ``box_vectors()`` port call
                  (see "Box vectors" in the module docstring).
-    on_step:     Wave-2 method hook, called as ``on_step(step, view)`` on
+    on_step:     method hook, called as ``on_step(step, view)`` on
                  every multiple of ``on_step_interval`` (default 1 = every
                  step).  Metadynamics deposits hills here.
-    log_interval: progress-log cadence in steps (v1 ``PROGRESS_INTERVAL``);
+    log_interval: progress-log cadence in steps (``PROGRESS_INTERVAL``);
                  lines fire on absolute multiples of it (and at the final
-                 step) — identical to v1's turn structure for fresh runs,
+                 step) — matching the legacy output format for fresh runs,
                  and aligned with probe cadence on resumed runs.
     clock:       injectable wall clock (epoch seconds) driving the
-                 statistics — v1 used ``time.time``; tests inject fakes.
-    sink:        optional artifact sink for the v1 ``save_last`` per-leg
+                 statistics; tests inject fakes.
+    sink:        optional artifact sink for the per-leg
                  final-state pair written at run end (``last.ckpt`` always;
                  ``last.pdbx`` through the port's StructureWriter capability,
                  skipped by kernels without it — the fake — and by
@@ -428,7 +423,7 @@ def run_md(
 
     start_step = kernel.current_step
     remaining = total - start_step
-    # v1 first log line, byte-for-byte
+    # first log line, byte-for-byte legacy format
     log.info(f"current steps:{start_step} remaining steps:{remaining}")
 
     #: every cadence that must land exactly on a multiple of itself
@@ -454,7 +449,7 @@ def run_md(
                          for probe in scheduler.probes)
         if fire_probe or fire_hook:
             boundary_view = make_view(kernel, step_now)
-            scheduler.tick(step_now, boundary_view)  # probes first (v1 order)
+            scheduler.tick(step_now, boundary_view)  # probes first
             if on_progress is not None and fire_probe:
                 progress = scheduler.progress()
                 if progress:
@@ -462,7 +457,7 @@ def run_md(
             if fire_hook:
                 on_step(step_now, boundary_view)
 
-        # -- progress/rate/ETA (v1 lines 63-84)
+        # -- progress/rate/ETA
         if step_now % log_interval == 0 or step_now == total:
             now = clock()
             _log_progress(
@@ -480,7 +475,7 @@ def run_md(
                 steps_since_log = 0
 
     scheduler.finish()
-    if sink is not None:  # v1 save_last per leg: last.ckpt + last.pdbx
+    if sink is not None:  # per-leg final state: last.ckpt + last.pdbx
         sink.write_bytes(LAST_CHECKPOINT_FILENAME, kernel.snapshot())
         _write_last_structure(kernel, sink)
     report = kernel.energy_forces()
@@ -507,8 +502,8 @@ def _kernel_spec(plan, kind: str = "openmm") -> KernelSpec:
     """Best-effort Plan -> KernelSpec compilation for direct ``drive()``
     calls (fake-kernel tests, replay smoke, metadynamics resume): the SAME
     one-and-only builder run.py's ``compile()`` uses — there is no second,
-    weaker spec path (improvements-list item 4; run.py owns the port of the
-    v1 semantics: barostat seeding, particle_masses, platform params)."""
+    weaker spec path (run.py owns the legacy semantics: barostat seeding,
+    particle_masses, platform params)."""
     from .run import build_kernel_spec
 
     return build_kernel_spec(plan, kind=kind)
@@ -555,9 +550,9 @@ def _append_restraint_probe(probes: list, plan, sink, kernel, fgroups,
                             resume=None) -> None:
     """Append the :class:`~neomd.probes.RestraintProbe` the plan's derived
     ``restraint_interval`` asks for (> 0 only when a restraint is configured
-    AND ``output.report_restraint`` is truthy — the plan.py port of v1's
-    ``restraint_interval`` mirror of ``report_interval``; v1 attached its
-    RestraintReporter to MD simulations, so the MD branch AND method runs
+    AND ``output.report_restraint`` is truthy — the plan-level
+    ``restraint_interval`` mirror of ``report_interval``; the MD branch AND
+    method runs
     (through :func:`run_prepared_method`) wire it, minimization does not).
     Columns come from the restraint registry observables +
     the kernel's masses; energies from the port's GroupEnergy
@@ -585,9 +580,8 @@ def _append_restraint_probe(probes: list, plan, sink, kernel, fgroups,
 
 
 def _run_min_qc(kernel: KernelPort, plan, sink, log) -> None:
-    """The min-tail QC hook (issue #15): quality-check the MINIMIZED
-    coordinates — the class of damage issue #7 documented (a minimize that
-    leaves broken bonds/angles behind).
+    """The min-tail QC hook: quality-check the MINIMIZED
+    coordinates (minimize can leave broken bonds/angles behind).
 
     Positions come from the kernel (the driver's own seam); everything
     else — equilibrium parameters, labels, box — comes from the plan's
@@ -662,8 +656,8 @@ class PreparedMethod:
     * ``on_step`` / ``on_step_interval`` — the physics hook fired on
       absolute multiples of the interval (hill deposition, ramp pushes).
     * ``fgroups`` — the method's own bias force-group ids (informational;
-      drive() does not merge them into ``RunOutcome.fgroups`` — the §2.3
-      write-back stays the restraint section's).
+      drive() does not merge them into ``RunOutcome.fgroups`` — the
+      fgroup write-back stays the restraint section's).
     * ``resume_plan`` — what the single resume owner
       (:func:`neomd.resume.plan_resume`) returned while preparing; the
       keep-install-before-restore ordering is the method's to maintain, and
@@ -796,14 +790,15 @@ def drive(
       plans its resume, builds its tapes) and the driver runs the loop with
       the reporting it owns — the restraint tape plus the method's
       switch-gated tapes (:func:`run_prepared_method`).  Every phase leaves
-      the v1 ``save_last`` pair behind: ``last.ckpt`` (a ``snapshot()``
+      the final-state pair behind: ``last.ckpt`` (a ``snapshot()``
       blob) and — through the port's StructureWriter capability —
       ``last.pdbx`` with the final positions, so the next leg can start
       from them without manual bridging.
     * ``plan.restraint`` entries are compiled through the registry knowledge
       triples (``registry.get("restraint", type).make_bias``) and installed
       with ``kernel.install_bias``; the assigned force-group ids come back in
-      ``RunOutcome.fgroups`` (name -> list[int]) — the §2.3 return-value rule.
+      ``RunOutcome.fgroups`` (name -> list[int]) — a return value, never a
+      system mutation.
     * resume (``continue_md``): the MD branch and every method run alike go
       through :func:`neomd.resume.plan_resume` — the single owner — which
       restores the kernel and trims every tape to the checkpoint step before
@@ -864,17 +859,16 @@ def drive(
         results.append(run_md(kernel, plan, probes,
                               view=_default_view_factory(kernel), logger=log,
                               sink=sink, on_progress=record_progress))
-        if sink is not None:  # v1 save_last after run_md
+        if sink is not None:  # output.ckpt after run_md
             sink.write_bytes(CHECKPOINT_FILENAME, kernel.snapshot())
     else:
-        # Wave-2 method extension rack: registry dispatch.  The lazy imports
+        # Method extension rack: registry dispatch.  The lazy imports
         # break the cycle (methods import driver for run_md) and double as
         # registration (importing neomd.methods registers its entries).
         # The method PREPARES (installs its biases, plans its resume, builds
         # its tapes); the driver runs the loop with the reporting IT owns —
         # the restraint tape plus the method's switch-gated tapes — so no
-        # method plugin ever sees restraint wiring (review decision; the
-        # interim restraint_fgroups dispatch kwarg is gone).
+        # method plugin ever sees restraint wiring.
         from . import registry
 
         entry = registry.get("method", method)  # KeyError w/ did-you-mean

@@ -1,4 +1,4 @@
-"""ML-CV model families + the model artifact (issue #9 期 1, numpy-only).
+"""ML-CV model families + the model artifact (ADR-0006, numpy-only).
 
 Two phase-1 families, both LINEAR in the featurized columns and both
 solvable honestly in numpy:

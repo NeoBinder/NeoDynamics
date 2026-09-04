@@ -1,13 +1,13 @@
-"""Probe presets + the driver<->probe RunView contract (v2 plan §4, §5 item 1.5).
+"""Probe presets + the driver<->probe RunView contract.
 
-A *probe* is the v2 replacement for openmm reporters: the driver periodically
+A *probe* is the driver-facing replacement for openmm reporters: the driver
+periodically
 hands it a :class:`RunView` (an observation of the running kernel) and it
-appends to an artifact through a sink.  Filenames are v1-compatible
-(``output.state`` / ``output.dcd`` / ``output.ckpt``, engine.config_reporter)
-plus the new v2 ``colvar.tsv`` and ``restraint.tsv`` (the latter REPLACES v1's
-``restraint.dat`` with a new format — plan R3-Q3, acknowledged breakage); the
+appends to an artifact through a sink.  Artifacts: ``output.state`` /
+``output.dcd`` / ``output.ckpt`` plus ``colvar.tsv`` and ``restraint.tsv``
+(the new tsv formats, which replace the legacy ``restraint.dat``); the
 state-file format reproduces openmm's StateDataReporter output byte-for-byte
-for the flag set v1 used.
+for the flag set in use.
 
 The RunView contract (this module owns it; the driver codes against it):
 
@@ -71,7 +71,7 @@ _SMD_FILENAME = "smd.tsv"
 _DU_FILENAME = "du.tsv"
 _GAMD_FILENAME = "gamd.tsv"
 
-#: v1 header line, byte-identical to openmm StateDataReporter with v1's flags
+#: state header line, byte-identical to openmm StateDataReporter
 #: (step/time/potential/kinetic/total/temperature/volume/speed/remainingTime,
 #: separator "\\t"):  openmm prints '#"%s"' % ('"'+sep+'"').join(headers).
 #: Note the openmm-verbatim spellings "Box Volume (nm^3)" and "Time Remaining".
@@ -183,11 +183,12 @@ def _check_interval(interval: int) -> int:
 
 
 class StateProbe:
-    """Appends thermo state rows to ``output.state`` (v1 StateDataReporter).
+    """Appends thermo state rows to ``output.state``.
 
-    Output format is v1-verbatim: the quoted tab-separated header
-    (only when ``append=False`` — v1's continue_md opens the file in append
-    mode and the reporter skips the header), then one row per observation::
+    Output format (openmm StateDataReporter-compatible): the quoted
+    tab-separated header
+    (only when ``append=False`` — append mode skips the header), then one
+    row per observation::
 
         step  step*dt  potential  kinetic  total  temperature  volume  speed  remaining
 
@@ -391,7 +392,7 @@ class TrajectoryProbe:
 class CheckpointProbe:
     """Overwrites ``output.ckpt`` with ``view.kernel.snapshot()`` each observe.
 
-    Wholesale overwrite mirrors v1's CheckpointReporter (truncating write);
+    Wholesale overwrite (truncating write);
     the opaque blob round-trips through ``KernelPort.restore``.
     """
 
@@ -411,7 +412,7 @@ class CheckpointProbe:
 
 
 class ColvarProbe:
-    """Appends collective-variable rows to ``colvar.tsv`` (new v2 format).
+    """Appends collective-variable rows to ``colvar.tsv``.
 
     ``cvs``: list of ``{"label": str, "evaluate": callable(positions, masses)
     -> float}`` — real evaluators are wired by the driver/methods layer
@@ -462,7 +463,7 @@ class ColvarProbe:
 
 
 # ---------------------------------------------------------------------------
-# restraint observables (v1 RestraintReporter, new artifact format)
+# restraint observables (restraint.tsv)
 # ---------------------------------------------------------------------------
 
 _RESTRAINT_FILENAME = "restraint.tsv"
@@ -479,8 +480,8 @@ def _restraint_com(masses, positions, idxlist) -> np.ndarray:
 def _observable_values(obs: dict, positions, masses) -> list[float]:
     """One ObservableSpec -> its numeric value(s) through the PUBLIC cv
     registry (registry observables + colvars.evaluate; natural units — nm for
-    distances, degrees for angles/dihedrals — exactly what v1's restraint
-    reporter recorded).  The two quantities no cv entry exists for (raw COM,
+    distances, degrees for angles/dihedrals).  The two quantities no cv entry
+    exists for (raw COM,
     vector-restraint distance) are computed inline with the same arithmetic.
     """
     import neomd.colvars  # noqa: F401  (import = cv registration)
@@ -520,7 +521,7 @@ def _observable_values(obs: dict, positions, masses) -> list[float]:
 def _observable_columns(name: str, observable: dict) -> list[str]:
     """Column labels for one restraint/smd entry's geometric observable(s)
     (shared by RestraintProbe and SmdProbe)."""
-    if not observable:  # rmsd: v1 logged the energy only
+    if not observable:  # rmsd logs the energy only
         return []
     if "quantity" not in observable:  # funnel-style multi-quantity
         return [f"{name}__{key}" for key in observable]
@@ -532,8 +533,7 @@ def _observable_columns(name: str, observable: dict) -> list[str]:
 class RestraintProbe:
     """Appends restraint observables + bias energies to ``restraint.tsv``.
 
-    BRAND-NEW artifact format (plan R3-Q3): this REPLACES v1's
-    ``restraint.dat`` — old consumers break on the flip, acknowledged.  One
+    One
     row per observation, one column pair per restraint: the geometric
     observable(s) from the restraint triple's ``observables`` spec (through
     :func:`_observable_values`, i.e. the cv registry's natural units) then
@@ -549,8 +549,8 @@ class RestraintProbe:
     Layout: header ``# step <name1> <name1>__energy ...`` (multi-quantity
     restraints expand to ``<name>__<key>`` sub-columns; xyz_box COMs to
     ``<name>__x/__y/__z``), then tab-separated rows in full-precision
-    ``str(float)`` like the other v2 tsv artifacts.  ``append=True`` resumes
-    without rewriting the header (v1 continue_md appended to restraint.dat).
+    ``str(float)`` like the other tsv artifacts.  ``append=True`` resumes
+    without rewriting the header.
     """
 
     def __init__(
@@ -619,12 +619,12 @@ class RestraintProbe:
 
 
 # ---------------------------------------------------------------------------
-# steered-MD tape (methods/smd.py's artifact — brand-new format)
+# steered-MD tape (methods/smd.py's artifact)
 # ---------------------------------------------------------------------------
 
 
 class SmdProbe:
-    """Appends steered-MD rows to ``smd.tsv`` (new v2 format).
+    """Appends steered-MD rows to ``smd.tsv``.
 
     One row per observation; per ``smd:`` entry, in column order: the
     geometric observable(s) from the entry's restraint-triple
@@ -633,12 +633,10 @@ class SmdProbe:
     kJ/mol, nm, degrees, as written in the plan; supplied by the method's
     ``params_now(name)`` so rows reflect what the kernel was actually
     pushed; a ``ref_position_nm`` triple ramp expands to ``__x/__y/__z``
-    columns like v1's ``ref_x_nm``/``ref_y_nm``/``ref_z_nm``), then the
+    columns), then the
     entry's bias energy — the sum of its assigned force groups' energies
     through the negotiated :class:`~neomd.kernel.port.GroupEnergy`
-    capability (``nan`` when unavailable).  v1's ``smd.csv`` reported
-    parameters + energies only; the geometry columns are the acknowledged
-    format break (R3-Q3 stance).
+    capability (``nan`` when unavailable).
 
     ``entries``: list of ``(name, scalar_spec, observable)`` like
     RestraintProbe's ``restraints``.  ``params_now``: callable
@@ -668,7 +666,6 @@ class SmdProbe:
         self.params_now = params_now
         #: name -> [(ramp key, axis)] — axis None = scalar column, 0/1/2 =
         #: one column per x/y/z component of a ref_position_nm triple ramp
-        #: (v1 reported ref_x_nm/ref_y_nm/ref_z_nm as separate columns)
         self._ramp_columns: dict[str, list[tuple[str, object]]] = {}
         if params_now is not None:
             for name, _spec, _observable in self.entries:
@@ -737,12 +734,12 @@ class SmdProbe:
 
 
 # ---------------------------------------------------------------------------
-# GaMD tape (methods/gamd.py's artifact — brand-new format)
+# GaMD tape (methods/gamd.py's artifact)
 # ---------------------------------------------------------------------------
 
 
 class GamdProbe:
-    """Appends GaMD boost rows to ``gamd.tsv`` (new v2 format, ADR-0005).
+    """Appends GaMD boost rows to ``gamd.tsv`` (ADR-0005).
 
     One row per observation; per boost channel, in installation order, the
     three columns of :class:`~neomd.kernel.port.BoostReading`:
@@ -807,12 +804,12 @@ class GamdProbe:
 
 
 # ---------------------------------------------------------------------------
-# the RBFE du tape (methods/rbfe.py's artifact — brand-new format)
+# the RBFE du tape (methods/rbfe.py's artifact)
 # ---------------------------------------------------------------------------
 
 
 class DuProbe:
-    """Appends cross-λ potential-energy rows to ``du.tsv`` (new v2 format).
+    """Appends cross-λ potential-energy rows to ``du.tsv``.
 
     The BAR/MBAR input tape of an RBFE λ window (ADR-0007): one row per
     observation, one column ``u_%03d`` per LADDER entry — the system's total

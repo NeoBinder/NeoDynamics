@@ -1,4 +1,4 @@
-"""Artifact sinks + a minimal CHARMM-compatible DCD writer (v2 plan §4, §5 item 1.5).
+"""Artifact sinks + a minimal CHARMM-compatible DCD writer.
 
 A *sink* is where run artifacts (``output.state`` / ``output.dcd`` /
 ``output.ckpt`` / ``colvar.tsv``) land.  Probes (probes.py) only ever touch a
@@ -7,12 +7,12 @@ a real run (``LocalDirSink`` under the output directory) and for tests /
 in-memory runs (``MemorySink``).
 
 Artifact names are RELATIVE (``"output.state"``, never absolute); the sink
-maps them to storage.  Files are opened append-or-create, mirroring v1's
-``open(path, "a")`` semantics for state/restraint files (engine.config_reporter).
+maps them to storage.  Files are opened append-or-create
+(``open(path, "a")`` semantics for state/restraint files).
 
 This module never imports openmm: the DCD writer below is a verbatim re-pack
-of openmm's ``app/dcdfile.py`` byte layout using only struct/numpy, so v2
-``output.dcd`` files are byte-compatible with v1's DCDReporter output.
+of openmm's ``app/dcdfile.py`` byte layout using only struct/numpy, so
+``output.dcd`` files are byte-compatible with openmm's DCDReporter output.
 
 DCD layout (little-endian, CHARMM flavour, exactly openmm's):
 
@@ -72,9 +72,9 @@ class ArtifactSink(ABC):
     The interface probes code against:
 
     * :meth:`write_bytes` — replace/overwrite an artifact wholesale
-      (v1 ``CheckpointReporter`` truncates ``output.ckpt`` the same way).
-    * :meth:`text_writer` — scoped append-mode text stream (v1 opens the
-      state/restraint files with ``"a"``).
+      (how ``output.ckpt`` is written).
+    * :meth:`text_writer` — scoped append-mode text stream (state/restraint
+      tapes).
     * :meth:`binary_writer` — scoped random-access binary stream; the DCD
       writer patches its own header in place, so the handle must support
       seek-then-write (plain ``"a"`` mode would defeat that).
@@ -297,7 +297,7 @@ def init_dcd(
     titles: tuple[bytes, bytes] | None = None,
 ) -> None:
     """Write a fresh DCD header at the current position (truncating callers
-    pass a truncate-mode stream; v1-compat CHARMM layout, little-endian).
+    pass a truncate-mode stream; CHARMM layout, little-endian).
 
     ``periodic`` sets the box flag: when True every frame MUST carry a box
     record (see :func:`write_dcd_frame`).  ``n_fixed`` is accepted for API
@@ -373,7 +373,7 @@ def write_dcd_frame(
         # openmm's exact arithmetic (dcdfile.writeModel + unitcell.
         # computeLengthsAndAngles): acos then sin(pi/2 - angle), which is
         # *numerically* distinct from taking the cosine directly — mirrored
-        # verbatim so v2 box records are byte-identical to v1's.
+        # verbatim so box records are byte-identical to openmm's.
         alpha = math.acos(float(np.dot(b, c)) / (lb * lc))
         beta = math.acos(float(np.dot(c, a)) / (lc * la))
         gamma = math.acos(float(np.dot(a, b)) / (la * lb))

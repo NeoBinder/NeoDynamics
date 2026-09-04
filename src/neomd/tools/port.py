@@ -1,5 +1,4 @@
-"""Tools seam — the contract every external-tool adapter programs against
-(v2 migration plan §2 ``tools/port.py``, §5 item 2.4).
+"""Tools seam — the contract every external-tool adapter programs against.
 
 neomd talks to external executables (AmberTools antechamber/parmchk2 today,
 ORCA/Multiwfn later) only through :class:`ToolRunner`.  The seam owns three
@@ -9,13 +8,12 @@ things:
   controls — a fresh temporary directory by default, or the caller-supplied
   ``cwd`` — with input files written there and listed output files read back.
   The process working directory is switched with ``subprocess.run(cwd=...)``;
-  the interpreter's own working directory is never touched (the v2 plan's
-  hard rule for the antechamber port: v1's directory dance goes through the
-  runner's ``cwd`` instead).
+  the interpreter's own working directory is never touched (process-chdir is
+  forbidden in neomd).
 * **Diagnostics.**  A non-zero exit (or a missing promised output file)
   raises :class:`ToolError` carrying the command, captured stdout/stderr and
-  the contents of every input file — v1's diagnostic style, kept verbatim in
-  spirit: the mol2/sdf the user actually sent belongs in the traceback.
+  the contents of every input file — the mol2/sdf the user actually sent
+  belongs in the traceback.
 * **Testability.**  :class:`FakeToolRunner` maps ``argv[0]`` to an in-process
   python callable that writes the same files a real tool would, so the whole
   GAFF template pipeline is testable without AmberTools.
@@ -70,8 +68,8 @@ class ToolError(Exception):
     """A tool invocation failed (non-zero exit or missing output file).
 
     Carries the full diagnostic context so the exception text alone is enough
-    to debug a failed parameterization — the style v1 used for antechamber
-    failures: command, output between separator rules, and the input files.
+    to debug a failed parameterization: command, output between separator
+    rules, and the input files.
     """
 
     def __init__(
@@ -91,7 +89,6 @@ class ToolError(Exception):
         super().__init__(self.render())
 
     def render(self) -> str:
-        # v1 diagnostic layout: separators of 8 * "----------" around output
         sep = 8 * "----------"
         msg = f"{self.message}\n"
         if self.command:

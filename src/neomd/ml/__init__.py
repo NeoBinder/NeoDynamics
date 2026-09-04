@@ -1,21 +1,16 @@
-"""neomd.ml — the self-developed ML/MM coupling module (ADR-0004, W2-d + W3-c).
+"""neomd.ml — the self-developed ML/MM coupling module (ADR-0004).
 
-Decision record (2026-09-02/03): openmm-ml is NOT a dependency.  Only its
-generic layer would be useful and only the mechanical-embedding half of that;
-the ~65 KB of per-model adapters and the model registry are useless for OUR
-TorchScript models (the model file is the interface here).  The unavoidable
-base is openmm-torch (TorchForce C++ plugin) + torch, pinned per settled
-decision #10.  openmm-ml is demoted to an optional, marker-gated
-cross-validation reference (never installed by pixi).
+openmm-ml is NOT a dependency; the model file is the interface and the
+unavoidable base is openmm-torch (TorchForce C++ plugin) + torch.  openmm-ml
+is an optional, marker-gated cross-validation reference only.
 
 Layout:
 
 * :mod:`neomd.ml.spec`     openmm-free core: raw ``ml_region`` -> frozen
                            :class:`~neomd.ml.spec.MLRegion` (shape, defaults,
                            vocabulary shared with plan validation);
-* :mod:`neomd.ml.selection` the residue-selector grammar (W3-c active-site
-                           regions): ``"CHAIN:RESID"`` / ``"CHAIN:NAME"``
-                           resolved against the system topology;
+* :mod:`neomd.ml.selection` the residue-selector grammar: ``"CHAIN:RESID"`` /
+                           ``"CHAIN:NAME"`` resolved against the topology;
 * :mod:`neomd.ml.embedding` mechanical embedding, ported VERBATIM from
                            openmm-ml 1.7 (MIT, attribution in the header);
 * :mod:`neomd.ml.mock`     the mock NNP — standard openmm custom forces, a

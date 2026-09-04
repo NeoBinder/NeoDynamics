@@ -1,8 +1,7 @@
-"""Readers (and writers) for the v2 artifact formats — issue #16, W1-a.
+"""Readers (and writers) for the artifact formats.
 
-This module reads back EXACTLY what the producers write (decision #6: the new
-formats ``colvar.tsv`` / ``hills.npz`` / ``smd.tsv`` intentionally break the v1
-readers; this is the 2.x rewrite).  Producers, for reference:
+This module reads back EXACTLY what the producers write.  Producers, for
+reference:
 
 * ``colvar.tsv`` / ``restraint.tsv`` / ``smd.tsv`` (:mod:`neomd.probes`) —
   one ``#``-prefixed tab-separated header line (first column ``step``), then

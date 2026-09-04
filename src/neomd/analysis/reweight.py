@@ -10,7 +10,7 @@ reweighting every sampled frame with
 ``exp(beta * c(t))`` weights suffice).  This module:
 
 * :func:`bias_series` reconstructs c(t) for every ``colvar.tsv`` row from the
-  hills ledger — no bias-energy column is needed (the v2 colvar tape carries
+  hills ledger — no bias-energy column is needed (the colvar tape carries
   CV values only); the bias is rebuilt from the hills themselves.
 * :func:`reweight_expectation` — weighted mean + delta-method block error +
   effective sample size.

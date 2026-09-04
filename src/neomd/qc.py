@@ -1,9 +1,9 @@
-"""qc — openmm-free structure quality checks over SystemBundle data (#15).
+"""qc — openmm-free structure quality checks over SystemBundle data.
 
 PURE NUMPY GEOMETRY + the files a :class:`~neomd.system.SystemBundle` points
-at.  This module never imports openmm and never touches the kernel port (the
-issue-dev-plan wording: "QC 模块应为 openmm-free（纯 numpy 几何 + SystemBundle
-数据），不经 port").  Coordinates come from the topology file (.pdb/.pdbx,
+at.  This module never imports openmm and never touches the kernel port
+(pure numpy geometry + SystemBundle
+data, never via the port).  Coordinates come from the topology file (.pdb/.pdbx,
 parsed with the stdlib) or are handed in as a plain numpy array by the
 orchestrating hook; equilibrium values come from the serialized System XML
 (parsed with ``xml.etree`` — it is plain XML, no engine needed):
@@ -36,31 +36,31 @@ lists them together — the same discipline as plan validation):
 When a ligand selection is known (a ``ligand.json`` with named molecules, or
 explicit residue names), checks 2-4 are additionally run scoped to the ligand
 (``ligand_clashes`` counts pairs with AT LEAST one ligand atom — the
-protein/ligand overlap class of issue #7) and reported under ``ligand``.
+protein/ligand overlap class) and reported under ``ligand``.
 Absent ligand = the scoped checks report ``skipped``; it is never an error.
 
-Default thresholds and why (the calibration ground truth is the issue #7
-repro data plus the minimized 3HTB/ala2 fixtures):
+Default thresholds and why (calibrated against real repro data plus the
+minimized 3HTB/ala2 fixtures):
 
 * ``clash_heavy_nm`` 0.20 (2.0 A): the shortest legitimate non-excluded
   heavy-heavy contacts are strong H-bond donor/acceptor pairs (~2.4 A) and
   Na+...O coordination (~2.3-2.4 A); 2.0 A sits below all of them and far
-  above the pathological overlaps QC exists to catch (issue #7's ligand C9
-  sits 0.273 A from a PHE ring carbon).
+  above the pathological overlaps QC exists to catch (observed pathological
+  cases sit ~0.3 A from a ring carbon).
 * ``clash_hydrogen_nm`` 0.10 (1.0 A): the shortest legitimate H-involving
   non-excluded contact is an H-bond H...acceptor at ~1.5 A; below 1.0 A is
-  unambiguous overlap (issue #7 input: ligand H 0.575-0.98 A from ring
+  unambiguous overlap (repro inputs showed H at 0.5-1.0 A from ring
   atoms).
 * ``bond_relative_tolerance`` 0.25 with a ``bond_absolute_nm`` 0.03 floor:
-  minimized/thermal structures sit within ~1-2 % of r0 (measured on the
-  issue #7 openmm-minimized reference and the ala2 fixture), while the
-  pathological v1-min output of issue #7 reaches 53 % (three bonds > 25 %);
+  minimized/thermal structures sit within ~1-2 % of r0 (measured on
+  openmm-minimized references and the ala2 fixture), while
+  pathological minimization output reaches 53 % (three bonds > 25 %);
   25 % splits the regimes with an order of magnitude of margin, and the
   absolute floor keeps very short bonds from being judged by irrelevant
   absolute noise while still requiring gross distortion.
 * ``angle_tolerance_deg`` 30: good structures within ~2-3 degrees of
-  theta0; the issue #7 bad-min output carries 10 angles > 30 degrees off
-  (worst 57 degrees).  30 degrees splits the regimes.
+  theta0; bad-min output carries angles tens of degrees off.  30 degrees
+  splits the regimes.
 * ``box_escape_fraction`` 0.5: see check 2.
 
 Failure behavior (both hooks, prepare tail and min tail): the report is

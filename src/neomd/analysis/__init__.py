@@ -1,9 +1,7 @@
-"""neomd.analysis — post-run analysis of the v2 artifact formats (#16).
+"""neomd.analysis — post-run analysis of the artifact formats.
 
-The 2.x analysis rewrite settled decision #6 anticipated: it reads the NEW
-formats only (``colvar.tsv`` / ``hills.npz`` / ``smd.tsv``, plus the run
-manifest for grid metadata) and has no v1 compatibility — the old
-``bin/gethill.py`` / ``bin/hills_ana.py`` readers are not ported.
+Reads the ``colvar.tsv`` / ``hills.npz`` / ``smd.tsv`` formats (plus the run
+manifest for grid metadata); no v1 compatibility.
 
 Two surfaces, one implementation:
 
@@ -22,11 +20,10 @@ Contents:
     stats        block averaging (mean + statistical error)
     reweight     Tiwary–Parrinello c(t) reweighting
     merge        multi-walker hills/colvar merge
-    freeenergy   BAR / MBAR over the RBFE λ windows' du tapes (#8, W3-a)
+    freeenergy   BAR / MBAR over the RBFE λ windows' du tapes
 
 numpy-only, openmm-free, deterministic.  Flooding-style dynamics analysis is
-deliberately NOT here: the v1 tree had no flooding tool and the new formats
-do not define the quantity — a documented follow-up once a producer exists.
+deliberately out of scope: no producer defines the quantity yet.
 """
 
 from .convergence import ConvergenceResult, ConvergenceRow, fes_convergence

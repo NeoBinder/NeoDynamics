@@ -1,22 +1,18 @@
-"""Plan — the immutable experiment snapshot (v2 migration plan §2, A skeleton).
+"""Plan — the immutable experiment snapshot.
 
 Pipeline (all of it happens once, at construction):
 
     validate → derive → freeze
 
-* **validate** replaces v1's ``check_config`` whitelist
-  (``neomd/utils.py``): unknown top-level keys raise
-  :class:`~neomd.errors.ConfigKeyError` with a did-you-mean list; known keys
-  get structural checks (types and ranges).  The validator COLLECTS every
+* **validate** rejects unknown top-level keys with a
+  :class:`~neomd.errors.ConfigKeyError` did-you-mean list; known keys get
+  structural checks (types and ranges).  The validator COLLECTS every
   problem in one pass — two or more raise the
   :class:`~neomd.errors.PlanValidationErrors` aggregate (a single problem
   still raises its own specific type).
-* **derive** ports v1's ``BasePipeline.modify_config``
-  (``neomd/base/pipeline.py:92-127`` plus the ``restraint_interval`` mirror at
-  ``pipeline.py:61-66``) into a *separate* derived view.  v1 mutated the user's
-  Box in place; v2 never touches the raw dict — ``plan.raw`` is the user's
-  config verbatim, ``plan.derived`` holds the defaulted/normalized view, and
-  attribute access merges the two (derived wins).
+* **derive** builds a separate derived view: ``plan.raw`` is the user's
+  config verbatim, ``plan.derived`` holds the defaulted/normalized view,
+  and attribute access merges the two (derived wins).
 * **freeze** makes the plan deeply immutable; mutation raises
   :class:`~neomd.errors.PlanFrozenError`.  Use ``plan.with_(...)`` (also
   reachable as ``getattr(plan, "with")`` — ``with`` is a Python keyword and
@@ -49,8 +45,7 @@ __all__ = ["Plan", "load_plan", "KNOWN_KEYS", "validate_config", "check_plan_fil
 
 
 # ---------------------------------------------------------------------------
-# schema vocabulary (v2 surface — supersedes the v1 check_config allow_set;
-# v1's "qmmm" is deliberately absent, see migration plan §1 R4-Q1)
+# schema vocabulary
 # ---------------------------------------------------------------------------
 
 KNOWN_KEYS = frozenset(
@@ -64,9 +59,9 @@ KNOWN_KEYS = frozenset(
         "colvars",
         "restraint",
         "meta_set",
-        "smd",  # steered-MD entries (method 'smd'; v1 SMD commit 179ae35)
-        "gamd",  # GaMD boost settings (method 'gamd'; ADR-0005, issue #10)
-        "opes_set",  # OPES entries (method 'opes'; issue #11 path B)
+        "smd",  # steered-MD entries (method 'smd')
+        "gamd",  # GaMD boost settings (method 'gamd'; ADR-0005)
+        "opes_set",  # OPES entries (method 'opes')
         "steps",
         "input_files",
         "output",
@@ -76,15 +71,14 @@ KNOWN_KEYS = frozenset(
         "system_modification",
         "ml_region",  # ML/MM coupling (ADR-0004): {"indices", "model"} —
         #               assembled by the openmm adapter, never in system.xml
-        "forcefield",  # dead/unreachable in v1 (neosystem.py:52 behind a key
-        #                 the whitelist never let through) — a real key in v2
+        "forcefield",  # forcefield settings
         "alchemical",  # RBFE λ window state (method 'rbfe'; ADR-0003/0007)
         "plugins",  # the plugin plan-schema namespace (ADR-0002): each
         #            registered plugin owns plugins.<name>.* keys
     }
 )
 
-#: sections every runnable plan needs (v1 crashed with KeyError without them)
+#: sections every runnable plan needs
 REQUIRED_KEYS = ("input_files", "output")
 
 _INPUT_FILES_KEYS = frozenset(
@@ -111,7 +105,7 @@ _INTERVAL_KEYS = (
     "restraint_interval",
 )
 
-#: sections that must be mappings when present (v1 reads them as Boxes)
+#: sections that must be mappings when present
 _MAPPING_KEYS = (
     "barostat",
     "colvars",
@@ -264,14 +258,13 @@ def _is_number(value) -> bool:
 
 
 def _validate(data: Any, ctx: _Context) -> list:
-    """Structural validation of the raw user dict (replaces check_config).
+    """Structural validation of the raw user dict.
 
-    Collects EVERY problem in one pass (the improvements-list item 3
-    aggregator): a config with three mistakes reports all three.  Checks
-    that depend on a section's shape (per-key checks inside
-    ``input_files``/``output``/``integrator``/``restraint``) are skipped
-    when the section itself is structurally wrong — everything independent
-    still runs.
+    Collects EVERY problem in one pass: a config with three mistakes reports
+    all three.  Checks that depend on a section's shape (per-key checks
+    inside ``input_files``/``output``/``integrator``/``restraint``) are
+    skipped when the section itself is structurally wrong — everything
+    independent still runs.
     """
     errors: list = []
     if not isinstance(data, Mapping):
@@ -285,7 +278,7 @@ def _validate(data: Any, ctx: _Context) -> list:
     def problem(exc, message, path=(), value=_NOT_GIVEN, **kwargs):
         errors.append(ctx.error(exc, message, path, value, **kwargs))
 
-    # -- top-level keys: the v2 whitelist with did-you-mean ---------------
+    # -- top-level keys: whitelist with did-you-mean ---------------
     for key in data:
         if not isinstance(key, str) or key not in KNOWN_KEYS:
             problem(
@@ -514,8 +507,8 @@ def _validate(data: Any, ctx: _Context) -> list:
 
     # -- the ml_region section (ML/MM, ADR-0004; same collect-all pass) ------
     _validate_ml_region_section(data, ctx, problem)
-    # -- colvar types (registry-aware, best effort; W1-b — same treatment
-    #    the restraint section gets, so an unknown cv type is a collect-all
+    # -- colvar types (registry-aware, best effort — same treatment the
+    #    restraint section gets, so an unknown cv type is a collect-all
     #    plan error with did-you-mean instead of a runtime KeyError)
     _validate_colvar_types(data, ctx, problem)
 
@@ -537,8 +530,8 @@ def _validate(data: Any, ctx: _Context) -> list:
 def _load_registry():
     """Import neomd.registry lazily; None when it is not importable yet.
 
-    The registry is built by a parallel workstream; plan validation treats its
-    absence as "no type-level check possible" rather than an error.
+    Validation treats the registry's absence as "no type-level check
+    possible" rather than an error.
     """
     try:
         return importlib.import_module("neomd.registry")
@@ -639,12 +632,12 @@ def _validate_restraint_spec_keys(name: str, spec: Mapping, entry,
 
 
 # ---------------------------------------------------------------------------
-# derivation (port of v1 BasePipeline.modify_config — but into a separate view)
+# derivation
 # ---------------------------------------------------------------------------
 
 
 def _validate_ml_region_section(data: Mapping, ctx: _Context, problem) -> None:
-    """The ``ml_region`` section (ML/MM coupling, ADR-0004 + W3-c addendum).
+    """The ``ml_region`` section (ML/MM coupling, ADR-0004).
 
     Shape: ``{"indices": [...], "model": ...}`` or ``{"residues": [...],
     "model": ...}`` — EXACTLY ONE region form (indices = raw particles;
@@ -1304,17 +1297,11 @@ def _validate_alchemical_section(data: Mapping, ctx: _Context, problem) -> None:
 
 
 def _derive(raw: Mapping, ctx: _Context) -> dict:
-    """Compute the derived view; the raw dict is never touched.
-
-    Branch-for-branch port of ``neomd/base/pipeline.py::modify_config`` plus
-    the ``restraint_interval`` mirror from ``pipeline.py:61-66``.
-    """
+    """Compute the derived view; the raw dict is never touched."""
     derived: dict = {}
 
-    # modify_config: config.seed = config.get("seed", 0)
     derived["seed"] = raw.get("seed", 0)
 
-    # modify_config: templates comma-split into list-or-None
     input_files: dict = {}
     templates = raw["input_files"].get("templates")
     if templates:
@@ -1325,7 +1312,6 @@ def _derive(raw: Mapping, ctx: _Context) -> dict:
     else:
         input_files["templates"] = None
 
-    # modify_config: if config.get("temperature") is None: config.temperature = 298
     temperature = raw.get("temperature")
     derived["temperature"] = 298 if temperature is None else temperature
 
@@ -1334,7 +1320,7 @@ def _derive(raw: Mapping, ctx: _Context) -> dict:
     if raw.get("steps") is not None:
         derived["steps"] = int(raw["steps"])
 
-    # modify_config: continue_md checkpoint/state resolution
+    # continue_md checkpoint/state resolution
     derived["continue_md"] = bool(raw.get("continue_md", False))
     checkpoint = raw["input_files"].get("checkpoint")
     state = raw["input_files"].get("state")
@@ -1363,7 +1349,7 @@ def _derive(raw: Mapping, ctx: _Context) -> dict:
         input_files["state"] = None
     derived["input_files"] = input_files
 
-    # modify_config: output interval defaults (0 = "do not write")
+    # output interval defaults (0 = "do not write")
     output = raw["output"]
     derived_output = {
         "trajectory_interval": output.get("trajectory_interval", 0),
@@ -1371,20 +1357,17 @@ def _derive(raw: Mapping, ctx: _Context) -> dict:
         "checkpoint_interval": output.get("checkpoint_interval", 0),
     }
 
-    # pipeline.py:61-66 — restraint_interval mirrors report_interval when a
-    # restraint is configured and output.report_restraint is truthy, else 0.
-    # (Ported verbatim: this deliberately overrides any user-set value.)
+    # restraint_interval mirrors report_interval when a restraint is
+    # configured and output.report_restraint is truthy, else 0.
+    # (Deliberately overrides any user-set value.)
     if raw.get("restraint") and output.get("report_restraint", False):
         derived_output["restraint_interval"] = output.get("report_interval", 0)
     else:
         derived_output["restraint_interval"] = 0
 
-    # steered MD: the smd.tsv tape mirrors report_interval whenever an smd
-    # section is configured — the pure CADENCE (the driver gates the tape's
-    # INCLUSION on output.report_smd, default on, at run time; v1 had wired
-    # its SMDReporter to the restraint_interval mirror, which would have
-    # gated the smd tape on report_restraint — an incidental coupling v2
-    # replaces with its own switch.  Deliberate deviation, documented).
+    # steered MD: the smd.tsv tape's cadence mirrors report_interval whenever
+    # an smd section is configured; its INCLUSION is gated separately on
+    # output.report_smd (default on) by the driver at run time.
     derived_output["smd_interval"] = (output.get("report_interval", 0)
                                       if raw.get("smd") else 0)
     derived["output"] = derived_output
@@ -1655,8 +1638,7 @@ def _particle_count_from_system_xml(path: str) -> int | None:
     ``<Particles>`` block for real serializations or as bare root children
     in minimal fixtures; the ``ParticleOffsets`` sections some force
     serializations carry ALSO use ``<Particle>`` tags and must not be
-    counted — the ala2 fixture reads 44 with a blind ``.//Particle`` scan
-    against its real 22 particles)."""
+    counted)."""
     import xml.etree.ElementTree as ET
 
     try:
@@ -1668,12 +1650,12 @@ def _particle_count_from_system_xml(path: str) -> int | None:
 
 
 def _flatten_indices(value) -> list[int]:
-    """One index-key value (int | numeric str | v1 comma-string | list of
+    """One index-key value (int | numeric str | comma-string | list of
     those) -> ints.
 
-    The comma-string split matters: ``"1,2,3"`` is THE v1 spec grammar every
-    index key accepts (idstr2list), and without it the ``--check-files``
-    bounds pass silently skipped comma-string groups entirely."""
+    The comma-string split matters: ``"1,2,3"`` is the spec grammar every
+    index key accepts, and without it the ``--check-files`` bounds pass
+    would silently skip comma-string groups entirely."""
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return [int(value)]
     if isinstance(value, str):
@@ -1717,7 +1699,7 @@ def _complex_topology(path: str):
 
 
 def _check_ml_residue_selection(data, *, source, base_dir, errors) -> list[int]:
-    """The ``--check-files`` tier for ``ml_region.residues`` (W3-c).
+    """The ``--check-files`` tier for ``ml_region.residues``.
 
     Resolves every well-formed selector against the complex file's topology,
     appending one error per unmatched selector (topology-aware did-you-mean;
@@ -1832,7 +1814,7 @@ def check_plan_files(data: Mapping, *, source: str | None = None,
                     f"{system_path!r} (index bounds not checked)",
                     ("input_files", "system"), system_path)
 
-    # ml_region.residues (W3-c): resolved against the complex file's
+    # ml_region.residues: resolved against the complex file's
     # topology — the same grammar the adapter resolves at assembly time;
     # every unmatched selector is reported (collect-all), each with a
     # did-you-mean over the topology's chains / that chain's residue names.
