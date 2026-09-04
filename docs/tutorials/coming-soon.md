@@ -3,40 +3,19 @@
 !!! warning "Not yet implemented"
 
     The features below are **planned but not shipped**. They are tracked
-    on the [issue board](https://github.com/NeoBinder/NeoDynamics/issues)
-    and the development plan (`docs/issue-dev-plan.md` in the repository).
-    Everything on the other tutorial pages works today.
+    on the [issue board](https://github.com/NeoBinder/NeoDynamics/issues).
+    Everything on the other tutorial and method pages works today.
 
-## OPES
+## QM/MM
 
-On-the-fly probability enhanced sampling (#11) as a registry method
-(`methods/opes.py`) mirroring the metadynamics seam: KDE → bias table →
-`update_table`, with a `kernels.npz` artifact and resume replay.
-Standard and explore modes are planned.
+True QM/MM (ORCA backend, link atoms, charge redistribution), to be
+rebuilt as a 2.x plugin with two real adapters (production QM backend +
+mock). The ML/MM coupling (`ml_region`, see [methods/mlmm.md](../methods/mlmm.md))
+already covers ML-potential regions in-tree.
 
-## GaMD
+## Multi-leg orchestration
 
-Gaussian-accelerated MD (#10) as a real plugin on the verified plugin
-seam (the `examples/gamd_drill/` drill already proves registration,
-discovery and dispatch): boost calibration through `energy_forces()`,
-LiGaMD group boosts via `GroupEnergy`, online parameter updates via
-`BiasParamOps`.
-
-## RBFE
-
-Relative binding free energy (#8): a Boresch restraint triple, λ-window
-orchestration (the first real customer of multi-leg orchestration,
-deferred to 2.x), softcore perturbation at the kernel seam, and BAR/MBAR
-analysis.
-
-## Analysis toolkit
-
-A `neomd.analysis` subpackage + `neomd analysis` CLI (#16) for the v2
-artifact formats (`colvar.tsv`, `hills.npz`, `smd.tsv`): FES convergence,
-block averaging, Tiwary–Parrinello reweighting, multi-walker merging.
-
-## Also planned
-
-QM/MM and ML-powered MD are planned as 2.x plugins (see the README's
-extension section); multi-leg orchestration (`min → eq → prod` in one
-invocation) is deliberately deferred to 2.x.
+`min → eq → prod` in one invocation is deliberately deferred to 2.x.
+The RBFE ladder (`neomd.rbfe.run_ladder`, see [methods/rbfe.md](../methods/rbfe.md))
+is today's deliberately narrow special case: one full `drive()` per λ
+window, with a runner-level ledger and automatic resume.

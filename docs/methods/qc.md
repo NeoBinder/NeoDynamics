@@ -1,24 +1,23 @@
 # 结构质量校验（neomd.qc）
 
-> 状态：issue #15（含 #7 回归）· 已实现（W1-c，`src/neomd/qc.py` + prepare/min 挂钩
-> + `qc_report.json`）· ADR：见
-> [docs/adr/0001-neomd2-strangler-migration.md](../adr/0001-neomd2-strangler-migration.md)
+> 状态：issue #15（含 #7 回归）· 已实现（`src/neomd/qc.py` + prepare/min 挂钩
+> + `qc_report.json`）
 
 ## 背景与动机
 
 issue #7（已关闭）报告：独立准备的蛋白与配体经 v1 `run_generic_md.py` 的
 scipy-minimize 路径 min 后，局部原子出现不合理键长键角（scipy minimize 路径 +
-约束处理相关 bug；OpenMM `minimizeEnergy()` 正常）。issue-dev-plan 对 #7 的判定：
-v1 侧无独立工作项，**复现输入转为 #15 的 QC 回归用例**。
+约束处理相关 bug；OpenMM `minimizeEnergy()` 正常）。#7 的判定：
+legacy 侧无独立工作项，**复现输入转为 #15 的 QC 回归用例**。
 
 issue #15 的系统性动机：与其让用户"肉眼发现"破碎几何，不如让管线在
 **建系后、min 后**自动执行结构质量校验（QC），把这类问题变成"管线自动拦截"。
 
-## 与 issue 方案的差异（v2 决策）
+## 与 issue 方案的差异
 
 - **openmm-free 纯 numpy**：QC 模块为纯 numpy 几何计算（读 topology 文件坐标 +
   序列化 `system.xml` 的平衡值），**不经 kernel port**、不 import openmm —— 与
-  v2-dag 对 #15 的判定一致（"QC 模块应为 openmm-free"）。
+  #15 的判定一致（"QC 模块应为 openmm-free"）。
 - **RDKit 设为 optional extra**：issue 中 PoseBusters 式立体化学检查依赖 RDKit，
   不进核心依赖；配体块检查在体系带 `input_files.ligands` 时自动运行，无配体则
   `skipped`（不是错误）。
@@ -68,5 +67,5 @@ micro-fixture）零 finding 通过。
 
 - PoseBusters（*Chem Sci* 2024，配体合理性检查的风格参照）；OpenMM cookbook 的
   clash/几何检查示例。
-- ADR-0001（strangler 迁移）；`docs/v2-migration-plan.md`（collect-all 验证纪律）；
-  `docs/issue-dev-plan.md` #15 行与 #7 行（复现输入转 QC 回归）。
+- ADR-0001（strangler 迁移）；[issue #15](https://github.com/NeoBinder/NeoDynamics/issues/15)
+  与 [#7](https://github.com/NeoBinder/NeoDynamics/issues/7)（复现输入转 QC 回归）。

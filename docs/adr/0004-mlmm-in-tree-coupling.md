@@ -1,8 +1,8 @@
 # ADR-0004：ML/MM 以内核规格字段（`KernelSpec.ml_region`）在树内实装，不做插件；不依赖 openmm-ml
 
-- 状态：已确认（2026-09-03，W2-d / issue #12 ML/MM 部分）
+- 状态：已确认（2026-09-03，issue #12 ML/MM 部分）
 - 决策者：项目维护者
-- 关联：[Issue 开发计划](../issue-dev-plan.md) 卷首研究决定与 W2-d 行；[AGENTS.md](https://github.com/NeoBinder/NeoDynamics/blob/main/AGENTS.md) 固定决策 #2（物理逐字移植）、#7（双适配器纪律）、#10（openmm 版本 pin 纪律）；ADR-0001
+- 关联：[issue #12](https://github.com/NeoBinder/NeoDynamics/issues/12)（ML/MM，含 openmm-ml 评估）；[AGENTS.md](https://github.com/NeoBinder/NeoDynamics/blob/main/AGENTS.md) 固定决策 #2（物理逐字移植）、#7（双适配器纪律）、#10（openmm 版本 pin 纪律）；ADR-0001
 
 ## 背景
 
@@ -21,7 +21,7 @@ churn 恰集中在注册表层。真正绕不开的底座是 openmm-torch（Torc
 1. **`ml_region` 是内核规格字段（in-tree），不是插件。** 它与 barostat /
    `dummy_exceptions` 同类——"Context 创建前对 System 的装配说明"，走
    `Plan → run.build_kernel_spec → KernelSpec.ml_region → openmm 适配器` 的
-   既有通道；fake 内核忽略之（文档化）。插件机制（W0-c 的 plan-schema
+   既有通道；fake 内核忽略之（文档化）。插件机制（plan-schema
    namespace）服务的是"用户可装的第三方扩展"，而 ML/MM 耦合是内核装配
    知识，不满足插件的判据。
 
@@ -50,7 +50,7 @@ churn 恰集中在注册表层。真正绕不开的底座是 openmm-torch（Torc
 ```yaml
 ml_region:
   indices: [1234, 1235, ...]      # ML 区粒子（0 基）；首期 ligand-only，
-                                  # 跨边界残基 = W3-c
+                                  # 跨边界残基 = 后续残基 ML 区附录
   model:
     type: torchscript | mock
     path: model.pt                 # torchscript 必填；模型文件即接口
@@ -110,7 +110,7 @@ ml_region:
 - 机械嵌入核心 <300 行，逐字移植 + attribution 后可控可测（交叉验证测试
   对拍 openmm-ml 装了才跑）。
 
-### 插件形态（W0-c plugin plan-schema namespace 之上）
+### 插件形态（plugin plan-schema namespace 之上）
 
 - ml_region 不消费插件机制解锁的能力（方法分发、注册表词汇表）；它消费的
   是 KernelSpec 装配通道——barostat/dummy_exceptions 先例所在；
@@ -141,15 +141,15 @@ ml_region:
 
 ## 重开条件
 
-conda-forge 发布 tracking openmm 8.6+ 的 openmm-torch；或 W3-c 落地跨边界
+conda-forge 发布 tracking openmm 8.6+ 的 openmm-torch；或残基 ML 区附录落地跨边界
 残基 ML 区（需要 link-atom / 电荷再分布语义，届时嵌入层需扩展）；或真
 QM/ORCA 重启（另立 ADR）。
 
 ---
 
-## W3-c 附录：活性位点残基 ML 区（跨界键处理，2026-09-03）
+## 附录：活性位点残基 ML 区（跨界键处理，2026-09-03）
 
-开发计划 W3-c 落地时追加；上文其余章节不变。
+残基 ML 区附录落地时追加；上文其余章节不变。
 
 ### 决策
 

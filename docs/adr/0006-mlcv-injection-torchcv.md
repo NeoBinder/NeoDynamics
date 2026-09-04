@@ -1,24 +1,24 @@
 # ADR-0006：ML-CV 期 2 注入 —— TorchScriptCV port 扩展（TorchForce 组合）
 
-- 状态：已提议（2026-09-03，W2-c 产出设计；W3-b「mlcv-期2」实装时确认）
+- 状态：已提议（2026-09-03，期 1 产出设计；期 2 实装时确认）
 - 决策者：项目维护者
-- 关联：[issue 开发计划](../issue-dev-plan.md)（#9 两期拆分、W2-c/W3-b 轨道）、
-  [W1-b CV triples](https://github.com/NeoBinder/NeoDynamics/blob/main/src/neomd/colvars.py)（kind-driven CVIR 先例）、
-  W2-d ML/MM 轨道的 TorchForce 单位契约（见下「共享接口契约」）、
+- 关联：[issue #9](https://github.com/NeoBinder/NeoDynamics/issues/9)（ML-CV 两期拆分）、
+  [kind-driven CV triples](https://github.com/NeoBinder/NeoDynamics/blob/main/src/neomd/colvars.py)（CVIR 先例）、
+  ML/MM 的 TorchForce 单位契约（见下「共享接口契约」）、
   期 1 实现 `src/neomd/mlcv/`（featurizer + 训练 CLI + TorchScript 导出）
 
 ## 背景
 
-issue #9 拆两期。期 1（W2-c，本分支）是出树工具：`neomd mlcv
+issue #9 拆两期。期 1 是出树工具：`neomd mlcv
 featurize/train/convert` 产出特征缓存（features.npz）、线性模型
 （model.npz：TICA / logistic）与 TorchScript 导出（`.pt`，
 `torch.jit.script` 的精确线性权重，float64，与 numpy 侧 `apply_model`
-逐位对拍）。期 2（W3-b）要把训练出的模型**作为集体变量注入模拟核心**
+逐位对拍）。期 2 要把训练出的模型**作为集体变量注入模拟核心**
 ——metadynamics 偏置它、restraint 拉它、`colvar.tsv` 记录它。
 
-注入受阻于一个真实的架构事实（issue-dev-plan #9 行原文）：`CVIR` 是
+注入受阻于一个真实的架构事实（issue #9 原文）：`CVIR` 是
 表达式字符串驱动的（`expression` 是 Lepton 可编译的物理），而
-TorchScript 模型不是表达式。但 W1-b 已经打开了 **kind-driven** 的口子：
+TorchScript 模型不是表达式。但既有的 kind-driven CV 已经打开了 **kind-driven** 的口子：
 `RMSDForce` / `CustomNonbondedForce`（coordination）/ `PathCV` 三个 CV
 的编译由 `kind` 而非 `expression` 驱动（`kernel/openmm.py _compile_cv`
 的三个特殊路径），expression 退化为选择符或文档字符串。PathCV 先例
@@ -89,7 +89,7 @@ Kabsch 对齐、配位开关函数和——全部可微、可 script），线性
 float64 边界转换与 openmm 路径一致，保证双轨 bit 对拍可 pin。切片 A
 的线性路径则完全不需要 torch（表达式求值器足够）。
 
-### 5. 共享接口契约（与 W2-d ML/MM 的 TorchForce 单位契约对齐）
+### 5. 共享接口契约（与 ML/MM 的 TorchForce 单位契约对齐）
 
 两条轨道都消费 TorchForce，必须共享同一份边界契约，避免两个 seam
 各自漂移：
@@ -122,7 +122,7 @@ float64 边界转换与 openmm 路径一致，保证双轨 bit 对拍可 pin。�
   确定——CI 与金样在 fake/CPU 路径，CUDA 只跑统计层（金样现有分层）。
 - **力正确性 vs autodiff**：TorchForce 对模型自动微分，力 = -dE/dx 的
   正确性依赖包装模型对 positions 可微（特征层全部用可微 torch 原语）。
-  验证形态镜像 W1-b：fake/openmm 双轨值对拍 + 有限差分力检查
+  验证形态镜像既有的 kind-driven CV：fake/openmm 双轨值对拍 + 有限差分力检查
   （`energy_forces()` 的力 vs 数值微分，解析几何小体系）。
 - **TorchScript 跨版本**：`.pt` 由 pinned torch 的 convert 产出；注入时
   校验 `torch.__version__` 与记录的训练版本一致，不一致即
@@ -134,14 +134,14 @@ float64 边界转换与 openmm 路径一致，保证双轨 bit 对拍可 pin。�
   器纪律（fake/replay 无法确定性复现），与 issue #11 路径 A 被拒同理。
 - **模型权重硬编码 Lepton 长表达式**：仅覆盖线性、表达式随特征数膨胀
   而脆弱——保留为切片 A 的受控拼写，不作为通用方案。
-- **把序列化模型塞进 `CVIR.expression` 字符串**：违背 W1-b 已定的
+- **把序列化模型塞进 `CVIR.expression` 字符串**：违背既有的
   kind-driven 决策，且把二进制负担压给一个本应是人类可读物理的字段。
 
 ## 后果
 
 - 正面：双轨纪律成立（fake torch 求值 ↔ openmm TorchForce 值对拍）；
   与 ML/MM 共享 TorchForce 底座与单位契约，port 扩展审阅批次
-  （issue-dev-plan §四：TorchCV + ml_region + softcore 集中管理）只需
+  （#9 规划：TorchCV + ml_region + softcore 集中管理）只需
   做一次；featurizer spec 文法一份两用。
 - 负面（已认领）：torch 进生产依赖（pin 纪律认领）；fake kernel 跑
   TorchCV 需要 torch（无 torch 环境下该 CV 的测试 skip，注册与校验仍

@@ -1,7 +1,7 @@
 # GaMD（method: gamd）
 
-> **来源 issue**：[#10 [Feature] 实现 GaMD（Gaussian accelerated MD）管线](../issue-dev-plan.md)
-> **实现状态**：已实现（`src/neomd/methods/gamd.py`，Wave 2 轨道 W2-b，真实插件）
+> **来源 issue**：[#10 [Feature] 实现 GaMD（Gaussian accelerated MD）管线](https://github.com/NeoBinder/NeoDynamics/issues/10)
+> **实现状态**：已实现（`src/neomd/methods/gamd.py`，真实插件）
 > **关联 ADR**：[ADR-0005 GaMD boost 内核缝](../adr/0005-gamd-boost-seam.md)
 > （另涉 [ADR-0002 plugin plan-schema namespace](../adr/0002-plugin-plan-schema-namespace.md)）
 
@@ -13,23 +13,19 @@ GaMD（Gaussian accelerated MD，Miao et al., *JCTC* 2015）通过对势能面�
 metadynamics 形成互补。LiGaMD（ligand GaMD，Miao, *JCP* 2020）专门加速
 配体结合/解离，对酶-底物体系尤其相关（trypsin-benzamidine ΔG 与实验吻合）。
 
-issue #10 写于 **v1 时代**：其正文描述的 `neomd.gamd` 子包、`bin/run_gamd.py`
-入口、复用 `generic.Pipeline` 跑 5–10 ns 标定预跑、以及"输出兼容
-`neomd/analysis`（见分析工具链 issue）"的 v1 分析链，在 v2 中均已重构。
-v2 落点（issue 开发计划 §一 #10 行）：
+issue #10 的原始方案基于 v1 结构（独立 `neomd.gamd` 子包 + `bin/run_gamd.py`
+入口）；当前落点：
 
-- **`src/neomd/methods/gamd.py`**：方法知识三元组（issue 判定为
-  "部分完成：插件 seam drill 已验证"之后的真实实现），经 registry 分发、
+- **`src/neomd/methods/gamd.py`**：方法知识三元组，经 registry 分发、
   prepare 契约调度，无独立子包与 `bin/` 入口；
 - boost 标定用 `port.energy_forces()` / `group_energy()`（既有 port 操作）；
   LiGaMD 组 boost 用 `GroupEnergy` + `pick_free_force_group`；参数在线更新
   用 `BiasParamOps` 同款 seam（`set_boost_param`）；
-- reweighting 依赖 issue #16 的 `neomd.analysis` 子包（w = exp(βΔV)），
-  `bin/*.py` 分析脚本不再存在。
+- reweighting 依赖 issue #16 的 `neomd.analysis` 子包（w = exp(βΔV)）。
 
-## 与 issue 方案的差异（v2 决策）
+## 与 issue 方案的差异
 
-issue 给出两个候选实现（复用 gamd-openmm vs 自研）。v2 决策（ADR-0005，
+issue 给出两个候选实现（复用 gamd-openmm vs 自研）。决策（ADR-0005，
 2026-09-03）：**BoostOps 自研 seam；弃用 gamd-openmm 的乘性双 boost 缩放**。
 
 - **BoostOps 能力协议**（与 BiasOps / BiasParamOps / GroupEnergy 并排，
@@ -49,8 +45,7 @@ issue 给出两个候选实现（复用 gamd-openmm vs 自研）。v2 决策（A
   测试可解析对拍。
 - **resume 从 `gamd_calibration.json` 读回参数重推，不再标定**（推送幂等，
   checkpoint 本身带积分器变量），恢复路径与直跑共享同一参数来源。
-- 其余 issue 任务项（reweight 不确定度输出、配体结合示例）依赖 #16
-  analysis 与后续轨道（计划 §三 W2-b）。
+- 其余 issue 任务项（reweight 不确定度输出、配体结合示例）为后续项。
 
 ## 使用
 
@@ -110,7 +105,7 @@ gamd:
   `gamd.tsv` 至 checkpoint 步，恢复时从 `gamd_calibration.json` 读回参数
   重推（幂等）。步数记账为绝对步（标定 + 生产共享同一坐标系）。
 - **与 analysis 的衔接**：重加权 `w = exp(βΔV)` 走 `neomd.analysis`
-  （`neomd analysis reweight`，读 v2 artifact 格式）；不确定度输出为
+  （`neomd analysis reweight`，读运行产物格式）；不确定度输出为
   后续项。
 
 ## 参考文献
@@ -122,5 +117,5 @@ gamd:
   其 Langevin 更新形式被移植，乘性双 boost 缩放被否决）。
 - [ADR-0005](../adr/0005-gamd-boost-seam.md) —— BoostOps 决策全文
   （含全部否决的替代方案）。
-- [docs/issue-dev-plan.md](../issue-dev-plan.md) §一 #10 行、§三 W2-b ——
-  v2 适配判定与轨道。
+- [issue #10](https://github.com/NeoBinder/NeoDynamics/issues/10) ——
+  原始需求与 v2 适配判定。

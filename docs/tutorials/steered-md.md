@@ -4,7 +4,7 @@ Steered MD swaps in `method: smd` and an `smd:` section whose entries use
 the restraint vocabulary — any rampable key (`restr_k`, `max_nm`,
 `min_degree`, `order`, `maxRMSD_nm`, `ref_position_nm`, ...) given a LIST
 of values is piecewise-linearly interpolated over `steps` and pushed to
-the kernel on a fixed 5000-step staircase (v1 semantics, verbatim).
+the kernel on a fixed 5000-step staircase.
 
 ```yaml
 method: smd

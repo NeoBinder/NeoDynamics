@@ -1,7 +1,7 @@
 # neomd-gamd-drill — the GAMD plugin drill
 
-GAMD / ML-MD are **Non-Goals** of the v2 migration (docs/v2-migration-plan.md
-§2); this mini package exists solely as the drill §5 item 2.9 asks for:
+GAMD / ML-MD were **Non-Goals** of the v2 migration; this mini package
+exists solely as the plugin drill:
 
 > GAMD plugin drill (a standalone mini package, not in core): validates
 > `register("method", ...)` and the importlib.metadata discovery mechanism

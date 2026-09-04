@@ -1,9 +1,9 @@
 # OPES（method: opes）
 
-> **来源 issue**：[#11 [Feature] 支持 OPES 增强采样（WT-MetaD 的现代升级路径）](../issue-dev-plan.md)
-> **实现状态**：已实现（`src/neomd/methods/opes.py`，Wave 2 轨道 W2-a，路径 B 自研）
-> **关联 ADR**：无（自研决策记录在 issue 开发计划 §一 #11 行与下文"差异"节）
-> **实现规格**：cyrushu 的 issue #11 评论（2026-07-22）+ Invernizzi–Parrinello 2020/2022 论文
+> **来源 issue**：[#11 [Feature] 支持 OPES 增强采样（WT-MetaD 的现代升级路径）](https://github.com/NeoBinder/NeoDynamics/issues/11)
+> **实现状态**：已实现（`src/neomd/methods/opes.py`，路径 B 自研）
+> **关联 ADR**：无（自研决策见下文"与 issue 方案的差异"节）
+> **实现规格**：issue #11 评论（2026-07-22）+ Invernizzi–Parrinello 2020/2022 论文
 
 ## 背景与动机
 
@@ -14,11 +14,8 @@ OPES（On-the-fly Probability Enhanced Sampling，Invernizzi & Parrinello,
 metadynamics 的网格存储 bias，OPES 摆脱了"每次加 hill 更新整个网格、网格随
 CV 维数指数增长"的结构性限制。
 
-issue #11 写于 **v1 时代**：其正文描述的 `metadynamics/engine.py`（numpy 网格 +
-`CustomCVForce` 查表插值）、`metadynamics/colvar.py` 的 `idstr2list`、
-`bin/hills_ana.py` 分析链、`engine.py` 旁新增 `OPESEngine` 的落点，在 v2 中
-均已重构（见 [docs/v2-migration-plan.md](../v2-migration-plan.md)）。v2 落点
-（issue 开发计划 §一 #11 行）：
+issue #11 的原始方案基于 v1 结构（`metadynamics/engine.py` numpy 网格、
+`bin/hills_ana.py` 分析链、`engine.py` 旁新增 `OPESEngine`）。当前落点：
 
 - **`src/neomd/methods/opes.py`**：方法知识三元组，与 metadynamics triple
   完全同构——KDE → 表格 → `update_table`，经 registry 分发，由
@@ -27,13 +24,13 @@ issue #11 写于 **v1 时代**：其正文描述的 `metadynamics/engine.py`（n
   `colvar.py`/PLUMED 语法转换层）；
 - 分析经 `neomd.analysis`（issue #16 的新工具链），不再有 `bin/hills_ana.py`。
 
-## 与 issue 方案的差异（v2 决策）
+## 与 issue 方案的差异
 
-issue 给出两条路径，v2 **重定路径：路径 B（自研）为主，路径 A 降级为旁路
-实验**（issue 开发计划 §一 #11 行，2026-09-02）：
+issue 给出两条路径，**重定路径：路径 B（自研）为主，路径 A 降级为旁路
+实验**（2026-09-02）：
 
 - **路径 A（openmm-plumed / PLUMED `OPES_METAD` 驱动）被降级**：它绕过
-  KernelPort seam 直接注入 OpenMM Simulation，与 v2 的三适配器架构
+  KernelPort seam 直接注入 OpenMM Simulation，与三适配器架构
   （openmm / fake / replay，`provides()` 能力协商）相抵——fake kernel 的
   确定性测试与 resume 的 bit-exact 保证都会失去定义点。
 - **路径 B（自研）为主**：`methods/opes.py` 与 metadynamics triple 完全
@@ -41,12 +38,12 @@ issue 给出两条路径，v2 **重定路径：路径 B（自研）为主，路�
   `on_step_interval = opes_set.pace` 驱动更新，`bias_ops().update_table`
   推表），fake kernel 可确定性跑全部 OPES 数学（KDE 无 RNG，压缩是
   最近核而非随机采样）。
-- 实现规格 = **cyrushu 的 issue #11 评论（2026-07-22）**（论文摘要级公式，
+- 实现规格 = **issue #11 评论（2026-07-22）**（论文摘要级公式，
   直接作为规格），细节以 Invernizzi–Parrinello 2020/2022 论文 + PLUMED
   参考实现（仅作文档参照，未复制代码）补齐。
 - issue 任务清单中的 "examples ala OPES 示例 / trypsin-benzamidine 结合
-  示例 / 多 walker 编排" 属后续工作（多 walker 与 #8 的迷你编排共享，
-  见计划 §二 W2-a）。
+  示例 / 多 walker 编排" 属后续工作（多 walker 合并由 `neomd.analysis merge`
+  提供；端到端编排与 RBFE #8 共享）。
 
 ## 使用
 
@@ -95,7 +92,7 @@ opes_set:
   explore 双 mode），镜像 `methods/metadynamics.py`——schema + 力表达 +
   observables 一个定义点，`entry.prepare(...) -> PreparedMethod` 后由
   DRIVER 跑循环。
-- **数学要点**（cyrushu 规格）：无偏边际的加权 KDE
+- **数学要点**（issue #11 规格）：无偏边际的加权 KDE
   `P_n(s) = Σ w_k G(s, s_k)/Σ w_k`，`w_k = exp(β V_{k-1}(s_k))`
   （explore 模式估计的是被偏置的采样分布，`w_k = 1`）；
   `V_n(s) = (1-1/γ)(1/β) log(P_n(s)/Z_n + ε)`（standard）、
@@ -125,7 +122,7 @@ opes_set:
   2022）。
 - PLUMED 文档：`OPES_METAD` / `OPES_METAD_EXPLORE` / `OPES_FLOODING`
   （issue 引用；实现期仅作文档参照，未复制代码）。
-- [docs/issue-dev-plan.md](../issue-dev-plan.md) §一 #11 行、§三 W2-a ——
-  路径 B 决策与轨道。
+- [issue #11](https://github.com/NeoBinder/NeoDynamics/issues/11) ——
+  原始需求与路径 B 决策。
 - [AGENTS.md](https://github.com/NeoBinder/NeoDynamics/blob/main/AGENTS.md) "Knowledge triples" 段 —— opes triple 的
   as-built 描述。

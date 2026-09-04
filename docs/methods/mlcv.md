@@ -1,6 +1,6 @@
 # 机器学习集体变量（ML-CV，期 1：featurize → train → convert）
 
-- issue：[#9](https://github.com/cyrushu/NeoDynamics/issues/9)（机器学习
+- issue：[#9](https://github.com/NeoBinder/NeoDynamics/issues/9)（机器学习
   集体变量与 ML 增强采样）
 - 实现状态：期 1 已落地（出树工具、零核心改动）；期 2 注入见
   [ADR-0006](../adr/0006-mlcv-injection-torchcv.md)
@@ -8,8 +8,8 @@
 
 ## 背景与动机
 
-README roadmap 提到 machine learning-powered MD。issue #9 指出：v1
-`metadynamics/colvar.py` 仅有 5 种手写几何 CV（distance /
+README roadmap 提到 machine learning-powered MD。issue #9 指出：此前
+CV 库只有 5 种手写几何 CV（distance /
 distance_ref / min_distances / dihedral / angle），而结合-解离采样对
 CV 质量高度敏感——文献反复证明简单距离 CV 在 trypsin-benzamidine 上
 即失效，需要口袋水合、配体取向、接触图等复杂 CV。社区标准做法是
@@ -22,20 +22,20 @@ issue 技术方案四层：特征化层（Cα 距离矩阵、残基接触图、�
 注入层（openmm-plumed `PYTORCH_MODEL` 或 OpenMM TorchForce）、迭代
 流程（`bin/train_mlcv.py` 采样-训练循环 CLI）。
 
-## 与 issue 方案的差异（v2 决策）
+## 与 issue 方案的差异
 
-issue 开发计划（2026-09-02）把 #9 拆两期，依据是真实的架构事实：
+issue #9（2026-09-02）拆两期，依据是真实的架构事实：
 `CVIR` 是表达式字符串驱动（`expression` 是 Lepton 可编译的物理），
 TorchScript 模型不是表达式——注入需要新的 CV kind，属 port 扩展。
 
-- **期 1（本分支，W2-c）是出树工具、零核心改动**：`neomd mlcv`
+- **期 1 是出树工具、零核心改动**：`neomd mlcv`
   CLI 子命令（不再是 `bin/train_mlcv.py` 脚本）做 featurize / train /
   convert 三步，numpy-only，不进模拟内核路径。mlcolvar 也不进依赖——
   首期模型是自实现的线性 TICA（慢线性分量，C_tau v = λ C_0 v 广义
   特征问题）与 logistic 回归（两盆地标签）。
-- **期 2（注入，W3-b）前置 ADR**：[ADR-0006]
+- **期 2（注入）前置 ADR**：[ADR-0006]
   (../adr/0006-mlcv-injection-torchcv.md) 设计了新 CV kind
-  `"TorchScriptCV"`（kind-driven CVIR，W1-b RMSD/coordination/PathCV
+  `"TorchScriptCV"`（kind-driven CVIR，RMSD/coordination/PathCV
   先例）+ openmm 适配器 TorchForce-as-inner-CV（PathCV 组合的推广）+
   fake kernel torch eval-mode 确定性求值（双轨纪律 #5）。分层落地：
   切片 A 线性模型 expression 化（零新依赖端到端闭环），切片 B 通用
@@ -49,7 +49,7 @@ README 的「ML collective variables (phase 1)」一节是入口摘要；完整
 
 ```bash
 # 1. featurize：对 run 目录的 output.dcd 帧计算命名特征列
-#    （距离、W1-b 的 coordination/path/rmsd CV、平滑接触数、tape
+#    （距离、kind-driven coordination/path/rmsd CV、平滑接触数、tape
 #    直通列），质量取自该 run 的 system.xml——确定性 npz 缓存
 neomd mlcv featurize featurize.yaml            # run_dirs + features: {...}
 
@@ -83,8 +83,8 @@ neomd mlcv convert model.npz -o cv.pt
 
 - [ADR-0006：ML-CV 期 2 注入——TorchScriptCV port 扩展（TorchForce
   组合）](../adr/0006-mlcv-injection-torchcv.md)
-- [issue 开发计划](../issue-dev-plan.md) #9 行（两期拆分与 W2-c/W3-b
-  轨道）
+- [issue #9](https://github.com/NeoBinder/NeoDynamics/issues/9)（ML-CV
+  两期拆分）
 - mlcolvar, *JCP* 2023（arXiv:2305.19980）
 - Trizio & Parrinello, *JPC Lett* 2021（Deep-LDA）
 - Bonati & Parrinello, *JCTC* 2024（SPIB）

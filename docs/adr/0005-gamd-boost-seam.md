@@ -1,8 +1,8 @@
 # ADR-0005：GaMD boost 内核缝 —— port 新增 BoostOps 能力（install_boost / set_boost_param / boost_potentials），而非 BiasIR 加性偏置或 KernelSpec 字段
 
-- 状态：已确认（2026-09-03，Wave 2 轨道 W2-b）
+- 状态：已确认（2026-09-03）
 - 决策者：项目维护者
-- 关联：[ADR-0002](0002-plugin-plan-schema-namespace.md)、[issue 开发计划 W2-b](../issue-dev-plan.md)（issue #10）、GaMD 文献（Miao/Feher/McCammon, JCTC 2015；Miao 2016 dual-boost；Miao/Bhattarai/Wang, JCTC 2020 LiGaMD；Copeland/Miao 等, JPCB 2022 gamd-openmm）
+- 关联：[ADR-0002](0002-plugin-plan-schema-namespace.md)、[issue #10](https://github.com/NeoBinder/NeoDynamics/issues/10)、GaMD 文献（Miao/Feher/McCammon, JCTC 2015；Miao 2016 dual-boost；Miao/Bhattarai/Wang, JCTC 2020 LiGaMD；Copeland/Miao 等, JPCB 2022 gamd-openmm）
 
 ## 背景
 
@@ -13,7 +13,7 @@ BiasIR 的力来自其自身表达式，不乘其它 force group 的力。既有
 （gamd-openmm、AMBER、NAMD）都是 CustomIntegrator 每步把各 force group 的
 能量（`energy`、`energy1`…）读进全局变量，算出 ΔV 与缩放因子，再在
 Langevin 更新里逐 group 缩放力。v2 需要在 KernelPort 缝上等价的东西——
-这是 issue 开发计划点名的 "port 扩展" 批次的一部分。
+这是 issue #10 点名的 "port 扩展" 批次的一部分。
 
 ## 决策
 
@@ -124,7 +124,7 @@ CustomIntegrator 表达式实现 Welford——可测试性差（fake 与 openmm 
   LangevinIntegrator 不逐位等价——GaMD 是新物理，无 golden 基线可破，
   非等价性文档化即可。
 
-## 实现补记（W2-b 落地时）
+## 实现补记
 
 dual boost 的二面角通道需要"哪些 force group 持有扭转能"这一发现能力。
 落在 BoostOps 之外的一个 duck-typed 伴随方法

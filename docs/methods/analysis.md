@@ -1,7 +1,7 @@
 # 增强采样分析与收敛诊断工具链（neomd.analysis）
 
-> 状态：issue #16 · 已实现（W1-a，`src/neomd/analysis/` + `neomd analysis` CLI）· ADR：见
-> [docs/adr/0001-neomd2-strangler-migration.md](../adr/0001-neomd2-strangler-migration.md)（v2 迁移总 ADR）
+> 状态：issue #16 · 已实现（`src/neomd/analysis/` + `neomd analysis` CLI）· 相关 ADR：
+> [docs/adr/0001-neomd2-strangler-migration.md](../adr/0001-neomd2-strangler-migration.md)
 
 ## 背景与动机
 
@@ -14,18 +14,17 @@ FES）。issue #16 指出生产使用还缺五类能力：
 4. **多 walker 合并** —— 多副本共享 bias 目录时的合并分析；
 5. **动力学** —— flooding / infrequent MetaD 的过渡时间统计。
 
-更重要的是 v2 决策 #6 的有意破坏：新 artifact 格式（`colvar.tsv` / `hills.npz` /
-`smd.tsv`）**有意**打破了 v1 `gethill` / `hills_ana` 的读者，"rewrite lands in
-2.x" 点名的就是本工作项。v2 分析工具链必须读新格式，且是 GaMD reweight（#10）、OPES
-（#11）、RBFE BAR/MBAR（#8）与 ML-CV 收敛诊断（#9）的共享基座，issue-dev-plan 因此将其
-列为优先。
+更重要的是新 artifact 格式的有意破坏：`colvar.tsv` / `hills.npz` /
+`smd.tsv` **有意**打破了 v1 `gethill` / `hills_ana` 的读者。分析工具链必须读
+新格式，且是 GaMD reweight（#10）、OPES（#11）、RBFE BAR/MBAR（#8）与
+ML-CV 收敛诊断（#9）的共享基座。
 
-## 与 issue 方案的差异（v2 决策）
+## 与 issue 方案的差异
 
 - 落点为 **`neomd.analysis` 子包 + `neomd analysis` CLI 子命令**，不再新增 `bin/fes_ana.py`
-  之类的 bin/ 脚本 —— 与 v2 "facade + CLI 子命令" 的入口纪律一致。
-- 读取对象是 v2 新 artifact（`colvar.tsv` / `hills.npz` / `smd.tsv` + `manifest.json`
-  的 grid 元数据），**不做 v1 兼容**（决策 #6：无永久兼容层）。
+  之类的 bin/ 脚本 —— 与 "facade + CLI 子命令" 的入口纪律一致。
+- 读取对象是新 artifact（`colvar.tsv` / `hills.npz` / `smd.tsv` + `manifest.json`
+  的 grid 元数据），**不做 v1 兼容**（无永久兼容层）。
 - **不做绘图**：输出 tsv/json 到 stdout 或 `--out` 文件，numpy-only、确定性、openmm-free。
 - flooding / infrequent-MetaD 动力学分析为**有记录的后续项**：新格式尚未定义该观测量，
   issue 中该项不在本次落地范围。
@@ -71,5 +70,5 @@ neomd analysis merge walker_a walker_b --out merged
 
 - Tiwary & Parrinello, *JPCL* 2015（c(t) reweighting）；Bussi group sum_hills /
   PLUMED 分析文档。
-- ADR-0001（strangler 迁移）；`docs/v2-migration-plan.md` 决策 #6（artifact 破坏性
-  变更、"rewrite lands in 2.x"）；`docs/issue-dev-plan.md` #16 行与 W1-a 行。
+- ADR-0001（strangler 迁移）；[issue #16](https://github.com/NeoBinder/NeoDynamics/issues/16)
+  （分析工具链需求）。

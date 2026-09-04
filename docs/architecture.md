@@ -1,17 +1,13 @@
 # Architecture overview
 
 NeoDynamics is a molecular-dynamics SDK on OpenMM (generic MD +
-well-tempered metadynamics + steered MD). Since v0.2.0 (the 2026-08-27
-flip) the v2 architecture under `src/neomd/` is the only active codebase;
-`src/neomd_legacy/` is frozen v1 — bug fixes only, kept for one
-deprecation release together with the `neomd2` script alias.
+well-tempered metadynamics + steered MD). The active codebase lives under
+`src/neomd/`; `src/neomd_legacy/` is frozen v1 — bug fixes only, kept for
+one deprecation release together with the `neomd2` script alias.
 
-This page condenses the as-built picture; the deep records live in the
-[v2 migration plan](v2-migration-plan.md) (decisions, phases, flip day),
-[v2 improvements](v2-improvements.md) (post-flip items and settled
-debates), the [execution board](v2-dag.md) and
-[ADR 0001](adr/0001-neomd2-strangler-migration.md) (why a same-repo
-strangler migration).
+This page condenses the as-built picture; the design rationale is recorded
+in the ADRs under [adr/](adr/0001-neomd2-strangler-migration.md), starting
+with ADR 0001 (why a same-repo strangler migration).
 
 ## The pieces
 
@@ -57,8 +53,8 @@ The registry is the public plugin surface: `neomd.register()` or the
 
 ## Settled decisions
 
-The architecture rests on decisions converged through explicit review
-rounds and frozen in [AGENTS.md](https://github.com/NeoBinder/NeoDynamics/blob/main/AGENTS.md)
+The architecture rests on decisions frozen in
+[AGENTS.md](https://github.com/NeoBinder/NeoDynamics/blob/main/AGENTS.md)
 (v1 hard freeze, physics ported verbatim, KernelPort stays, dual-track
 restraint reporting, no permanent compatibility layers, ...). Challenge
 them only with new evidence.

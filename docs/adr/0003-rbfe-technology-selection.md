@@ -1,20 +1,20 @@
 # ADR-0003：RBFE 引擎技术选型 —— openmmtools（prepare 边界依赖）而非整体 OpenFE 或全自研 softcore
 
-- 状态：已确认（2026-09-03，W1-d 出 ADR，W3-a 实装前生效）
+- 状态：已确认（2026-09-03，Boresch restraint triple 出 ADR，RBFE 实装前生效）
 - 决策者：项目维护者
-- 关联：[v2 迁移计划](../v2-migration-plan.md)、[issue 开发计划](../issue-dev-plan.md)（#8 与 W3-a 轨道）、
+- 关联：[issue #8](https://github.com/NeoBinder/NeoDynamics/issues/8)（RBFE）、
   [ADR-0001](0001-neomd2-strangler-migration.md)、AGENTS.md §Settled decisions
   （#5 双轨、#6 无永久兼容层、#8 多腿编排、#10 上游版本 pin 纪律）
 
 ## 背景
 
-W3-a 要造 RBFE（relative binding free energy）引擎，需要四块：
+RBFE（relative binding free energy）引擎需要四块：
 
 1. **alchemical 物理**：softcore 静电/色散形式、alchemical region 记账、
    λ 全局参数化 —— 微妙且必须经热力学检验的化学；
 2. **λ 窗口编排**：N 个窗口各自成段动力学（settled decision #8 把多腿编排放到
    2.x，这里是第一次真实 revisit，见"后果"）；
-3. **分析**：BAR/MBAR（W1-a `neomd.analysis` 的既有范围）；
+3. **分析**：BAR/MBAR（`neomd.analysis` 的既有范围）；
 4. **基准**：CDK2/trypsin 对拍文献。
 
 v2 的架构约束（映射依据，均已核实）：
@@ -23,7 +23,7 @@ v2 的架构约束（映射依据，均已核实）：
   replay（金带回放）。fake 按 decision #9 只实现教科书物理，**不得**生长
   OpenMM corner-case 模仿。
 - **alchemical 变换的 v2 先例已经存在**：barostat / `dummy_exceptions` /
-  （W2-d 计划中的）`ml_region` 都走同一条路 —— **System 形状的修改**，在
+  （ML/MM 计划中的）`ml_region` 都走同一条路 —— **System 形状的修改**，在
   Context 创建前由 openmm 适配器实现，经 `KernelSpec` 字段传入，fake 忽略。
   softcore 非键修改与它们同类（改的是 System 里的力，不是 bias）。
 - **λ 在线可调的 seam 已存在**：`BiasParamOps.set_bias_param` 就是 v1
@@ -48,7 +48,7 @@ v2 的架构约束（映射依据，均已核实）：
 
 ## 决策
 
-**W3-a 的 RBFE 引擎以 openmmtools（`alchemy` 模块）为 alchemical 物理的
+**RBFE 引擎以 openmmtools（`alchemy` 模块）为 alchemical 物理的
 prepare 边界依赖；hybrid topology 构建以 vendor perses 派生代码（MIT，
 attribution，逐字移植纪律）实现于 openmm 边界模块内；不整体引入 OpenFE
 框架，不自研 softcore。** 具体：
@@ -64,10 +64,10 @@ attribution，逐字移植纪律）实现于 openmm 边界模块内；不整体�
 2. **λ 阶梯**：同一份 alchemical system，各窗口不同的 λ 初值经
    Context 全局参数下置（`set_bias_param` 同一 seam 的
    `setParameter` 机制）；窗口间不共享 Context。
-3. **窗口编排**：W3-a 自带一个**薄的** per-window 循环（N 次 `drive()`，
+3. **窗口编排**：RBFE 实装自带一个**薄的** per-window 循环（N 次 `drive()`，
    共享 runner 级 manifest/账本），这是 decision #8 多腿编排的**受控最小
    revisit** —— 不是通用 `min → eq → prod` 管线（那仍是 2.x）。
-4. **分析**：BAR/MBAR 落 `neomd.analysis`（W1-a），读各窗口的
+4. **分析**：BAR/MBAR 落 `neomd.analysis`，读各窗口的
    `output.state`/λ-轨迹新带。
 5. **基准**：CDK2/trypsin 对拍文献值（OpenFE 公开基准数据可直接作参照
    数字），这是物理正确性的唯一裁判（decision #9：金带只证行为不变）。
@@ -119,7 +119,7 @@ attribution，逐字移植纪律）实现于 openmm 边界模块内；不整体�
   v2 有优势的地方：编排、resume、产物、分析一体化
 - KernelPort 面零扩张；alchemical 修改走既有 `KernelSpec` system-修改先例，
   架构叙事不变
-- W3-a 的解锁链清晰：W1-a analysis（BAR/MBAR）→ 本 ADR → λ 编排 spike
+- 解锁链清晰：`neomd.analysis`（BAR/MBAR）→ 本 ADR → λ 编排 spike
   （先 2 窗口 mock）→ 真实 softcore → CDK2/trypsin 基准
 
 ### 负面（已认领）

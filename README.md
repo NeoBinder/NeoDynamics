@@ -18,10 +18,10 @@ on top of [OpenMM](https://openmm.org/). The package contains:
   forcefields (AM1-BCC/GAFF via antechamber, RESP2 charges via ORCA, or
   expert-designed parameters)
 
-> Since **v0.2.0** (the 2026-08-27 flip) the v2 architecture under
-> `src/neomd/` is the only active codebase. `src/neomd_legacy/` is the
-> frozen v1 package, kept for one deprecation release together with the
-> `neomd2` script alias and the `bin/` compatibility wrappers.
+> The active codebase is `src/neomd/`. `src/neomd_legacy/` is the
+> frozen v1 package (bug fixes only), kept for one deprecation release
+> together with the `neomd2` script alias and the `bin/` compatibility
+> wrappers.
 
 ## Highlights
 
@@ -441,7 +441,7 @@ NeoDynamics/
 ├── tests/golden/              # golden-tape harness + 9 committed v1 tapes
 ├── examples/                  # 3HTB_complex walkthrough, ala_meta, gamd_drill plugin,
 │                              # mlmm_ligand (ML/MM demo)
-├── docs/                      # v2 migration plan, improvements log, DAG board, ADR
+├── docs/                      # user-facing docs site (tutorials, methods, ADRs)
 └── bin/                       # thin v1 compatibility wrappers + standalone
                                 # v1 analysis tools (protein/trajectory/
                                 # parse_ff_params — heavy deps, own env)
@@ -450,9 +450,6 @@ NeoDynamics/
 ## Documentation
 
 - [AGENTS.md](AGENTS.md) — development workflow (worktree), working discipline and settled architecture decisions
-- [docs/v2-migration-plan.md](docs/v2-migration-plan.md) — the full strangler-migration record (decisions, phases, flip day)
-- [docs/v2-improvements.md](docs/v2-improvements.md) — post-flip improvement items and settled debates
-- [docs/v2-dag.md](docs/v2-dag.md) — execution board and post-flip verification numbers
 - [docs/adr/0001-neomd2-strangler-migration.md](docs/adr/0001-neomd2-strangler-migration.md) — ADR: why a same-repo strangler migration
 - [docs/adr/0004-mlmm-in-tree-coupling.md](docs/adr/0004-mlmm-in-tree-coupling.md) — ADR: in-tree `KernelSpec.ml_region`, the no-openmm-ml decision, the pinned ml environment
 

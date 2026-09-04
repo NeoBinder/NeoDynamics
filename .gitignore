@@ -189,3 +189,4 @@ idea/
 
 # agent workspaces
 .zcode/
+.agents/

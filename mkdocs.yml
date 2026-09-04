@@ -28,14 +28,11 @@ markdown_extensions:
   - pymdownx.highlight
   - pymdownx.superfences
 
-# the reference generator is tooling, not site content; the issue-dev-plan
-# board stays out of the user-facing nav (still built, not listed);
+# the reference generator is tooling, not site content;
 # __pycache__ appears when the sync test imports the generator in-place
 exclude_docs: |
   generate_reference.py
   __pycache__
-not_in_nav: |
-  issue-dev-plan.md
 
 nav:
   - Home: index.md
@@ -48,7 +45,4 @@ nav:
       - Coming soon: tutorials/coming-soon.md
   - Development:
       - Overview: development.md
-      - v2 migration plan: v2-migration-plan.md
-      - v2 improvements: v2-improvements.md
-      - v2 execution board: v2-dag.md
       - ADR 0001 — same-repo strangler migration: adr/0001-neomd2-strangler-migration.md

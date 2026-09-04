@@ -1,10 +1,10 @@
-"""Golden-tape trimming rules (Phase 0, task 0.4 of the v2 migration plan).
+"""Golden-tape trimming rules.
 
 These rules are shared by the recorder (tests/golden/record_v1_golden.py) and
 the comparison test (tests/test_golden.py); both must always go through this
 module so a recorded tape and a re-run are trimmed identically.
 
-Trimming rules (from docs/v2-migration-plan.md Phase 0):
+Trimming rules:
   * energies:      potential energy in kJ/mol sampled every 10 steps,
                    formatted "%.6f"
   * coord frames:  sha256 hex of the float64 positions array

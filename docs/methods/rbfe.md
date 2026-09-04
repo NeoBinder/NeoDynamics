@@ -1,6 +1,6 @@
 # RBFE（相对结合自由能，λ 窗口）
 
-> 状态：issue #8（W3-a 轨道，主切片）· 实现状态：已实装（`methods/rbfe.py` +
+> 状态：issue #8（主切片）· 实现状态：已实装（`methods/rbfe.py` +
 > `neomd/rbfe.py::run_ladder` + `neomd.analysis.freeenergy`，fake 确定性 CI 全绿，
 > openmm 侧 openmmtools 门控冒烟在 `rbfe` pixi env）·
 > ADR：[ADR-0003](../adr/0003-rbfe-technology-selection.md)（选型）、
@@ -14,19 +14,15 @@ issue #8 的出发点：公司核心业务（蛋白设计 / 酶-底物优化）�
 RMSE ~1.0–1.3 kcal/mol，中性边 2–12 GPU·h）。issue 设定的闭环是：
 扰动构建 → λ 窗口调度 → 采样 → BAR/MBAR 分析。
 
-issue 写作时基于 v1 代码盘点基础设施：`builder` 的力场与配体模板体系、
-`restraints/constructor.py` 的约束构造（可扩展为 Boresch restraints）、
-`generic.Pipeline` 可复用跑每个 λ 窗口、`bin/rbfe_ana.py` 做分析。
-**注意：这些 v1 路径在 v2 已全部重构**——`builder`→`tools/`、
-`restraints/constructor.py`→restraint triple（见
-[boresch.md](boresch.md)）、`generic.Pipeline`→`drive()`/`PreparedMethod`、
-`bin/rbfe_ana.py`→`neomd analysis` CLI 子命令（issue 开发计划 #8 行的映射）。
-本文只描述 v2 的实装形状。
+issue 写作时基于 v1 代码盘点基础设施（`builder`、约束构造、`Pipeline`
+复用、`bin/` 分析脚本）；这些职责现已分别落在 `tools/`、restraint
+triple（见 [boresch.md](boresch.md)）、`drive()`/`PreparedMethod` 与
+`neomd analysis` CLI。本文只描述当前实装形状。
 
-## 与 issue 方案的差异（v2 决策）
+## 与 issue 方案的差异
 
 issue #8 的技术方案给出两条扰动层路线（A：openmmtools/OpenFE 薄封装；
-B：自研轻量 softcore）。v2 的取舍记录在 ADR-0003/0007：
+B：自研轻量 softcore）。取舍记录在 ADR-0003/0007：
 
 - **扰动层（ADR-0003）**：选 openmmtools `alchemy` 模块做 **prepare 边界
   依赖**——softcore/alchemical 力的生成是 System 手术（与 barostat /
@@ -136,6 +132,6 @@ BAR 取两窗、MBAR 取整条阶梯，输入就是窗口目录列表（du 带�
   Approach*, J. Phys. Chem. B 2003, 107, 9535–9551（锚 restraint，见
   [boresch.md](boresch.md)）
 - OpenFE 工业基准（ChemRxiv 2025：中性边 5.8±3.4 GPU·h @ L40S）；
-  LiveCoMS RBFE best practices（issue #8 引用的公开基准来源，v2 作
+  LiveCoMS RBFE best practices（issue #8 引用的公开基准来源，作
   对拍参照，不作依赖）
 - Bennett 1976（BAR）；Shirts & Chodera 2008（MBAR）

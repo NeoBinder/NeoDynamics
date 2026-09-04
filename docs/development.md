@@ -13,7 +13,7 @@ squashed commit after confirmation).
 ```bash
 pixi run test          # pytest -m 'not golden and not legacy' — the CI gate (~6 min)
 pixi run test-golden   # golden-sample parity vs v1 tapes, bit-exact (~3 min)
-pixi run test-legacy   # frozen v1 live tests (excluded from CI after the flip)
+pixi run test-legacy   # frozen v1 live tests (excluded from CI)
 
 pixi run docs-gen      # regenerate docs/reference/configuration.md from the live package
 pixi run docs-build    # mkdocs build --strict — warnings fail the build
@@ -36,18 +36,11 @@ result with your change.
 docs/mkdocs/the package and deploys it to GitHub Pages on every push to
 `main` (plus manual dispatch).
 
-## Deep-dive records
+## Architecture decision records
 
-- [v2 migration plan](v2-migration-plan.md) — the full strangler-migration
-  record: 16 grilling decisions, phases, the flip day, discipline and the
-  settled-debates follow-ups.
-- [v2 improvements](v2-improvements.md) — post-flip improvement items and
-  settled debates (the closed KernelPort surface, resume ownership, ...).
-- [v2 execution board](v2-dag.md) — the execution DAG and post-flip
-  verification numbers.
 - [ADR 0001](adr/0001-neomd2-strangler-migration.md) — why a same-repo
   strangler migration instead of an in-place refactor or a fresh
-  repository.
+  repository. Further ADRs live alongside it in `docs/adr/`.
 
 ## Testing and CI
 

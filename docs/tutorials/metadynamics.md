@@ -41,7 +41,7 @@ output:
   trimmed to the checkpoint step by the single resume owner.
 - **Update throttling** — `meta_set.update_context_frequency` (optional)
   throttles the bias-table push to the kernel; by default the push happens
-  on every hill (v1 semantics).
+  on every hill.
 
 Runnable examples live in the repository:
 [`examples/ala_meta/`](https://github.com/NeoBinder/NeoDynamics/tree/main/examples/ala_meta)

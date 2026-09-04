@@ -9,9 +9,12 @@ Python 3.12+ · OpenMM 8.6.x · MIT license · version derived from git tags
 The package contains:
 
 - OpenMM pipelines for generic MD (`min` / `eq` / `md` / `prod`),
-  well-tempered metadynamics and steered MD (QM/MM, GaMD and ML-powered MD
-  are planned as 2.x plugins)
+  well-tempered metadynamics, steered MD, OPES and GaMD (QM/MM is planned
+  as a 2.x plugin), plus in-tree ML/MM coupling and RBFE λ-window
+  free-energy calculation
 - OpenMM system-building tools (protein + ligand + solvent)
+- Post-run analysis (`neomd.analysis`): FES reconstruction, convergence
+  windows, block averaging, Tiwary–Parrinello reweighting, BAR/MBAR
 - Ligand forcefield creation and support for externally supplied ligand
   forcefields (AM1-BCC/GAFF via antechamber, RESP2 charges via ORCA, or
   expert-designed parameters)

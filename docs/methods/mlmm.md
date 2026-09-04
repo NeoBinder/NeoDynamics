@@ -1,34 +1,32 @@
 # ML/MM 耦合（ML-potential region）
 
-- issue：[#12](https://github.com/cyrushu/NeoDynamics/issues/12)（QM/MM 修复与完整化 → ML/MM 切片）
-- 实现状态：W2-d 已落地（ligand-only ML 区）；W3-c 已落地（活性位点
-  残基 ML 区——见「活性位点残基 ML 区」章节）
+- issue：[#12](https://github.com/NeoBinder/NeoDynamics/issues/12)（QM/MM 修复与完整化 → ML/MM 切片）
+- 实现状态：已实现——ligand-only ML 区 + 活性位点残基 ML 区
+  （见「活性位点残基 ML 区」章节）
 - 决策记录：[ADR-0004](../adr/0004-mlmm-in-tree-coupling.md)
 
 ## 背景与动机
 
-issue #12 的原始诉求是修复 v1 `src/neomd/qmmm/pipeline.py`：其中
-`prepare_qmmm()` 存在多处未定义引用（`topology_export`、`OpenMMWrapper`、
-`QMMM_Subtractive_Handler`、`qm_wrapper`、`qmmm_force`），README 却把
-QM/MM 列为待发布功能。**判定：legacy qmmm 是未完成重构的 WIP，不是
-bug，不在 `neomd_legacy` 的 bug-fix-only 范围内**——v1 硬冻结（固定决策
-#1）下不修 v1 代码，新功能落 v2。
+issue #12 的原始诉求是修复 v1 的 qmmm pipeline——一个未完成重构的 WIP
+（多处未定义引用，README 却把 QM/MM 列为待发布功能）。**判定：不在
+`neomd_legacy` 的 bug-fix-only 范围内**——v1 硬冻结（固定决策 #1）下
+不修 v1 代码，新功能落 v2。
 
 issue 技术方案的第二步给了两条路：A. ML/MM 先行（NNP/MM 混合，成本远
 低于 DFT QM/MM，2024–2026 文献已验证 ML/MM 在酶反应位点的可用性）；B.
 真 QM/MM（ORCA 外部驱动 + link atom + 电荷位移）。仓库已有 QM 工具链
-基础（`bin/resp2_orca.py` 集成 ORCA + Multiwfn），酶活性位点（如
-P450 Cpd I）场景对 QM/MM 有真实需求。
+基础（ORCA/Multiwfn 集成），酶活性位点（如 P450 Cpd I）场景对 QM/MM
+有真实需求。
 
-**2026-09-02 范围决定**（issue 开发计划卷首研究决定 + W2-d 行）：真
+**2026-09-02 范围决定**（openmm-ml 评估结论）：真
 QM/MM（ORCA 后端、link atom、电荷位移）**暂缓**；ML/MM **转入正式
 开发**，且**不走 openmm-ml 依赖**，自研轻量耦合模块 + 自有模型加载器。
 真 QM/MM 留待重启（另立 ADR）。
 
-## 与 issue 方案的差异（v2 决策）
+## 与 issue 方案的差异
 
 issue 设想"基于 openmm-ml（ANI-2x/MACE 等）实现 additive ML/MM"。
-v2 落地时改为：
+落地时改为：
 
 - **不依赖 openmm-ml**。评估结论（研究决定，2026-09-02）：openmm-ml
   通用层仅约 1.5k 行，其余约 65 KB 是 9 个逐模型适配器（aimnet2/ani/
@@ -110,26 +108,26 @@ ml_region:
 
 - [ADR-0004：ML/MM 以内核规格字段在树内实装，不做插件；不依赖
   openmm-ml](../adr/0004-mlmm-in-tree-coupling.md)
-- [issue 开发计划](../issue-dev-plan.md) 卷首「研究决定（openmm-ml
-  评估）」与 W2-d 行
+- [issue #12](https://github.com/NeoBinder/NeoDynamics/issues/12)（ML/MM
+  需求与 openmm-ml 评估结论）
 - openmm-ml（MIT，机械嵌入移植源，v1.7 / commit `501c3a0`）
 - REANN ML/MM, *JCTC* 2025（<0.5 kcal/mol、80× 加速——issue #12 引用的
   ML/MM 酶位点可用性文献）
 
-## 活性位点残基 ML 区（W3-c 扩展）
+## 活性位点残基 ML 区
 
-ADR-0004 的重开条件之一"跨边界残基 ML 区"由 W3-c 落地（2026-09-03，
-ADR-0004 W3-c 附录）；上文基础章节不变，本节为该分支的扩展内容。
+ADR-0004 附录（文末）定义的"跨边界残基 ML 区"已落地；上文基础章节
+不变，本节为该分支的扩展内容。
 
 ### 背景与动机
 
-W2-d 首期 ML 区限定 ligand-only，把活性位点残基（酶催化口袋、配体
+首期 ML 区限定 ligand-only，把活性位点残基（酶催化口袋、配体
 结合口袋）排除在外——而 issue #12 的原始场景（P450 Cpd I 等酶反应
 位点）恰恰要求把口袋残基划进 ML 区。口袋残基与链上其余部分以肽键
 相连，ML 区第一次出现**跨界共价键**，嵌入层的"删哪些 MM 项"需要
 一条明确的边界政策。
 
-### 决策（ADR-0004 W3-c 附录）
+### 决策（ADR-0004 附录）
 
 1. **残基选择器 `ml_region.residues`**：接受 `"CHAIN:RESID"`（尾部
    数字 → 按 residue id 匹配，PDB 作者编号）与 `"CHAIN:NAME"`（尾部
@@ -174,6 +172,6 @@ JZ4 配体 + 口袋残基（GLN102、LEU133，按晶体坐标 0.26/0.36 nm 选�
 
 ### 参考与 ADR
 
-- [ADR-0004 W3-c 附录：活性位点残基 ML 区（跨界键处理）]
+- [ADR-0004 附录：活性位点残基 ML 区（跨界键处理）]
   (../adr/0004-mlmm-in-tree-coupling.md)（文末附录）
 - GROMACS QM/MM 共价边界惯例（跨界键合项保留 MM 侧）

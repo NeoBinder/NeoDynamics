@@ -4,8 +4,7 @@ Static restraints live in the `restraint:` section of any plan; every
 entry needs a `type` plus that restraint type's keys. Nine types are
 registered: `distance`, `dihedral`, `angle`, `funnel`,
 `dist_ref_position`, `xyz_box`, `vec_restraint`, `rmsd`, and `distances`
-(N pairs packed into one force per side — the v1 179ae35 group-economy
-type).
+(N pairs packed into one force per side — the group-economy type).
 
 ```yaml
 method: md
@@ -17,7 +16,7 @@ restraint:
     grp1: "1,2,3"
     grp2: "10,11,12"
     restr_k: 1000
-    min_nm: 0.30            # one-sided flat-bottom walls (v1 semantics)
+    min_nm: 0.30            # one-sided flat-bottom walls
     max_nm: 1.20
 
 input_files: # complex / system / ligands as in any plan
@@ -29,7 +28,7 @@ output:
 - **Parameters** — the full per-type key tables (required vs optional,
   defaults) are in the
   [configuration reference](../reference/configuration.md#restraints).
-  Atom-group keys accept the v1 comma-string form (`"1,2,3"`) or lists of
+  Atom-group keys accept the comma-string form (`"1,2,3"`) or lists of
   ints.
 - **Dual-track reporting** — kernel-compiled forces do the physics; a
   numpy `evaluate` pass provides the report geometry, so restraints also

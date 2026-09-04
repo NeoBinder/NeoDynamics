@@ -1,8 +1,8 @@
 # ADR-0002：插件 plan-schema 命名空间（顶层 `plugins:` 段），而非逐插件白名单键或 meta_set ride-along
 
-- 状态：已确认（2026-09-02，Wave 0 轨道 W0-c）
+- 状态：已确认（2026-09-02）
 - 决策者：项目维护者
-- 关联：[ADR-0001](0001-neomd2-strangler-migration.md)、[v2-dag Known follow-ups](../v2-dag.md)、[issue 开发计划 W0-c](../issue-dev-plan.md)、drill 记录（examples/gamd_drill/README.md）
+- 关联：[ADR-0001](0001-neomd2-strangler-migration.md)、drill 记录（examples/gamd_drill/README.md）
 
 ## 背景
 
@@ -16,8 +16,7 @@ plan.py 只查类型不查键）作为临时 ride-along。后果：(a) 语义挪
 配置伪装成 metadynamics 设置）；(b) plan.py 无法为插件段做键级校验
 （未知键被静默忽略，与 collect-all 纪律相反）；(c) 指纹/manifest 虽会
 记录（raw 全量进指纹），但读 plan 的人看不出哪些段属于哪个插件。该缺口
-被 v2-dag 列为 Known follow-up，是真实 GaMD 插件（#10）与 ML/MM（#12）
-决策的前置。
+是真实 GaMD 插件（#10）与 ML/MM（#12）决策的前置。
 
 ## 决策
 

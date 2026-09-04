@@ -1,10 +1,9 @@
 # Boresch Restraint（取向锚，restraint triple）
 
-> 状态：issue #8（先行切片，W1-d 轨道）· 实现状态：已实装
+> 状态：issue #8（先行切片）· 实现状态：已实装
 > （`src/neomd/restraints.py` 的 `boresch` triple，10 个内置 restraint 之一）·
-> ADR：[ADR-0003](../adr/0003-rbfe-technology-selection.md)（RBFE 选型，本切片
-> 一并产出）· 姊妹文档：`docs/methods/rbfe.md`（RBFE λ 窗口引擎，W3-a
-> 轨道；本 worktree 尚不存在，落在 feat/w3a-rbfe 分支）
+> ADR：[ADR-0003](../adr/0003-rbfe-technology-selection.md)（RBFE 选型）·
+> 姊妹文档：[rbfe.md](rbfe.md)（RBFE λ 窗口引擎）
 
 ## 背景与动机
 
@@ -14,37 +13,36 @@ issue #8（RBFE 模块）需要一个标准锚把配体相对受体固定住，�
 上的 6 个几何分量（1 距离 + 2 角 + 3 二面角）把配体的平动与转动都
  restrain 住。
 
-issue #8 原文设想"由 `restraints/constructor.py` 扩展自动生成"——
-**该 v1 路径在 v2 已重构**：v2 没有 constructor，约束是 registry 里的
+issue #8 原文设想由 v1 的约束构造器扩展自动生成——当前约束没有
+constructor，而是 registry 里的
 knowledge triple（schema + 力表达式 + observables）。本切片就是
-`boresch` triple 本身；v1 也没有 Boresch 先例（`neomd_legacy/bin` 无
-痕迹），物理直接取自一手文献——Boresch, Karplus et al., J. Phys.
-Chem. B 2003, 107, 9535–9551（issue 开发计划 #8 行将本切片列为
-"Boresch restraint triple（可先行）"，即 RBFE 引擎（W3-a）的解锁
+`boresch` triple 本身；无 v1 先例，物理直接取自一手文献——Boresch, Karplus et al., J. Phys.
+Chem. B 2003, 107, 9535–9551（issue #8 将本切片列为
+"Boresch restraint triple（可先行）"，即 RBFE 引擎的解锁
 前置之一）。
 
-**本 worktree 只含 restraint triple，不含 RBFE 引擎**：λ 窗口、
-alchemical 扰动、du 带、BAR/MBAR 属于 W3-a，见 `rbfe.md`（互相链接）。
+**本切片只含 restraint triple，不含 RBFE 引擎**：λ 窗口、
+alchemical 扰动、du 带、BAR/MBAR 见 `rbfe.md`（互相链接）。
 
-## 与 issue 方案的差异（v2 决策）
+## 与 issue 方案的差异
 
-- **载体**：不是 v1 `restraints/constructor.py` 的扩展，而是一个标准
+- **载体**：一个标准
   restraint knowledge triple，经 `registry.register("restraint",
   "boresch", …)` 注入；spec 键由 `plan.py` 对 registry schema 做
   collect-all 校验（缺必填 + 未知键附 did-you-mean）。
-- **物理出处**：v1 无先例，故不走"逐字移植 v1"（settled decision #2
-  的常规路径），而是从 Boresch 2003 一手文献实现：r 与两个角取
-  `(k/2)(x - x0)^2` 谐和形式（表达式内角度用弧度，同 v1 `angle`
+- **物理出处**：无 v1 先例，属新物理，不走"逐字移植"（settled decision
+  #2 的常规路径），而是从 Boresch 2003 一手文献实现：r 与两个角取
+  `(k/2)(x - x0)^2` 谐和形式（表达式内角度用弧度，同 `angle`
   类型的 deg 声明惯例）；三个二面角取周期安全形式
   `(k/2)(1 - cos(phi - phi0))`（GROMACS/YANK 拼写；裸二次型会跨
   ±180° 卷绕发散）。近平衡下二面角项等效二次常数 k/2 kJ/mol/rad²
-  ——W3-a 的标准态/解析校正工作必须计入。
+  ——RBFE 引擎的标准态/解析校正工作必须计入。
 - **打包**：与 `distances` 同款 multi-bond 打包——每种表达式 KIND 一支
   `CustomCentroidBondForce`（[distance, angle, torsion] 共 3 支力，
   共享 32 力组预算），per-bond 参数走 `BiasIR.bonds`/`BondIR`
   （theta0/phi0 内部用弧度，r0 用 nm，k 用 bare kJ/mol）。
 - **RBFE 引擎的其余部分**（softcore、λ 编排、BAR/MBAR）按 ADR-0003
-  的分层落点全部留在 W3-a；openmmtools 只进 `rbfe` pixi env。
+  的分层落点留在 `rbfe.md`；openmmtools 只进 `rbfe` pixi env。
 
 ## 使用
 
@@ -78,7 +76,7 @@ restraint:
     phiA0_degree: 30.0          # equilibrium dihedral a1–a2–a3–b3
     phiB0_degree: 60.0          # equilibrium dihedral a2–a3–b3–b1
     phiC0_degree: 45.0          # equilibrium dihedral a3–b3–b1–b2
-    restr_k_r: 20.0             # kJ/mol per nm^2 (bare kJ/mol, v1 convention)
+    restr_k_r: 20.0             # kJ/mol per nm^2 (bare kJ/mol, project convention)
     restr_k_theta: 20.0         # kJ/mol per rad^2, BOTH angles share
     restr_k_phi: 20.0           # kJ/mol, ALL three dihedrals share
     is_periodic: true           # optional, default true
@@ -110,7 +108,7 @@ discipline #5）。
   107, 9535–9551（势能形式 eq. 3.4 适配；周期安全二面角为
   GROMACS/YANK 拼写）
 - [ADR-0003：RBFE 引擎技术选型](../adr/0003-rbfe-technology-selection.md)
-  （本切片随 W1-d 一并产出的选型决策；openmmtools 走 prepare 边界、
+  （openmmtools 走 prepare 边界、
   不自研 softcore、不整体引入 OpenFE）
-- `docs/methods/rbfe.md`（W3-a：λ 窗口引擎——run_ladder、du.tsv、
+- [rbfe.md](rbfe.md)（λ 窗口引擎——run_ladder、du.tsv、
   BAR/MBAR）

@@ -1,16 +1,16 @@
 # ADR-0007：RBFE λ 窗口编排、ParamEnergy port 能力与 du.tsv 带
 
-- 状态：已确认（2026-09-10，W3-a 实装时随代码收敛）
+- 状态：已确认（2026-09-10，RBFE 实装时随代码收敛）
 - 决策者：项目维护者
 - 关联：[ADR-0003](0003-rbfe-technology-selection.md)（RBFE 选型，本文的母决策）、
-  [issue 开发计划](../issue-dev-plan.md) W3-a / #8、
+  [issue #8](https://github.com/NeoBinder/NeoDynamics/issues/8)、
   AGENTS.md §Settled decisions（#5 双轨、#8 多腿编排、#9 fake 不证物理）
-- 前置：feat/w1a-analysis（`neomd.analysis`）、feat/w1d-boresch（Boresch triple）
+- 前置：`neomd.analysis`、Boresch restraint triple
 
 ## 背景
 
 ADR-0003 定了 RBFE 的选型骨架（openmmtools 走 prepare 边界、λ 走
-Context 全局参数、BAR/MBAR 落 analysis）。W3-a 实装时剩下三个必须落纸的
+Context 全局参数、BAR/MBAR 落 analysis）。RBFE 实装时剩下三个必须落纸的
 接口决策，本文即它们：
 
 1. du 值（同一构型在相邻 λ 下的势能）怎么从 kernel 拿出来；
