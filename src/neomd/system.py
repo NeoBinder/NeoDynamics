@@ -1,27 +1,15 @@
-"""system — the kernel-agnostic system description.
+"""
+system — the kernel-agnostic system description.
 
-One-headed: :class:`SystemBundle` — pure data + loading + validation —
-plus its openmm-free helpers.  It NEVER imports openmm: the
-openmm kernel deserializes ``system.xml`` itself (see ``kernel/openmm.py``),
-so the bundle only carries file paths, ligand molecules (openff, lazily)
-and the *modification IR* (raw barostat dict + normalized particle-mass
-overrides).  ``run.compile`` is the consumer that turns the same IR into a
-:class:`~neomd.kernel.port.KernelSpec`; the bundle exists so callers can
-inspect/describe a system without a kernel.
-
-The preparation workflow lives in :mod:`neomd.prepare`
-(prepare_system / make_system / loaders / the ForceFieldBuilder seam), and
-every openmm PRIVATE attribute it needs lives in
-:mod:`neomd.openmm_privates` behind a pinned-version gate.  The workflow
-names below remain importable from ``neomd.system`` — they are re-exports,
-not copies.
-
-Restraints never touch a SystemBundle — nothing in this module adds a
-Force, assigns a force group, or knows the word "fgroup".  Plan restraint
-entries flow through the registry knowledge triples to
-``kernel.install_bias`` (``driver.drive``), and the assigned force-group
-ids come back as ``RunOutcome.fgroups`` (name -> list[int]) — a return
-value of the interface, never a config mutation.
+:class:`SystemBundle` is pure data + loading + validation and NEVER imports
+openmm (the openmm kernel deserializes ``system.xml`` itself); ``run.compile``
+turns its modification IR into a :class:`~neomd.kernel.port.KernelSpec`.
+The preparation workflow lives in :mod:`neomd.prepare` (the names below are
+re-exports, not copies); every openmm PRIVATE attribute it needs lives in
+:mod:`neomd.openmm_privates`.  Restraints never touch a SystemBundle — plan
+restraint entries flow through the registry knowledge triples to
+``kernel.install_bias``, and assigned force-group ids come back as
+``RunOutcome.fgroups``, never a config mutation.
 """
 
 from __future__ import annotations

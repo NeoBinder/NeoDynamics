@@ -1,47 +1,7 @@
-"""Steered MD — a method knowledge triple.
-
-A PARAMETER-RAMP framework, not a hard-coded constant-velocity pull.  Every
-``smd:`` entry builds its forces through the same restraint vocabulary as
-``plan.restraint`` (distance / angle / dihedral / dist_ref_position / rmsd);
-any rampable numeric key the user spells as a LIST is piecewise-linearly
-interpolated over ``steps`` and pushed to the kernel on a fixed update
-cadence — a classic pull is a ``max_nm`` or ``ref_position_nm`` ramp, a soft
-engage/release is a ``restr_k`` ramp like ``[0, 1000, ..., 0]``.
-
-Physics (the ramp schedule and cadence are the verbatim v1 port):
-
-* the ramp schedule: ``steps_per_segment = int(steps / (len(values) - 1))``,
-  segment anchors ``[0, sps, 2*sps, ..., steps]`` (last forced to ``steps``),
-  linear interpolation inside the segment.
-* the update cadence is 5000 steps: the parameter is a STAIRCASE at
-  5000-step granularity approximating the ramp.  The v2 driver's ``on_step``
-  hook fires at the END of each boundary chunk and its value applies to the
-  NEXT chunk — with initial BiasIR parameters taken from each ramp's
-  ``values[0]``, the fresh-run schedule is exactly that staircase (pinned by
-  test).
-* the push itself is one ``kernel.set_bias_param(name, value)`` per global
-  parameter (the port.BiasParamOps capability; openmm implements it with
-  ``context.setParameter``, values in canonical units — nm / kJ/mol /
-  radians — matching how BiasIR Quantities land in the Context).
-
-Design notes:
-
-* forces are compiled through the restraint registry triples
-  (``registry.get("restraint", type).make_bias``) rather than a dedicated
-  force module — one definition point per force type.
-* per-boundary pushes re-derive the BiasIR with the interpolated spec and
-  push every parameter of it (pushing the constants too is idempotent and
-  lets the triples own their own parameter naming).
-* the artifact ``smd.tsv`` (SmdProbe) carries step + the entry's geometric
-  observable + the CURRENT ramp values (spec units) + the entry's bias
-  energy.  The tape's INCLUSION is driver policy — ``output.report_smd``
-  (bool, default on) through ``driver._TAPE_SWITCHES`` — and the restraint
-  tape for the static ``restraint:`` section is attached by the driver too
-  (driver.run_prepared_method), so this method never sees restraint wiring.
-* resume: the initial post-restore push is SNAPPED to the enclosing update
-  boundary, and the driver fires ``on_step`` on absolute multiples of the
-  cadence — so a resumed run's staircase is identical to an uninterrupted
-  run's, row for row.
+"""Steered MD — a method knowledge triple: a parameter-ramp framework over
+the restraint registry's force vocabulary (any rampable key given as a LIST
+is piecewise-linearly interpolated over ``steps``).  See
+docs/methods/smd.md.  Registers method: ``smd``.
 """
 
 from __future__ import annotations
@@ -353,7 +313,21 @@ class SMDRun:
     def _update_parameters(self, step: int) -> None:
         """Re-derive every entry's BiasIR at ``step`` and push all its
         global parameters (constants re-pushed idempotently so the triples
-        own their parameter naming)."""
+        own their parameter naming).
+
+        The cadence is UPDATE_INTERVAL (5000) steps: each parameter is a
+        STAIRCASE at that granularity approximating the ramp.  The
+        driver's ``on_step`` hook fires at the END of each boundary chunk
+        and its value applies to the NEXT chunk — with initial BiasIR
+        parameters taken from each ramp's ``values[0]``, the fresh-run
+        schedule is exactly that staircase (pinned by test).  The resume
+        push is SNAPPED to the enclosing update boundary and the driver
+        fires ``on_step`` on absolute multiples of the cadence, so a
+        resumed run's staircase is identical to an uninterrupted run's,
+        row for row.  Values go out in canonical units (nm / kJ/mol /
+        radians) via ``kernel.set_bias_param`` — matching how BiasIR
+        Quantities land in the openmm Context.
+        """
         for e in self.entries:
             spec = e.scalar_at(step, self.total_steps)
             self._current[e.name] = {key: spec[key] for key in e.ramps}

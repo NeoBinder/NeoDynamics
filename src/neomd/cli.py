@@ -1,63 +1,22 @@
-"""cli — the ``[project.scripts]`` entry point.
+"""
+cli — the ``[project.scripts]`` entry point (``neomd = neomd.cli:main``).
 
-``neomd = neomd.cli:main`` is the console-script spelling registered in
-``[project.scripts]``.
-
-The CLI is spellings, not behavior: every subcommand is a thin argument
-mapping onto a public library call —
-
-    run      DIR | plan.yaml [--steps N] [--platform cpu|cuda]
-             [--kernel openmm|fake|replay]
-                  -> neomd.md_run(target, platform=..., kernel=...,
-                                   steps=...) + a one-line summary built
-                     from the returned RunOutcome
-    migrate  input.yaml [-o out.yaml] [--base-dir DIR] [--dry-run]
-                  -> the ONE-SHOT v1->v2 translator tool's own main (a
-                     sibling tool module resolved at dispatch time — see
-                     _tool_main; a passthrough, not a re-wrap: the tool
-                     owns its flags, warnings, rendering and exit codes)
-    prepare  config.yaml
-                  -> neomd.system.prepare_system(yaml.safe_load(...)) + a
-                     summary (output dir, written artifacts, particle count
-                     when openmm is importable — via KernelFactory on the
-                     written system.xml/solv.pdbx pair, skipped otherwise)
-    validate plan.yaml [--check-files]
-                  -> structural validation always; --check-files adds the
-                     file-existence / index-bounds / method-schema tier.
-                     Reports EVERY problem in one pass, writes nothing,
-                     exits 2 on problems ("nothing was executed" footer).
-                     Installed plugin distributions are entry-point-scanned
-                     first so ``plugins:`` sections validate against the
-                     live registry (ADR-0002).
-    mlcv     featurize config.yaml [-o features.npz]
-                  -> neomd.mlcv.featurize: named feature columns over a
-                     run's trajectory/mass artifacts (cv-registry geometry
-                     + tape passthrough), written as the features.npz cache
-             train features.npz [-o model.npz] [--model tica|logistic]
-                  -> neomd.mlcv.train: TICA (unlabeled streams) or logistic
-                     regression (labeled two-basin data), numpy-only
-             convert model.npz [-o model.pt]
-                  -> neomd.mlcv.convert: TorchScript export of the linear
-                     model (the phase-2 injection artifact; needs torch,
-                     clean exit-2 error without it)
-    analysis RUN_DIR [RUN_DIR ...] ...   (see `neomd analysis -h`)
-                  -> post-run analysis of the v2 artifact formats, mapped
-                     onto the neomd.analysis public API: fes / convergence /
-                     block-average / reweight / merge sub-subcommands;
-                     tsv/json payloads to stdout or --out files
-    version       -> neomd.__version__
-
-Exit codes: 0 success; 2 user error — the :class:`~neomd.errors.NeoUserError`
-family renders its multi-line message to stderr with NO traceback (argparse's
-own usage errors also exit 2, by argparse convention); anything unexpected
-propagates and tracebacks normally.  ``migrate`` keeps the translator's own
-conventions (it renders its errors and returns 1; the passthrough does not
-re-categorize them).
-
-``run --kernel replay`` imports :mod:`neomd.kernel.replay` before calling
-md_run: that adapter self-registers at import (``_bootstrap.ensure_adapters``
-covers only openmm/fake — see the replay module docstring), and the plan's
-``input_files.system`` must point at a golden-tape json for that kernel.
+Spellings, not behavior: every subcommand is a thin argument mapping onto a
+public library call — ``run DIR|plan.yaml`` -> :func:`neomd.md_run`;
+``migrate`` -> the one-shot v1->v2 translator's own main, a passthrough via
+``_tool_main`` (the tool owns its flags, warnings and exit codes);
+``prepare config.yaml`` -> :func:`neomd.system.prepare_system`;
+``validate plan.yaml [--check-files]`` -> collect-all validation: reports
+every problem, writes nothing, exits 2 (``_cmd_validate``);
+``mlcv featurize|train|convert`` -> :mod:`neomd.mlcv`; ``analysis`` ->
+:mod:`neomd.analysis` (fes / convergence / block-average / reweight /
+merge); ``version`` -> :data:`neomd.__version__`.  Exit codes: 0 success;
+2 user error (the :class:`~neomd.errors.NeoUserError` family renders its
+multi-line message to stderr with NO traceback; argparse usage errors also
+exit 2; unexpected errors propagate and traceback normally).
+``run --kernel replay`` imports :mod:`neomd.kernel.replay` first — that
+adapter self-registers at import, and the plan's ``input_files.system``
+must point at a golden-tape json.
 """
 
 from __future__ import annotations

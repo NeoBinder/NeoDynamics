@@ -1,28 +1,16 @@
-"""Tools seam — the contract every external-tool adapter programs against.
+"""
+Tools seam — the contract every external-tool adapter programs against.
 
-neomd talks to external executables (AmberTools antechamber/parmchk2 today,
-ORCA/Multiwfn later) only through :class:`ToolRunner`.  The seam owns three
-things:
-
-* **Isolation.**  A command always executes inside a directory the runner
-  controls — a fresh temporary directory by default, or the caller-supplied
-  ``cwd`` — with input files written there and listed output files read back.
-  The process working directory is switched with ``subprocess.run(cwd=...)``;
-  the interpreter's own working directory is never touched (process-chdir is
-  forbidden in neomd).
-* **Diagnostics.**  A non-zero exit (or a missing promised output file)
-  raises :class:`ToolError` carrying the command, captured stdout/stderr and
-  the contents of every input file — the mol2/sdf the user actually sent
-  belongs in the traceback.
-* **Testability.**  :class:`FakeToolRunner` maps ``argv[0]`` to an in-process
-  python callable that writes the same files a real tool would, so the whole
-  GAFF template pipeline is testable without AmberTools.
-
-Minimal capability protocols (implemented by
-:mod:`neomd.tools.antechamber`):
-
-* :class:`ChargeBackend` — ``charges(molecule, net_charge)``
-* :class:`ParamBackend` — ``ffxml(molecule, residue_name=None)``
+External executables are reached ONLY through :class:`ToolRunner`, which
+owns: **isolation** — every command executes inside a directory the runner
+controls (a fresh temporary directory by default, or the caller-supplied
+``cwd``), switched via ``subprocess.run(cwd=...)``; the interpreter's own
+working directory is never touched (os.chdir is forbidden in neomd);
+**diagnostics** — a non-zero exit or a missing promised output raises
+:class:`ToolError` carrying the command, captured stdout/stderr and the
+contents of every input file; **testability** — :class:`FakeToolRunner`
+maps ``argv[0]`` to an in-process callable writing the same files.
+Capability protocols: :class:`ChargeBackend`, :class:`ParamBackend`.
 """
 
 from __future__ import annotations

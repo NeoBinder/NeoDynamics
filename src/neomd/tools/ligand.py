@@ -1,52 +1,15 @@
-"""Ligand workflow.
+"""
+Ligand workflow.
 
-Two halves:
-
-* **Ligand knowledge** (:class:`Ligand`, :func:`load_rdmol`,
-  :func:`topology_from_rdkit`, :func:`ligands_from_config`) — per-ligand
-  ``{path, resname?, template_ffxml?, smiles?, partial_charges?}`` entries,
-  SMILES graph validation (networkx isomorphism against the H-added SMILES
-  target), and partial-charge assignment from a last-column-floats file.
-  ``neomd.system`` delegates here when a prepare config's ligand entries
-  carry the ``smiles`` / ``partial_charges`` keys.
-* **The ligand_processor CLI** (:func:`main` + one importable function per
-  subcommand) — a pure-RDKit structure utility with four subcommands:
-
-  - ``convert``     — format conversion (.sdf/.pdb/.xyz; xyz input gets
-    ``rdDetermineBonds.DetermineBonds``);
-  - ``pos_smiles2sdf`` — map a SMILES onto an input coordinate file via MCS
-    matching + the iterative align/pin/constrained-MMFF loop
-    (``--ignore_pos_ids`` excludes pose atoms from the match), write
-    .sdf/.pdb/.xyz; PDB input either plain (``--sanitize default``) or
-    distance-threshold bonded (``--sanitize distance --max_bond A``);
-  - ``reorder_sdf`` — permute the atom order of an SDF (1-based comma list);
-  - ``smiles2sdf``  — 300 ETKDGv2 conformers, per-conformer MMFF minimization
-    to convergence, Butina clustering (threshold 1), write the cluster-center
-    conformer of the lowest-energy cluster.
-
-  The CLI shells out to NOTHING — every step is in-process RDKit, so this
-  module needs no :class:`~neomd.tools.port.ToolRunner`; ligand
-  *parameterization* (GAFF, antechamber) is
-  :mod:`neomd.tools.antechamber`, not this one.
-
-Fidelity notes (deviations, all deliberate):
-
-* ``main(argv=None)`` takes the argv; the argparse surface — flags,
-  defaults, subcommand names — and every user-facing message (including
-  the Chinese ones) and the ValueError text
-  ``"current smiles:{} \\t target smiles: {}"`` are kept verbatim.
-* fixed BUG: ``reorder_sdf``'s function reads ``args.input`` but its parser
-  did not register an ``-i/--input`` flag, so the subcommand crashed with
-  ``AttributeError`` — the flag is added here (same spelling as every
-  other subcommand).
-* one rdkit-version adaptation in ``reorder_sdf``: the rebuilt molecule is
-  sanitized BEFORE ``EmbedMolecule`` because current rdkit enforces the
-  ``calcImplicitValence`` precondition there; the final molecule state and
-  output are unchanged.
-* :func:`Ligand.assign_partial_charges` keeps the exact unit semantics
-  (values wrapped in an ``openmm`` elementary-charge ``Quantity`` before
-  landing on the openff Molecule, then openff's private
-  ``Molecule._normalize_partial_charges()`` makes the sum integral).
+Two halves: ligand knowledge (:class:`Ligand`, :func:`load_rdmol`,
+:func:`topology_from_rdkit`, :func:`ligands_from_config` — per-ligand
+``{path, resname?, template_ffxml?, smiles?, partial_charges?}`` entries,
+SMILES graph validation, partial-charge assignment; ``neomd.system``
+delegates here), and the pure-RDKit ``ligand_processor`` CLI (:func:`main`
+with one importable function per subcommand — shells out to NOTHING, so no
+:class:`~neomd.tools.port.ToolRunner`; ligand *parameterization* (GAFF,
+antechamber) is :mod:`neomd.tools.antechamber`).  Fidelity notes live on
+the individual functions.
 """
 
 from __future__ import annotations

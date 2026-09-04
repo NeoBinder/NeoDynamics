@@ -1,26 +1,15 @@
-"""Plan — the immutable experiment snapshot.
+"""
+Plan — the immutable experiment snapshot (validate -> derive -> freeze).
 
-Pipeline (all of it happens once, at construction):
-
-    validate → derive → freeze
-
-* **validate** rejects unknown top-level keys with a
-  :class:`~neomd.errors.ConfigKeyError` did-you-mean list; known keys get
-  structural checks (types and ranges).  The validator COLLECTS every
-  problem in one pass — two or more raise the
-  :class:`~neomd.errors.PlanValidationErrors` aggregate (a single problem
-  still raises its own specific type).
-* **derive** builds a separate derived view: ``plan.raw`` is the user's
-  config verbatim, ``plan.derived`` holds the defaulted/normalized view,
-  and attribute access merges the two (derived wins).
-* **freeze** makes the plan deeply immutable; mutation raises
-  :class:`~neomd.errors.PlanFrozenError`.  Use ``plan.with_(...)`` (also
-  reachable as ``getattr(plan, "with")`` — ``with`` is a Python keyword and
-  cannot be spelled after a dot) to derive a modified copy, which is
-  re-validated from scratch.
-* **fingerprint** is the sha256 of a canonical JSON dump of
-  ``{"schema": 1, "raw": ..., "derived": ...}`` — same config in, same
-  fingerprint out, forever.
+Validation is collect-all (``>= 2`` problems raise the
+:class:`~neomd.errors.PlanValidationErrors` aggregate; errors carry the yaml
+key path + did-you-mean).  ``raw`` (the user's config verbatim) and
+``derived`` (defaulted/normalized) merge on attribute access, derived wins.
+The frozen plan is deeply immutable (``PlanFrozenError``); derive modified
+copies with ``plan.with_(...)`` (``getattr(plan, "with")`` — ``with`` is a
+keyword), re-validated from scratch.  The fingerprint is the sha256 of a
+canonical JSON dump of ``{"schema": 1, "raw": ..., "derived": ...}`` — same
+config in, same fingerprint out, forever.
 """
 
 from __future__ import annotations

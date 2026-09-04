@@ -1,20 +1,10 @@
-"""Protein repair via PDBFixer (standalone utility script).
+"""
+Protein repair via PDBFixer (standalone utility script).
 
-:func:`fix_protein` runs the PDBFixer call sequence: findMissingResidues ->
-findMissingAtoms -> findNonstandardResidues -> replaceNonstandardResidues ->
-addMissingAtoms -> addMissingHydrogens at pH -> removeHeterogens(False),
-then computes the box as a cube of side ``max extent + 2 * padding`` from
-the repaired positions and installs it as the topology's periodic box
-vectors as a plain numpy ``np.eye(3) * side`` (openmm's Topology accepts
-the raw array, pinned by tests).
-
-Like :mod:`neomd.tools.convert`, this module imports **openmm** and, for
-the fixer itself, **pdbfixer**: pure library code — no ToolRunner
-subprocess seam involved.
-
-:func:`main` adds the CLI: ``input_pdb output_pdb [--padding nm] [--ph
-value] [--no-addh]``, writing the fixed structure as a PDB file after
-:func:`fix_protein` returns.
+Pure library code — imports **openmm** and, for the fixer itself,
+**pdbfixer** directly; no ToolRunner subprocess seam involved.  The repair
+sequence and box rule live on :func:`fix_protein`; the CLI on
+:func:`main`.
 """
 
 from __future__ import annotations

@@ -1,24 +1,14 @@
-"""prepare — the system-preparation WORKFLOW (system.py keeps the
-kernel-agnostic :class:`~neomd.system.SystemBundle`, this module owns the
-system-preparation orchestration).
+"""
+prepare — the system-preparation workflow
+(:class:`~neomd.system.SystemBundle` keeps the kernel-agnostic data).
 
-This is a WORKFLOW, not a core-spine module, so it imports openmm directly
-at call time (the "only kernel/openmm.py imports openmm in core"
-rule refers to the spine; system preparation, like the openmm adapter,
-lives at the openmm boundary).  The openmm import is lazy (via
-:func:`_openmm`) so importing this module alone never drags the engine in.
-
-Every openmm PRIVATE attribute the workflow needs lives in
-:mod:`neomd.openmm_privates` (version-pinned, isolated, source-scanned) —
-nothing below touches an underscored openmm name.
-
-The tools seam: the heavy
-parameterization knowledge (ComplexForceField, GAFF template generation,
-rename-after-match) lives in ``neomd.tools.antechamber``;
-:func:`prepare_system` takes that layer as a hook parameter
-(:class:`ForceFieldBuilder`, protocol defined HERE).  The default builder
-is the openmm-only :class:`PlainForceFieldBuilder` unless
-``neomd.tools.antechamber`` is importable and exposes a builder.
+A boundary workflow, not a core-spine module: it imports openmm directly at
+call time (lazy, via :func:`_openmm`).  Every openmm PRIVATE attribute it
+needs lives in :mod:`neomd.openmm_privates` (version-pinned,
+source-scanned) — nothing here touches an underscored openmm name.  The
+parameterization seam is :class:`ForceFieldBuilder` (protocol defined HERE;
+default :class:`PlainForceFieldBuilder`); the GAFF implementation is
+``neomd.tools.antechamber``.
 """
 
 from __future__ import annotations

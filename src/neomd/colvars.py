@@ -1,94 +1,9 @@
-"""Unified collective-variable vocabulary.
-
-Every CV is a registry entry of kind ``"cv"`` — a knowledge triple:
-
-    schema    required/optional spec keys (documentation; validation itself
-              is plan.py's job, not the vocabulary's)
-    make_cv   (name, spec) -> (CVIR, grid)
-              emits the kernel-agnostic CVIR carrying the *verbatim* v1
-              expression string, plus the grid dict in the CV's natural unit
-    evaluate  (positions, masses, cv) -> float
-              numpy geometric evaluation (COM / angle / dihedral) in the CV's
-              natural unit; used by fake-kernel consumers and probes
-
-Units follow the kernel-port convention: positions nm, masses dalton.  Grid
-ranges keep v1's key convention — ``min_cv_nm``/``max_cv_nm``/``biasWidth_nm``
-for nanometric CVs, ``min_cv_degree``/``max_cv_degree``/``biasWidth_degree``
-for angular ones — so the natural unit of the grid is nm or degree.  Grid
-data is deliberately NOT part of :class:`CVIR` (see port.py).
-
-Periodicity defaults: distance/min_distances/distance_ref/angle False,
-dihedral True.  ``spec`` may override with ``is_period``; the CVIR carries
-the intrinsic per-type default because a distance is not periodic however
-you bias it.
-
-Index keys accept the comma-string form ("1,2,3") and plain lists of ints.
-
-``rmsd``, ``coordination``, ``path_s`` and ``path_z`` are kind-driven CVs
-whose physics comes from the primary literature:
-
-* ``rmsd`` — the first-class CV form of the existing rmsd RESTRAINT geometry
-  (Branduardi et al. use RMSD-to-reference as the archetypal path metric).
-  Same spec keys as the restraint (``ref_pos_file`` + ``restr_grp``) and the
-  same CVIR kind (``"RMSDForce"``); the evaluate track is the unweighted
-  Kabsch optimal-rotation RMSD, which is exactly openmm ``RMSDForce``
-  semantics (verified numerically against the openmm kernel).
-* ``coordination`` — coordination number between two atom groups as a smooth
-  pair sum with PLUMED's rational switching function (the "n*" form used by
-  COORDINATION / COORDINATIONNUMBER): over grp1_idx x grp2_idx atom pairs,
-  ``s(r) = (1-(r/r0)^nn)/(1-(r/r0)^mm)`` (defaults nn=6, mm=12 — for which
-  ``s(r) = 1/(1+(r/r0)^6)`` identically).  The pair sum is not expressible in
-  the centroid-COM expression subset, so this is a new KIND-driven CVIR
-  (``"CustomNonbondedForce"``, the RMSDForce precedent): the openmm adapter
-  compiles it to a CustomNonbondedForce over ALL system pairs whose energy
-  is the coordination number (membership parameters zero the non-cross
-  pairs — chosen over explicit exclusions: same value, no exception
-  bookkeeping; self-pairs never occur in a nonbonded pair list; periodic
-  systems take CutoffPeriodic at half the smallest box edge because
-  CustomNonbondedForce applies the minimum image only there — the residual
-  truncation is a documented deviation from the numpy tracks); the fake
-  kernel and the evaluate track do the direct numpy pair sum, the fake with
-  orthorhombic minimum-image when its system is periodic (the evaluate track
-  is vacuum by the module convention — distance evaluate is not
-  minimum-image either).  Note the removable singularity at ``r == r0``
-  exactly (0/0 of the raw form): both tracks evaluate the same expression
-  and share the hazard, which is measure zero (PLUMED's raw form has it too).
-* ``path_s`` / ``path_z`` — the path collective variables of Branduardi,
-  Gervasio & Parrinello, "From A to B in free energy space", J. Chem. Phys.
-  126, 054103 (2007), doi:10.1063/1.2432340 (the PLUMED ``PATH`` spelling):
-  from per-image optimally-aligned MSDs ``MSD_a`` (squared Kabsch RMSD of
-  the selected atoms against reference frame ``a``) with weights
-  ``w_a = exp(-MSD_a/lambda^2)``,
-
-      s = sum_a a*w_a / sum_a w_a        (a = 1..P, so s in [1, P])
-      z = -lambda * ln( sum_a w_a )      (nm)
-
-  Representation choice: TWO registry entries (``path_s`` and ``path_z``)
-  sharing ONE spec-block grammar
-  (``ref_path_file`` + ``restr_grp`` + ``lambda``) rather than a single
-  ``path`` entry emitting two CVs.  Rationale: every existing consumer —
-  MetadynamicsRun, ColvarProbe, the plan layer — assumes one colvar entry
-  maps to exactly one (CVIR, grid) pair, so a two-CV emitter would need new
-  expansion machinery in all of them, while two independent entries compose
-  with the unchanged metadynamics 1-3-CV table (biasing s and z together is
-  exactly the canonical 2-CV path setup).  CVIR: kind ``"PathCV"``,
-  ``expression`` carries the ``"s"``/``"z"`` selector symbol (same convention
-  as the dihedral's ``"theta"`` and the rmsd's ``"RMSD"``), ``ref_positions``
-  holds the STACKED frames ``(P, N, 3)`` (full-system rows, the openmm
-  RMSDForce rule), ``bond_params`` carries ``lambda`` (nm).  Force track:
-  an openmm CustomCVForce over per-image RMSDForce inner CVs ``d1..dP`` with
-  the closed-form expressions above and a global ``lambda`` parameter —
-  CustomCVForce-inside-CustomCVForce (the metadynamics table wrapping the
-  path CV) verified working on openmm 8.6 / CPU.  The openmm expression uses
-  the naive PLUMED form (underflows only when EVERY frame is many lambda
-  away — PLUMED behaves identically); the numpy evaluate uses the
-  max-shifted log-sum-exp forms, which agree with the naive form to float
-  precision wherever the naive form does not underflow.
-
-Grid conventions for the kind-driven CVs: ``rmsd`` and ``path_z`` are
-nanometric (``min_cv_nm``/...); ``coordination`` and ``path_s`` are
-dimensionless and use the suffix-less grid keys
-``min_cv``/``max_cv``/``biasWidth``.
+"""Unified collective-variable vocabulary — schema + make_cv + evaluate,
+one registry entry per CV (kind ``"cv"``); the triple contract and the
+per-CV physics live on :class:`Colvar` and the per-type helpers below.
+Grid/unit conventions live on ``_grid``.  See docs/reference/configuration.md.
+Registers CVs: distance, min_distances, distance_ref, angle, dihedral,
+rmsd, coordination, path_s, path_z.
 """
 
 from __future__ import annotations
@@ -106,7 +21,21 @@ __all__ = ["Colvar", "CV_EXPRESSIONS"]
 
 @dataclass(frozen=True)
 class Colvar:
-    """One CV vocabulary entry: schema + make_cv + evaluate."""
+    """One CV vocabulary entry: schema + make_cv + evaluate.
+
+    ``make_cv`` (name, spec) -> (CVIR, grid) emits the kernel-agnostic
+    CVIR carrying the *verbatim* v1 expression string, plus the grid dict
+    in the CV's natural unit; ``evaluate`` (positions, masses, cv) ->
+    float is the numpy geometric evaluation (COM / angle / dihedral) in
+    the CV's natural unit, used by fake-kernel consumers and probes (the
+    fake kernel's mirrored special paths are pinned bit-exact against
+    these).  Units follow the kernel-port convention: positions nm,
+    masses dalton.  Index keys accept the comma-string form ("1,2,3")
+    and plain lists of ints (see ``_index_list``).  ``rmsd``,
+    ``coordination``, ``path_s`` and ``path_z`` are kind-driven CVs whose
+    ``CVIR.kind`` drives compilation; their physics comes from the
+    primary literature (see the ``_make_*`` helpers below).
+    """
 
     schema: dict
     make_cv: Callable[[str, dict], tuple[CVIR, dict]]
@@ -171,8 +100,16 @@ def _float_list(value, key: str) -> list[float]:
 def _grid(spec: dict, suffix: str, default_periodic: bool) -> dict:
     """Grid dict in the CV's natural unit; keys keep the v1 config spelling.
 
-    ``suffix`` "" (dimensionless CVs: coordination, path_s) selects the
-    suffix-less keys ``min_cv``/``max_cv``/``biasWidth``."""
+    ``suffix`` "nm"/"degree" selects ``min_cv_nm``/``max_cv_nm``/
+    ``biasWidth_nm`` (or the ``_degree`` set) for nanometric / angular
+    CVs; ``suffix`` "" (dimensionless CVs: coordination, path_s) selects
+    the suffix-less keys ``min_cv``/``max_cv``/``biasWidth``.  Grid data
+    is deliberately NOT part of :class:`CVIR` (see port.py).
+    ``default_periodic`` is the intrinsic per-type default (distance/
+    min_distances/distance_ref/angle/coordination/path False, dihedral
+    True) because a distance is not periodic however you bias it; the
+    spec may override via ``is_period``.
+    """
     if suffix:
         min_key, max_key, width_key = (f"min_cv_{suffix}", f"max_cv_{suffix}",
                                        f"biasWidth_{suffix}")
@@ -296,8 +233,15 @@ def _coordination_sum(positions, groups, r0: float, nn: float, mm: float,
 
 
 def _path_values(mobile, images, lam: float) -> tuple[float, float]:
-    """(s, z) of the Branduardi-Gervasio-Parrinello path CV (see the module
-    docstring for the formulas and citation).
+    """(s, z) of the Branduardi-Gervasio-Parrinello path CV (citation and
+    CVIR layout on ``_make_path``).
+
+    From per-image optimally-aligned MSDs ``MSD_a`` (squared Kabsch RMSD
+    of the selected atoms against reference frame ``a``) with weights
+    ``w_a = exp(-MSD_a/lambda^2)``:
+
+        s = sum_a a*w_a / sum_a w_a        (a = 1..P, so s in [1, P])
+        z = -lambda * ln( sum_a w_a )      (nm)
 
     ``mobile``: (K, 3) selected-atom positions; ``images``: (P, K, 3) the
     same selection of every reference frame; ``lam``: nm.  Implemented in
@@ -535,6 +479,11 @@ def _read_reference_models(path: str) -> list[np.ndarray]:
 # --------------------------------------------------------------------------
 
 def _make_rmsd(name: str, spec: dict):
+    """rmsd CV — the first-class CV form of the rmsd RESTRAINT geometry:
+    same spec keys (``ref_pos_file`` + ``restr_grp``) and the same
+    ``RMSDForce`` CVIR kind.  The evaluate track is the unweighted Kabsch
+    optimal-rotation RMSD (``_kabsch_rmsd``), exactly openmm RMSDForce
+    semantics (verified numerically against the openmm kernel)."""
     from neomd.restraints import _read_reference_positions
 
     cv = CVIR(
@@ -554,6 +503,25 @@ def _evaluate_rmsd(positions, masses, cv: CVIR) -> float:
 
 
 def _make_coordination(name: str, spec: dict):
+    """coordination CV — a smooth pair sum over grp1 x grp2 with PLUMED's
+    rational switching function ``s(r) = (1-(r/r0)^nn)/(1-(r/r0)^mm)``
+    (defaults nn=6, mm=12, for which s(r) = 1/(1+(r/r0)^6) identically).
+    Not expressible in the centroid-COM expression subset, so the CVIR is
+    KIND-driven (``"CustomNonbondedForce"``, the RMSDForce precedent):
+    the openmm adapter compiles it over ALL system pairs whose energy is
+    the coordination number — membership parameters zero the non-cross
+    pairs (chosen over explicit exclusions: same value, no exception
+    bookkeeping; self-pairs never occur in a nonbonded pair list);
+    periodic systems take CutoffPeriodic at half the smallest box edge
+    because CustomNonbondedForce applies the minimum image only there
+    (the residual truncation is a documented deviation from the numpy
+    tracks).  The fake kernel and the evaluate track
+    (``_coordination_sum``) do the direct numpy pair sum, the fake with
+    orthorhombic minimum-image when its system is periodic (the evaluate
+    track is vacuum by this module's convention — distance evaluate is
+    not minimum-image either).  The removable 0/0 singularity at
+    ``r == r0`` exactly is shared by both tracks and by PLUMED's raw
+    form (measure zero)."""
     cv = CVIR(
         kind="CustomNonbondedForce",
         expression=CV_EXPRESSIONS["coordination"],
@@ -578,7 +546,34 @@ def _evaluate_coordination(positions, masses, cv: CVIR) -> float:
 
 
 def _make_path(selector: str):
+    """Factory for the ``path_s`` / ``path_z`` CVs (Branduardi, Gervasio &
+    Parrinello, "From A to B in free energy space", J. Chem. Phys. 126,
+    054103 (2007), doi:10.1063/1.2432340 — the PLUMED ``PATH`` spelling).
+
+    TWO registry entries sharing ONE spec-block grammar (``ref_path_file``
+    + ``restr_grp`` + ``lambda``) rather than a single ``path`` entry
+    emitting two CVs: every existing consumer (MetadynamicsRun,
+    ColvarProbe, the plan layer) assumes one colvar entry maps to exactly
+    one (CVIR, grid) pair, while two independent entries compose with the
+    unchanged metadynamics 1-3-CV table (biasing s and z together is the
+    canonical 2-CV path setup).  CVIR: kind ``"PathCV"``, ``expression``
+    carries the ``"s"``/``"z"`` selector symbol (same convention as the
+    dihedral's ``"theta"`` and the rmsd's ``"RMSD"``), ``ref_positions``
+    holds the STACKED frames ``(P, N, 3)`` (full-system rows, the openmm
+    RMSDForce rule), ``bond_params`` carries ``lambda`` (nm).  Force
+    track: an openmm CustomCVForce over per-image RMSDForce inner CVs
+    ``d1..dP`` with the closed-form expressions of ``_path_values`` and a
+    global ``lambda`` parameter — CustomCVForce-inside-CustomCVForce (the
+    metadynamics table wrapping the path CV), verified on openmm 8.6 /
+    CPU.  The openmm expression uses the naive PLUMED form; the numpy
+    evaluate uses the max-shifted log-sum-exp forms (see
+    ``_path_values``).
+    """
+
     def make_cv(name: str, spec: dict):
+        """One path CV: frames from ``ref_path_file`` (at least 2), the
+        grid nanometric for z (a distance, nm) and suffix-less for s (the
+        dimensionless progress in [1, P])."""
         frames = _read_reference_models(spec["ref_path_file"])
         if len(frames) < 2:
             raise ValueError(

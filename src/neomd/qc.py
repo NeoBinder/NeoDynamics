@@ -1,77 +1,24 @@
-"""qc — openmm-free structure quality checks over SystemBundle data.
+"""
+qc — openmm-free structure quality checks (pure numpy geometry over
+SystemBundle data; never via the kernel port).
 
-PURE NUMPY GEOMETRY + the files a :class:`~neomd.system.SystemBundle` points
-at.  This module never imports openmm and never touches the kernel port
-(pure numpy geometry + SystemBundle
-data, never via the port).  Coordinates come from the topology file (.pdb/.pdbx,
-parsed with the stdlib) or are handed in as a plain numpy array by the
-orchestrating hook; equilibrium values come from the serialized System XML
-(parsed with ``xml.etree`` — it is plain XML, no engine needed):
+Geometry comes from the topology file (.pdb/.pdbx, stdlib-parsed) or a plain
+numpy array; equilibrium values from the serialized System XML (plain XML):
+HarmonicBondForce + Constraints -> bond graph + r0, HarmonicAngleForce ->
+theta0, PeriodicBoxVectors -> the authoritative box.  Checks are COLLECT-ALL
+(same discipline as plan validation): coordinates (NaN/Inf, fractional box
+escape), PBC-aware clashes (1-2/1-3/1-4 bond-graph pairs excluded;
+ligand-scoped variants when a ligand is known, ``skipped`` otherwise), bond
+lengths and angles.  The report is written FIRST (``qc_report.json`` through
+a sink); :class:`~neomd.errors.StructureQualityError` raises only in strict
+``qc.mode`` (default soft).  Regression: tests/v2/test_qc.py.
 
-* ``HarmonicBondForce`` ``<Bond p1 p2 d k/>``   -> bond graph + r0 (nm)
-* ``Constraints``       ``<Constraint p1 p2 distance/>`` (HBonds-constrained
-  systems) folded into the same bond list — a constraint length IS the
-  equilibrium length the builder chose;
-* ``HarmonicAngleForce`` ``<Angle p1 p2 p3 a k/>`` -> theta0 (radians);
-* ``PeriodicBoxVectors`` -> the authoritative box (nm) — the box the Context
-  runs with, preferred over the structure file's CRYST1/_cell when present.
-
-Checks (COLLECT-ALL: every check runs, every finding is kept, the report
-lists them together — the same discipline as plan validation):
-
-1. ``coordinates``          NaN/Inf coordinates, and atoms whose FRACTIONAL
-      position escapes ``[-box_escape_fraction, 1+box_escape_fraction]``.
-      Raw MD coordinates legitimately sit anywhere inside +/- half a box
-      (openmm never wraps); an atom further out than half a box has no
-      consistent minimum image and means a placement/serialization bug.
-2. ``clashes``              PBC-aware minimum-image pairwise distances
-      below threshold.  Pairs joined by 1-2 / 1-3 / 1-4 bonds of the bond
-      graph (HarmonicBondForce + Constraints) are EXCLUDED — exactly the
-      pairs a nonbonded force excludes or scales; bonded pairs are judged by
-      checks 3/4 instead.  Two thresholds: heavy-heavy and any-pair-with-H.
-3. ``bond_lengths``         |r - r0| > max(bond_relative_tolerance * r0,
-      bond_absolute_nm) per bond parameter.
-4. ``bond_angles``          |theta - theta0| > angle_tolerance_deg.
-
-When a ligand selection is known (a ``ligand.json`` with named molecules, or
-explicit residue names), checks 2-4 are additionally run scoped to the ligand
-(``ligand_clashes`` counts pairs with AT LEAST one ligand atom — the
-protein/ligand overlap class) and reported under ``ligand``.
-Absent ligand = the scoped checks report ``skipped``; it is never an error.
-
-Default thresholds and why (calibrated against real repro data plus the
-minimized 3HTB/ala2 fixtures):
-
-* ``clash_heavy_nm`` 0.20 (2.0 A): the shortest legitimate non-excluded
-  heavy-heavy contacts are strong H-bond donor/acceptor pairs (~2.4 A) and
-  Na+...O coordination (~2.3-2.4 A); 2.0 A sits below all of them and far
-  above the pathological overlaps QC exists to catch (observed pathological
-  cases sit ~0.3 A from a ring carbon).
-* ``clash_hydrogen_nm`` 0.10 (1.0 A): the shortest legitimate H-involving
-  non-excluded contact is an H-bond H...acceptor at ~1.5 A; below 1.0 A is
-  unambiguous overlap (repro inputs showed H at 0.5-1.0 A from ring
-  atoms).
-* ``bond_relative_tolerance`` 0.25 with a ``bond_absolute_nm`` 0.03 floor:
-  minimized/thermal structures sit within ~1-2 % of r0 (measured on
-  openmm-minimized references and the ala2 fixture), while
-  pathological minimization output reaches 53 % (three bonds > 25 %);
-  25 % splits the regimes with an order of magnitude of margin, and the
-  absolute floor keeps very short bonds from being judged by irrelevant
-  absolute noise while still requiring gross distortion.
-* ``angle_tolerance_deg`` 30: good structures within ~2-3 degrees of
-  theta0; bad-min output carries angles tens of degrees off.  30 degrees
-  splits the regimes.
-* ``box_escape_fraction`` 0.5: see check 2.
-
-Failure behavior (both hooks, prepare tail and min tail): the report is
-written FIRST (``qc_report.json`` through a sink), and only then, when the
-plan's ``qc.mode`` is ``strict``, does the caller raise
-:class:`~neomd.errors.StructureQualityError`.  Default mode is ``soft``
-(report only).  Rationale: raw preparation inputs routinely carry fixable
-clashes — the shipped 3HTB example's input protein contains a real
-ASN163/LEU164 clash that minimization resolves, and failing hard there
-would break the documented working runbook; ``strict`` is the opt-in gate
-for pipelines that want one.
+Threshold calibration (real repro data + minimized 3HTB/ala2 fixtures): clash_heavy_nm 0.20
+sits below the shortest legitimate non-excluded heavy-heavy contacts (H-bond ~2.4 A, Na+...O
+~2.3-2.4 A) and far above pathological overlaps; clash_hydrogen_nm 0.10 sits below the shortest
+legitimate H...acceptor contact (~1.5 A); bond_relative_tolerance 0.25 (+ bond_absolute_nm 0.03
+floor) splits minimized/thermal (~1-2 % of r0) from pathological output (>25 %);
+angle_tolerance_deg 30 splits good (~2-3 deg off theta0) from bad (tens of degrees); box_escape_fraction 0.5 is the half-box minimum-image limit.
 """
 
 from __future__ import annotations

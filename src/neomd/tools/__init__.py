@@ -1,13 +1,14 @@
-"""neomd.tools — the external-tool seam.
+"""
+neomd.tools — the external-tool seam.
 
 * :mod:`neomd.tools.port` — ``ToolRunner`` (isolated execution +
   diagnostics), ``ToolResult`` / ``ToolError``, the in-process
   ``FakeToolRunner``, and the minimal ``ChargeBackend`` / ``ParamBackend``
   protocols.
 * :mod:`neomd.tools.antechamber` — GAFF/antechamber knowledge:
-  ``AntechamberBackend``, the thin openmmforcefields ``GAFFTemplateGenerator``
-  subclass, ``rename_atoms_by_template``, and ``build`` (the
-  ``ForceFieldBuilder`` seam entry).
+  ``AntechamberBackend``, the thin ``GAFFTemplateGenerator``,
+  ``rename_atoms_by_template``, and ``build`` (the ``ForceFieldBuilder``
+  seam entry).
 """
 
 from neomd.tools.antechamber import (

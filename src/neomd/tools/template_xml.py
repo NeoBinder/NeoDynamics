@@ -1,32 +1,13 @@
-"""Template XML processing.
+"""
+Template XML processing.
 
-Two subcommands, each driven by a YAML config file (``yaml.safe_load``
-into the plain-dict config convention used across neomd):
-
-``generate_template``
-    Parameterize one ligand with GAFF and write the produced residue
-    template (+ additional parameters) to ``output_xml``.  Calls
-    :class:`~neomd.tools.antechamber.AntechamberBackend.generate_residue_template`
-    directly — no openmm ``ForceField`` scaffolding just to harvest the
-    xml.
-
-``modify_template``
-    Rewrite ``PeriodicTorsionForce`` ``Proper`` torsions of an existing
-    ffxml from CSV parameter tables (:func:`fix_torsion_params`:
-    both-direction class-key matching, removal loop, rebuild loop with
-    periodicity/phase/k columns and an optional ``divide_factor`` the k
-    column is divided by), then pretty-print (:func:`prettify_xml`) and
-    write ``out_xml`` as utf-8.
-
-Fidelity notes (deviations, all deliberate):
-
-* :func:`generate_template` prints ``Failed to parameterize ligand.``
-  and re-raises on failure (the parameterization cannot return falsy —
-  failure surfaces as an exception).
-* ``fix_torsion_params`` skips fix entries whose value is not a ``dict``.
-* the commented-out ``strip_all_element_text_tail(root)`` call in
-  :func:`modify_template` is kept verbatim: element text/tail is NOT
-  stripped before pretty-printing.
+Two YAML-config-driven subcommands: ``generate_template`` — parameterize
+one ligand with GAFF and write the produced residue template (+ additional
+parameters) to ``output_xml``; ``modify_template`` — rewrite
+``PeriodicTorsionForce`` ``Proper`` torsions of an existing ffxml from CSV
+parameter tables (:func:`fix_torsion_params`), then pretty-print
+(:func:`prettify_xml`) to ``out_xml`` as utf-8.  Fidelity notes live on the
+individual functions.
 """
 
 from __future__ import annotations

@@ -1,24 +1,14 @@
-"""RBFE λ-ladder orchestration — the runner above ``method: "rbfe"``.
+"""
+RBFE λ-ladder orchestration — the runner above ``method: "rbfe"``.
 
-The multi-leg loop (ADR-0003 item 3 / ADR-0007 §3): ONE
-plan carrying ``method: "rbfe"`` + ``alchemical.ladder`` becomes N window
-runs, each a complete :func:`neomd.driver.drive()` — its own directory
-(``window_00``, ``window_01``, ...), manifest, checkpoint and ``du.tsv``
-tape — plus ONE runner-level ledger (``ladder.json``) tying the ladder to
-the window directories.  This is deliberately NOT the general
-``min → eq → prod`` pipeline (settled decision #8 keeps that in 2.x): no leg
-chaining (every window starts from the same plan inputs, as independent
-chains must), no DAG, no cross-window parallelism.  The BAR/MBAR half of
-the experiment lives in :mod:`neomd.analysis.freeenergy` and consumes the
-window directories directly.
-
-Determinism: window ``i`` runs with ``seed = plan.seed + i`` (independent
-chains; the ladder order is the plan's, preserved verbatim).
-
-Interrupted ladders resume: a window directory whose manifest exists but
-whose last epoch is not ``done:rbfe`` is re-run with ``continue_md`` —
-restore/trim stays with the one resume owner (:mod:`neomd.resume`); this
-module never trims a tape itself.
+ONE plan carrying ``method: "rbfe"`` + ``alchemical.ladder`` becomes N window
+runs (``window_00``, ``window_01``, ...), each a complete
+:func:`neomd.driver.drive()` with its own directory, manifest, checkpoint and
+``du.tsv`` tape, plus ONE runner-level ledger (``ladder.json``).  Deliberately
+NOT the general ``min -> eq -> prod`` pipeline (deferred to 2.x): every
+window starts from the same plan inputs as independent chains — no leg
+chaining, no DAG, no cross-window parallelism.  The BAR/MBAR half lives in
+:mod:`neomd.analysis.freeenergy` and consumes the window directories.
 """
 
 from __future__ import annotations

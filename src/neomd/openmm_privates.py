@@ -1,26 +1,14 @@
-"""openmm_privates — the ONE isolated home for openmm private-API usage.
+"""
+openmm_privates — the ONE home for openmm private-API usage (source-scanned).
 
-The system-preparation workflow needs three openmm internals that have no
-public equivalent (as of the pinned release):
-
-* ``Topology._standardBonds`` / ``Topology._bonds`` + the
-  ``createStandardBonds``/``createDisulfideBonds`` rebuild — teaching a
-  topology about custom residues' bond graph (:func:`custom_bonds`);
-* ``Modeller._ResidueData`` / ``Modeller._residueHydrogens`` /
-  ``Modeller._Hydrogen`` — teaching ``modeller.addHydrogens`` about custom
-  residues' hydrogen parents (:func:`custom_addH`); reads
-  ``ForceField._atomTypes`` for atom elements;
-* ``openmm.app.internal.unitcell.computePeriodicBoxVectors`` — the
-  ligand-extent fallback box (:func:`compute_periodic_box_vectors`).
-
-Everything private lives in THIS file and nowhere else (enforced by
-tests/v2/test_system.py's source scan).  The usages are PINNED: the first
+Three usages with no public equivalent at the pinned release: custom bond
+graph teaching (:func:`custom_bonds`), custom-residue hydrogen teaching in
+``modeller.addHydrogens`` (:func:`custom_addH`), the ligand-extent fallback
+box (:func:`compute_periodic_box_vectors`).  Pinned-version gate: the first
 call checks ``openmm.__version__`` against :data:`PINNED_OPENMM_PREFIXES`
-and raises :class:`~neomd.errors.UpstreamVersionError` outside the range —
-bumping openmm past the pin produces a loud refusal, never silent
-behavioral drift.  Re-pin by verifying the three usages against the new
-release (the smoke tests in test_system.py cover each one) and extending
-the prefix tuple.
+and raises :class:`~neomd.errors.UpstreamVersionError` outside openmm 8.6.x
+— a loud refusal, never silent behavioral drift.  Re-pin by re-verifying the
+three usages against the new release and extending the prefix tuple.
 """
 
 from __future__ import annotations

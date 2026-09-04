@@ -1,28 +1,10 @@
-"""pdbx -> PDB conversion with amber atom/residue renaming.
+"""
+pdbx -> PDB conversion with amber atom/residue renaming.
 
-Standalone utility script that imports **openmm** directly (like the
-prepare path — it is pure library code: PDBxFile read -> topology renames
--> PDBFile write -> line filtering), so no ToolRunner subprocess seam is
-needed.
-
-Pipeline:
-
-1. ``load_file`` — read a .pdbx (mmCIF) file via ``PDBxFile``.
-2. ``convert_to_amber_pdb`` — rename topology entries to amber/LEaP
-   spellings (first residue of chain 0: ``H`` -> ``H1``; residues ``CL``
-   -> ``Cl-`` and ``NA`` -> ``Na+``, atom names likewise, plus the
-   element-symbol patch ``atom.element.__dict__["_symbol"]`` which forces
-   uppercase two-letter element columns in the output), then write the
-   whole thing to ``<out_path>/tmp.pdb``.
-3. Line filtering of ``tmp.pdb``:
-
-   * one ``lig{i}.pdb`` per ``-lig_names`` entry holding every line that
-     contains that residue name as a substring;
-   * ``amber_nolig.pdb`` holding every line that contains *no* ligand
-     name and no CONECT substring.
-
-4. Without ``-type amber`` the plain path just rewrites the pdbx as
-   ``<out_path>/neomd_convert.pdb`` with ``keepIds=True``.
+Standalone utility that imports **openmm** directly (pure library code —
+PDBxFile read -> topology renames -> PDBFile write -> line filtering; no
+ToolRunner subprocess seam needed).  Pipeline: :func:`load_file` then
+:func:`convert_to_amber_pdb`.
 """
 
 from __future__ import annotations
@@ -36,10 +18,23 @@ __all__ = ["load_file", "convert_to_amber_pdb", "main"]
 
 
 def load_file(fname):
+    """Read a .pdbx (mmCIF) file via openmm's ``PDBxFile``."""
     return PDBxFile(fname)
 
 
 def convert_to_amber_pdb(in_pdb, args):
+    """Rename topology entries to amber/LEaP spellings and write the PDBs.
+
+    First residue of chain 0: ``H`` -> ``H1``; residues ``CL`` -> ``Cl-`` and
+    ``NA`` -> ``Na+``, atom names likewise, plus the element-symbol patch
+    (``atom.element.__dict__["_symbol"]``, forcing uppercase two-letter
+    element columns).  Writes ``<out_path>/tmp.pdb``, then filters it:
+    one ``lig{i}.pdb`` per ``-lig_names`` entry (lines containing that
+    residue name as a substring) and ``amber_nolig.pdb`` (lines containing
+    no ligand name and no CONECT substring).  Without ``-type amber`` the
+    plain path just rewrites the pdbx as ``<out_path>/neomd_convert.pdb``
+    with ``keepIds=True``.
+    """
     top = in_pdb.topology
     if args.lig_names is not None:
         lig_names = args.lig_names.split(",")
