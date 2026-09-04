@@ -140,7 +140,7 @@ pixi run test-golden   # golden-sample parity vs recorded tapes, bit-exact (~3 m
 pixi run test-legacy   # frozen v1 live tests (excluded from CI)
 pixi run -e ml test-ml # ML/MM torch tier (openmm-torch + torch env, ADR-0004;
                        #   carries a TEMPORARY openmm 8.5.* pin until conda-forge
-                       #   openmm-torch tracks 8.6 — see pixi.toml + ADR-0004)
+                       #   openmm-torch tracks 8.6 — see pyproject.toml [tool.pixi] + ADR-0004)
 uvx ruff check .       # the lint gate (E4/E7/E9/F + isort; config + excludes in pyproject.toml)
 pixi run docs-gen      # regenerate docs/reference/configuration.md from the live package
 pixi run docs-build    # mkdocs build --strict (the docs-site gate)
@@ -221,7 +221,7 @@ Challenge these only with new evidence, and update the docs if one changes.
 9. **Golden samples catch behavior changes; they do not prove physical
    correctness.** The fake kernel implements only textbook Langevin and
    must not grow OpenMM corner-case mimicry.
-10. **Version bumps of OpenMM are explicit events**: pin in `pixi.toml`,
+10. **Version bumps of OpenMM are explicit events**: pin in `pyproject.toml` ([tool.pixi]),
     re-verify the `openmm_privates.py` gate, re-record golden tapes once.
 
 ## Working discipline
@@ -247,9 +247,10 @@ Every development task (feature, fix, experiment) follows this process;
 no gate is skipped.
 
 - **The main checkout only lands work.** It stays on `main` and clean: the
-  only permitted operations there are `git pull --ff-only`, landing a
-  finished branch, and pushing `main`. Never edit code or branch directly
-  in the main checkout.
+  only permitted operations there are `git pull --ff-only` and merging a
+  finished branch's PR. Never edit code or branch directly in the main
+  checkout, and never push `main` directly — changes reach `main` only
+  through a PR.
 - **One worktree per task.** Before touching code, create an isolated
   worktree and do all coding, building, running and testing inside it:
 
@@ -263,6 +264,9 @@ no gate is skipped.
   along with any uncommitted work — never clean across `.worktrees/`.
   Intermediate commits are local checkpoints only — the branch is squashed
   into one commit when it lands. One worktree serves exactly one task.
+  While the task is in flight, keep the branch current: when `main` moves
+  (fetch and check), merge `main` into the task branch inside the worktree
+  and resolve conflicts there — never rebase shared history or edit `main`.
 - **Completion gate — stop and wait for user confirmation.** When the work
   is done (code complete, tests pass per the Commands section, self-checked),
   stop: no merge, no squash to `main`, no push, no worktree removal until
@@ -270,16 +274,18 @@ no gate is skipped.
   verified (commands actually run + results), the worktree path and branch
   name, and the README/AGENTS.md changes this task made (or state that no
   documentation update was needed).
-- **Landing (only after confirmation) always squashes.** However many
-  commits the branch accumulated, it lands as exactly one: `git pull
-  --ff-only` in the main checkout; if the branch now conflicts with
-  `main`, merge `main` into the branch inside the worktree and resolve
-  first; then `git merge --squash feat/<name>` and one commit whose
-  message covers the whole branch — multiple commits never reach `main`
-  as-is (no plain merge, no fast-forward of a multi-commit branch).
-  Before pushing, audit the final diff against the remote tip
-  path by path: no secrets, `.env*`, personal data, internal addresses,
-  build artifacts or temporary files. Push, then
+- **Landing (only after confirmation) goes through a PR, always squashed.**
+  However many commits the branch accumulated, it lands as exactly one:
+  `git fetch` and check whether `main` moved; if it did, merge `main` into
+  the task branch inside the worktree and resolve conflicts there; then
+  squash the branch into one commit whose message covers the whole branch
+  (`git merge --squash feat/<name>` — multiple commits never reach `main`
+  as-is; no plain merge, no fast-forward of a multi-commit branch). Audit
+  the final diff against the remote tip path by path: no secrets, `.env*`,
+  personal data, internal addresses, build artifacts or temporary files.
+  Push the task branch and open a PR targeting `main` (CI runs the test,
+  golden and docs gates on the PR); merge the PR to land. Afterwards
+  `git pull --ff-only` in the main checkout, then
   `git worktree remove .worktrees/<name>` (keep it only for an explicit
   follow-up).
 - **Documentation discipline.** Behavior changes (commands, scripts,

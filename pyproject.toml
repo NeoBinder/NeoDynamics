@@ -24,7 +24,6 @@ dependencies = [
 neomd = "neomd.cli:main"
 neomd2 = "neomd.cli:main"  # strangler-period alias, removed with neomd_legacy
 
-
 [tool.versioningit]
 
 [tool.setuptools.packages.find]
@@ -41,9 +40,6 @@ markers = [
 ]
 
 [tool.ruff]
-# The project's first lint gate (issue #13 residue): check-only, conservative,
-# no churn to physics code (AGENTS.md settled decision #2 — force expressions
-# are ported verbatim and are not to be "cleaned up").
 extend-exclude = [
   "src/neomd_legacy", # frozen v1 — bug fixes only, never lint-churned
   "bin",              # frozen v1 wrappers + standalone v1 analysis tools
@@ -51,18 +47,92 @@ extend-exclude = [
   "docs",
   ".worktrees",       # in-repo worktrees carry their own pyproject.toml copies
 ]
-# pre-commit passes excluded paths explicitly (it appends filenames to the
-# ruff invocation); without this flag ruff would lint them anyway and the
-# hook would fail on frozen v1 code.
-force-exclude = true
+force-exclude = true # pre-commit passes excluded paths explicitly
 line-length = 100
 
 [tool.ruff.lint]
-# Ruff's default set (pyflakes + the pycodestyle subsets that are safe:
-# E4 import formatting errors, E7 statement errors, E9 runtime errors) plus
-# isort (I) for deterministic import ordering. E501 and style-opinion rules
-# are deliberately NOT enabled — this gate must stay mechanical.
 select = ["E4", "E7", "E9", "F", "I"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["neomd", "neomd_legacy"]
+
+# --- pixi workspace (merged from pixi.toml) ---
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[tool.pixi.pypi-dependencies]
+NeoDynamics = { path = ".", editable = true }
+python-box = ">=7.3.2"
+numpy = "*"
+
+[tool.pixi.pypi-options]
+index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+
+[tool.pixi.dependencies]
+python = "3.12.*"
+
+# The engine stack lives in a FEATURE so the ml environment can carry its own
+# openmm pin (ADR-0004) without intersecting a workspace-level 8.6.*.
+[tool.pixi.feature.engine.dependencies]
+openmm = "8.6.*"
+openmmforcefields = ">=0.16,<0.17"
+openff-toolkit = ">=0.19,<0.20"
+pytest = "*"
+
+[tool.pixi.feature.test.dependencies]
+pytest = "*"
+pdbfixer = "*"
+
+[tool.pixi.feature.docs.dependencies]
+mkdocs-material = "*"
+
+[tool.pixi.feature.docs.tasks]
+docs-build = "mkdocs build --strict"
+docs-gen = "python docs/generate_reference.py"
+
+# rbfe: openmmtools 0.26 (conda-forge, MIT), the line audited against the
+# openmm 8.6.x pin (ADR-0003/ADR-0007, decision #10). Separate solve-group.
+[tool.pixi.feature.rbfe.dependencies]
+openmmtools = "0.26.*"
+
+# dev: extra environment for bin/hills_ana.py (mdtraj + MDAnalysis)
+[tool.pixi.feature.dev.dependencies]
+mdtraj = "*"
+pandas = "*"
+mdanalysis = "*"
+
+# ml (ADR-0004): every conda-forge openmm-torch build (1.5.1) caps
+# openmm < 8.6, so this environment carries a temporary openmm 8.5.* pin;
+# upgrade to 8.6.* when a tracking build lands (decision #10 event).
+# Separate solve-group: the pin must never leak into default/test/dev.
+# Real-torch tests are importorskip-gated and run here:
+#   pixi run -e ml test-ml
+[tool.pixi.feature.ml.dependencies]
+openmm = "8.5.*"
+openmm-torch = "1.5.*"
+pytorch = "2.12.*"
+openff-toolkit = ">=0.19,<0.20"
+openmmforcefields = ">=0.16,<0.17" # the tools.ligand workflow (demo prepare)
+ambertools = "*"                   # the demo's GAFF ligand parameterization stage
+pytest = "*"
+
+[tool.pixi.feature.ml.tasks]
+test-ml = "pytest tests/v2/test_mlmm.py -v"
+
+[tool.pixi.environments]
+default = { features = ["engine"], solve-group = "default" }
+test = { features = ["engine", "test"], solve-group = "default" }
+dev = { features = ["engine", "dev"], solve-group = "dev" }
+docs = { features = ["engine", "docs"], solve-group = "default" }
+ml = { features = ["ml"], solve-group = "ml" }
+# the rbfe env's gate: the default tier (import-gated tests skip there) plus
+# the openmmtools-gated alchemy smoke (tests/v2/test_rbfe_alchemy.py)
+rbfe = { features = ["engine", "rbfe", "test"], solve-group = "rbfe" }
+
+[tool.pixi.tasks]
+test = "pytest tests/ -m 'not golden and not legacy'"
+test-golden = "pytest tests/ -m 'golden and not legacy'"
+test-legacy = "pytest tests/ -m legacy -q"
+test-rbfe = "pytest tests/ -m 'not golden and not legacy'"
