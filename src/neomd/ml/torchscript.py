@@ -26,7 +26,7 @@ documented worked example (index selection included).
 
 This module needs ``torch`` only to CREATE models (tests/demos do that);
 loading one through ``TorchForce`` needs the openmmtorch plugin (the pinned
-``ml`` pixi environment ships it — see pixi.toml and ADR-0004).  Imports are
+``ml`` pixi environment ships it — see pyproject.toml [tool.pixi] and ADR-0004).  Imports are
 lazy and guarded so the default (torch-free) environment never drags them in;
 enforced by the torch-import source scan in tests/v2/test_mlmm.py.
 """
