@@ -1,8 +1,7 @@
-"""system — the kernel-agnostic system description (v2 migration plan §5
-Phase 2 item 2.3; split per the v2 improvements list item 6).
+"""system — the kernel-agnostic system description.
 
-This module is now ONE-headed: :class:`SystemBundle` — pure data + loading +
-validation — plus its openmm-free helpers.  It NEVER imports openmm: the
+One-headed: :class:`SystemBundle` — pure data + loading + validation —
+plus its openmm-free helpers.  It NEVER imports openmm: the
 openmm kernel deserializes ``system.xml`` itself (see ``kernel/openmm.py``),
 so the bundle only carries file paths, ligand molecules (openff, lazily)
 and the *modification IR* (raw barostat dict + normalized particle-mass
@@ -10,27 +9,19 @@ overrides).  ``run.compile`` is the consumer that turns the same IR into a
 :class:`~neomd.kernel.port.KernelSpec`; the bundle exists so callers can
 inspect/describe a system without a kernel.
 
-The v1-ported PREPARATION WORKFLOW moved to :mod:`neomd.prepare`
+The preparation workflow lives in :mod:`neomd.prepare`
 (prepare_system / make_system / loaders / the ForceFieldBuilder seam), and
 every openmm PRIVATE attribute it needs lives in
 :mod:`neomd.openmm_privates` behind a pinned-version gate.  The workflow
-names below remain importable from ``neomd.system`` (the historical import
-path tests and callers used) — they are re-exports, not copies.
+names below remain importable from ``neomd.system`` — they are re-exports,
+not copies.
 
-The fgroup write-back is DEAD (plan §2)
----------------------------------------
-v1's ``NeoSystem.system_add_restraints`` mutated the freshly deserialized
-openmm System (adding restraint forces, assigning force groups) and then
-wrote the assigned groups back into the user's config
-(``config.restraint[name]["fgroup"] = fgroup`` — neosystem.py:122).  v2 kills
-both halves:
-
-* restraints never touch a SystemBundle — nothing in this module adds a
-  Force, assigns a force group, or knows the word "fgroup";
-* plan restraint entries flow through the registry knowledge triples to
-  ``kernel.install_bias`` (``driver.drive``), and the assigned force-group
-  ids come back as ``RunOutcome.fgroups`` (name -> list[int]) — a return
-  value of the interface, never a config mutation.
+Restraints never touch a SystemBundle — nothing in this module adds a
+Force, assigns a force group, or knows the word "fgroup".  Plan restraint
+entries flow through the registry knowledge triples to
+``kernel.install_bias`` (``driver.drive``), and the assigned force-group
+ids come back as ``RunOutcome.fgroups`` (name -> list[int]) — a return
+value of the interface, never a config mutation.
 """
 
 from __future__ import annotations
@@ -95,9 +86,8 @@ class SystemBundle:
     modifications:
         the modification IR — ``{"barostat": raw dict | None,
         "particle_masses": {int index: float dalton} | None}``.  The barostat
-        dict is kept RAW (v1 ``NeoSystem.add_barostat`` defaults and the
-        seed/temperature augmentation happen in ``run.compile`` -> KernelSpec,
-        never here).
+        dict is kept RAW (its seed/temperature augmentation happens in
+        ``run.compile`` -> KernelSpec, never here).
     """
 
     topology_file: str | None = None
@@ -112,8 +102,7 @@ class SystemBundle:
     def from_plan(cls, plan) -> "SystemBundle":
         """Validate the plan's input_files and load the ligand molecules.
 
-        * ``complex`` must exist and end in ``.pdb``/``.pdbx`` (the v1
-          ``load_complex`` suffix check and message);
+        * ``complex`` must exist and end in ``.pdb``/``.pdbx``;
         * ``system`` must exist;
         * ``ligands`` (optional) is a json list of openff molecule dicts —
           openff.toolkit is imported lazily inside the loader because
@@ -204,7 +193,7 @@ class SystemBundle:
 
 
 def _check_complex_suffix(complex_path: str) -> None:
-    """The v1 ``load_complex`` suffix gate, message verbatim."""
+    """The complex-file suffix gate; the error message stays verbatim."""
     if not (complex_path.endswith(".pdb") or complex_path.endswith(".pdbx")):
         raise ConfigValueError(
             "In config.input_files.complex, unrecognized file type:{}".format(
@@ -255,11 +244,11 @@ def _load_ligands(ligand_path: str) -> list:
 def _normalize_particle_masses(system_modification) -> dict[int, float] | None:
     """``{particle index: mass in dalton}`` from raw ``system_modification``.
 
-    Verbatim port of v1 ``neosystem.py:74-78`` semantics (a mapping of
-    ``{index: {"mass": value}}``; entries without a "mass" key are ignored),
-    accepting BOTH spellings the plan schema allows — the v1 mapping and the
-    list-of-dicts ``[{"index": i, "mass": m}, ...]`` (normalized exactly like
-    ``run._particle_masses`` compiles into the KernelSpec).
+    A mapping of ``{index: {"mass": value}}``; entries without a "mass" key
+    are ignored.  Accepts BOTH spellings the plan schema allows — the
+    mapping and the list-of-dicts ``[{"index": i, "mass": m}, ...]``
+    (normalized exactly like ``run._particle_masses`` compiles into the
+    KernelSpec).
     """
     if not system_modification:
         return None
@@ -281,10 +270,9 @@ def _normalize_particle_masses(system_modification) -> dict[int, float] | None:
 def _extract_modifications(source: Mapping) -> dict:
     """The modification IR from a plan's RAW view (or a prepare config).
 
-    The barostat dict stays RAW — the temperature/seed augmentation v1 did
-    in ``add_barostat`` (``config.get("temperature", 298)`` /
-    ``setRandomNumberSeed(config.seed)``) is ``run.compile``'s job, so the
-    same source of truth feeds both the bundle and the KernelSpec.
+    The barostat dict stays RAW — its temperature/seed augmentation is
+    ``run.compile``'s job, so the same source of truth feeds both the
+    bundle and the KernelSpec.
     """
     if not isinstance(source, Mapping):  # pragma: no cover - defensive
         raise TypeError(

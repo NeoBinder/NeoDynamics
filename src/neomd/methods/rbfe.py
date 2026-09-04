@@ -1,4 +1,4 @@
-"""RBFE λ window — a method knowledge triple (issue #8 / W3-a; ADR-0007).
+"""RBFE λ window — a method knowledge triple (ADR-0003/0007).
 
 ONE alchemical window: dynamics at a fixed λ plus the du tape (``du.tsv``,
 :class:`neomd.probes.DuProbe`) that records, at every report interval, the

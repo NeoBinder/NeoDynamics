@@ -1,66 +1,47 @@
-"""Steered MD — a method knowledge triple (v1 SMD commit ``179ae35`` port).
+"""Steered MD — a method knowledge triple.
 
-Verbatim port of v1's SMD implementation (origin/main line:
-``src/neomd/restraints/SMDforce.py`` + ``generic/pipeline.py::run_smd`` +
-``restraints/SMDreporter.py``) onto the v2 seams.  The v1 commit landed on
-the un-flipped v1 branch after the local v1 freeze, so this is the port
-source; it is NOT in ``neomd_legacy``.
+A PARAMETER-RAMP framework, not a hard-coded constant-velocity pull.  Every
+``smd:`` entry builds its forces through the same restraint vocabulary as
+``plan.restraint`` (distance / angle / dihedral / dist_ref_position / rmsd);
+any rampable numeric key the user spells as a LIST is piecewise-linearly
+interpolated over ``steps`` and pushed to the kernel on a fixed update
+cadence — a classic pull is a ``max_nm`` or ``ref_position_nm`` ramp, a soft
+engage/release is a ``restr_k`` ramp like ``[0, 1000, ..., 0]``.
 
-What v1 SMD is (and this port keeps): a PARAMETER-RAMP framework, not a
-hard-coded constant-velocity pull.  Every ``smd:`` entry builds its forces
-through the same restraint vocabulary as ``plan.restraint`` (distance /
-angle / dihedral / dist_ref_position / rmsd); any rampable numeric key the
-user spells as a LIST is piecewise-linearly interpolated over ``steps``
-and pushed to the kernel on a fixed update cadence — a classic pull is a
-``max_nm`` or ``ref_position_nm`` ramp, a soft engage/release is a
-``restr_k`` ramp like the reference YAML's ``[0, 1000, ..., 0]``.
+Physics (the ramp schedule and cadence are the verbatim v1 port):
 
-Physics ported VERBATIM (discipline §8 #3):
-
-* the ramp schedule is v1 ``run_smd::get_current_parameter`` bit-for-bit:
-  ``steps_per_segment = int(steps / (len(values) - 1))``, segment anchors
-  ``[0, sps, 2*sps, ..., steps]`` (last forced to ``steps``), linear
-  interpolation inside the segment.
-* the update cadence is v1's chunk size 5000 steps.  v1 called
-  ``context.setParameter`` at the START of every 5000-step chunk, so the
-  parameter is a STAIRCASE at 5000-step granularity approximating the ramp;
-  the v2 driver's ``on_step`` hook fires at the END of each boundary chunk
-  and its value applies to the NEXT chunk — with initial BiasIR parameters
-  taken from each ramp's ``values[0]``, the fresh-run schedule is exactly
-  v1's staircase (pinned by test).
+* the ramp schedule: ``steps_per_segment = int(steps / (len(values) - 1))``,
+  segment anchors ``[0, sps, 2*sps, ..., steps]`` (last forced to ``steps``),
+  linear interpolation inside the segment.
+* the update cadence is 5000 steps: the parameter is a STAIRCASE at
+  5000-step granularity approximating the ramp.  The v2 driver's ``on_step``
+  hook fires at the END of each boundary chunk and its value applies to the
+  NEXT chunk — with initial BiasIR parameters taken from each ramp's
+  ``values[0]``, the fresh-run schedule is exactly that staircase (pinned by
+  test).
 * the push itself is one ``kernel.set_bias_param(name, value)`` per global
   parameter (the port.BiasParamOps capability; openmm implements it with
-  the very ``context.setParameter`` call v1 made, values in canonical
-  units — nm / kJ/mol / radians — matching how BiasIR Quantities land in
-  the Context).
+  ``context.setParameter``, values in canonical units — nm / kJ/mol /
+  radians — matching how BiasIR Quantities land in the Context).
 
-Deliberate deviations (documented, none touches the ramp physics):
+Design notes:
 
 * forces are compiled through the restraint registry triples
-  (``registry.get("restraint", type).make_bias``) rather than a copied
-  SMDforce module — one definition point per force type (the deletion
-  test); the v2 triples ARE the frozen-v1 expressions, mathematically
-  identical to the SMD-commit's renamed spellings.
+  (``registry.get("restraint", type).make_bias``) rather than a dedicated
+  force module — one definition point per force type.
 * per-boundary pushes re-derive the BiasIR with the interpolated spec and
-  push every parameter of it (v1 pushed only the ramped names — pushing
-  the constants too is idempotent and lets the triples own their own
-  parameter naming).
-* the artifact is BRAND NEW: ``smd.tsv`` (SmdProbe) carries step + the
-  entry's geometric observable + the CURRENT ramp values (spec units) +
-  the entry's bias energy — v1's ``smd.csv`` reported parameters and
-  energies only, no geometry.  Old consumers break, acknowledged (same
-  R3-Q3 stance as colvar.tsv / restraint.tsv).  The tape's INCLUSION is
-  driver policy — ``output.report_smd`` (bool, default on) through
-  ``driver._TAPE_SWITCHES`` — and the restraint tape for the static
-  ``restraint:`` section is attached by the driver too
-  (driver.run_prepared_method), so this method never sees restraint
-  wiring (v1 had incidentally gated smd.csv on ``report_restraint``; the
-  dedicated switch replaces that coupling — review decisions).
-* resume: the initial post-restore push is SNAPPED to the enclosing
-  update boundary, and the driver fires ``on_step`` on absolute multiples
-  of the cadence — so a resumed run's staircase is identical to an
-  uninterrupted run's, row for row (deliberate deviation from v1, which
-  re-interpolated at the raw resume step — review decision).
+  push every parameter of it (pushing the constants too is idempotent and
+  lets the triples own their own parameter naming).
+* the artifact ``smd.tsv`` (SmdProbe) carries step + the entry's geometric
+  observable + the CURRENT ramp values (spec units) + the entry's bias
+  energy.  The tape's INCLUSION is driver policy — ``output.report_smd``
+  (bool, default on) through ``driver._TAPE_SWITCHES`` — and the restraint
+  tape for the static ``restraint:`` section is attached by the driver too
+  (driver.run_prepared_method), so this method never sees restraint wiring.
+* resume: the initial post-restore push is SNAPPED to the enclosing update
+  boundary, and the driver fires ``on_step`` on absolute multiples of the
+  cadence — so a resumed run's staircase is identical to an uninterrupted
+  run's, row for row.
 """
 
 from __future__ import annotations
@@ -85,14 +66,13 @@ __all__ = [
 LABEL = "smd"
 SMD_FILENAME = "smd.tsv"
 
-#: v1 run_smd's chunk size (generic/pipeline.py ``interval = 5000``) — the
-#: ramp-push cadence AND the staircase granularity; not configurable.
+#: the ramp-push cadence AND the staircase granularity (steps); not
+#: configurable.
 UPDATE_INTERVAL = 5000
 
-#: spec keys that may carry a ramp LIST (the union of v1 SMDforce's
-#: per-type ``get_update_params`` lists, v2 spellings).  ``grp*`` atom
-#: lists are naturally lists and never ramps.  plan.py mirrors this set
-#: for collect-all validation; tests/v2/test_smd.py pins the two together.
+#: spec keys that may carry a ramp LIST.  ``grp*`` atom lists are naturally
+#: lists and never ramps.  plan.py mirrors this set for collect-all
+#: validation; tests/v2/test_smd.py pins the two together.
 RAMP_KEYS = (
     "restr_k",
     "restr_k_per_atom",
@@ -135,22 +115,21 @@ class MethodResult:
 
 
 # ---------------------------------------------------------------------------
-# ramp arithmetic — v1 run_smd::get_current_parameter, verbatim
+# ramp arithmetic
 # ---------------------------------------------------------------------------
 
 
 def _ramp_value(values, step: int, total_steps: int):
-    """Current ramp value at ``step`` — v1's interpolation math verbatim.
+    """Current ramp value at ``step``.
 
     ``values`` is a list of numbers (or of [x, y, z] triples, interpolated
     per component).  The anchors divide ``total_steps`` into
     ``len(values) - 1`` equal segments of ``int(total_steps / n)`` steps,
     the last anchor forced to ``total_steps``; inside a segment the value
-    is linear.  ``step == total_steps`` clamps to the last segment (v1's
-    chunk loop never evaluated there — it breaks first).
+    is linear.  ``step == total_steps`` clamps to the last segment.
     """
     num_segments = len(values) - 1
-    steps_per_segment = int(total_steps / num_segments)  # v1 true-divide + int
+    steps_per_segment = int(total_steps / num_segments)
     key_steps = [0]
     for i in range(num_segments):
         key_steps.append((i + 1) * steps_per_segment)
@@ -161,7 +140,6 @@ def _ramp_value(values, step: int, total_steps: int):
     step_start, step_end = key_steps[segment_index], key_steps[segment_index + 1]
     param_start, param_end = values[segment_index], values[segment_index + 1]
     if isinstance(param_start, (list, tuple)):
-        # ref_position_nm ramp: interpolate the triple per component
         return [p0 + (step - step_start) / (step_end - step_start) * (p1 - p0)
                 for p0, p1 in zip(param_start, param_end)]
     return param_start + (step - step_start) / (step_end - step_start) \
@@ -180,11 +158,10 @@ def _is_triple(value) -> bool:
 def _split_ramps(name: str, spec: Mapping) -> tuple[dict, dict]:
     """One smd entry -> (scalar spec with values[0], {key: values}).
 
-    v1 ``SMDforce.get_update_params`` decided "ramp" per known param name;
-    v2 spelling: a RAMP_KEYS numeric key given a list of numbers, or
+    A ramp is a RAMP_KEYS numeric key given a list of numbers, or
     ``ref_position_nm`` given a list of triples (a bare triple stays the
-    scalar spelling).  Single-element lists are fixed at that value — v1
-    kept them out of update_params, so they are no ramp here either.
+    scalar spelling).  Single-element lists are fixed at that value, not
+    ramps.
     """
     scalar: dict = {}
     ramps: dict = {}
@@ -309,13 +286,11 @@ class SMDRun:
 
         resume_plan = plan_resume(self.plan, self.kernel, self.sink)
 
-        # v1 run_smd pushes parameters before the first chunk.  The push
-        # step is SNAPPED DOWN to the enclosing update boundary so a
-        # resumed run carries exactly the value an uninterrupted run holds
-        # at that point (deliberate deviation from v1, which re-interpolated
-        # at the raw resume step — review decision); a fresh run snaps
-        # 0 -> 0.  This also populates self._current so the probe below
-        # snapshots the ramp columns at construction.
+        # The push step is SNAPPED DOWN to the enclosing update boundary so
+        # a resumed run carries exactly the value an uninterrupted run holds
+        # at that point; a fresh run snaps 0 -> 0.  This also populates
+        # self._current so the probe below snapshots the ramp columns at
+        # construction.
         first_push = (self.kernel.current_step // UPDATE_INTERVAL) \
             * UPDATE_INTERVAL
         self._update_parameters(first_push)
@@ -351,7 +326,7 @@ class SMDRun:
         """End-of-run artifacts + the result drive() records."""
         from neomd.driver import CHECKPOINT_FILENAME
 
-        if self.sink is not None:  # v1 save_last checkpoint at run end
+        if self.sink is not None:  # end-of-run checkpoint
             self.sink.write_bytes(CHECKPOINT_FILENAME, self.kernel.snapshot())
         return MethodResult(
             steps_done=result.steps_done,
@@ -377,8 +352,8 @@ class SMDRun:
 
     def _update_parameters(self, step: int) -> None:
         """Re-derive every entry's BiasIR at ``step`` and push all its
-        global parameters (v1 ``update_parameters``; constants re-pushed
-        idempotently so the triples own their parameter naming)."""
+        global parameters (constants re-pushed idempotently so the triples
+        own their parameter naming)."""
         for e in self.entries:
             spec = e.scalar_at(step, self.total_steps)
             self._current[e.name] = {key: spec[key] for key in e.ramps}

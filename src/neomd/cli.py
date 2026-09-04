@@ -1,9 +1,7 @@
-"""cli — the ``[project.scripts]`` entry point (v2 plan §5 item 4.2, §1 R3-Q5).
+"""cli — the ``[project.scripts]`` entry point.
 
 ``neomd = neomd.cli:main`` is the console-script spelling registered in
-``[project.scripts]`` during the strangler period (at flip day the entry
-point follows the package rename and becomes ``neomd``).  ``bin/`` scripts
-degrade into thin wrappers around this CLI (item 4.3).
+``[project.scripts]``.
 
 The CLI is spellings, not behavior: every subcommand is a thin argument
 mapping onto a public library call —
@@ -29,10 +27,6 @@ mapping onto a public library call —
                      Reports EVERY problem in one pass, writes nothing,
                      exits 2 on problems ("nothing was executed" footer).
                      Installed plugin distributions are entry-point-scanned
-                     first so ``plugins:`` sections validate against the
-                     live registry (ADR-0002).
-                     exits 2 on problems ("nothing was executed" footer);
-                     installed plugin distributions are entry-point-scanned
                      first so ``plugins:`` sections validate against the
                      live registry (ADR-0002).
     mlcv     featurize config.yaml [-o features.npz]
@@ -244,17 +238,15 @@ def _cmd_run(args) -> int:
 
 
 def _tool_main(command: str):
-    """The one-shot tool ``main`` backing *command* (``migrate`` -> the v1
-    translator), resolved DYNAMICALLY.
+    """The one-shot translator tool's ``main`` backing *command*
+    (``migrate``), resolved DYNAMICALLY.
 
-    The runtime-isolation discipline (§7, enforced by tests/v2/
-    test_migrate.py): nothing under src/neomd may statically reference the
-    translator — it is a migration-window tool deleted at flip day, and the
-    runtime import graph must not feel it.  Resolving by name keeps this
-    CLI's only coupling to the tool at the subcommand boundary: when the
-    tool is gone, ``neomd migrate`` prints a clean not-available message
-    instead of the CLI dying on an ImportError.  Returns None when the
-    tool module is absent.
+    Nothing under src/neomd may statically reference the tool — the runtime
+    import graph must not depend on a migration-window module.  Resolving
+    by name keeps this CLI's only coupling at the subcommand boundary:
+    when the tool is absent, ``neomd migrate`` prints a clean
+    not-available message instead of dying on an ImportError.  Returns
+    None when the tool module is absent.
     """
     try:
         module = importlib.import_module(f"{__package__}.{command}_v1")

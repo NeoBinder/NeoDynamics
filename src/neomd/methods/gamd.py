@@ -1,8 +1,8 @@
-"""Gaussian-accelerated MD (GaMD) — a method knowledge triple (issue #10, W2-b).
+"""Gaussian-accelerated MD (GaMD) — a method knowledge triple.
 
 Physics (Miao/Feher/McCammon, JCTC 2015; Miao 2016 dual boost; Miao/
 Bhattarai/Wang JCTC 2020 LiGaMD; Copeland/Miao et al. JPCB 2022
-gamd-openmm), ported onto the v2 seams per ADR-0005:
+gamd-openmm), implemented per ADR-0005:
 
 * the boost potential ΔV(P) = ½·k·(E−P)² (applied while P < E) depends on
   the boosted region's OWN potential energy, so the biased force is a
@@ -432,7 +432,7 @@ def reweight_observable(values, boost_kjmol, temperature: float):
     """Tiwary–Parrinello reweighting of one observable under GaMD boost.
 
     Thin bridge onto :func:`neomd.analysis.reweight.reweight_expectation`
-    — the reweighting definition stays in the analysis subpackage (W1-a).
+    — the reweighting definition stays in the analysis subpackage.
     ``boost_kjmol`` is the ``<label>__boost`` column of ``gamd.tsv``;
     unbiased expectations follow the weight w = exp(+β·ΔV).
     """

@@ -4,8 +4,8 @@ directories into one ledger.
 Well-tempered metadynamics with multiple walkers deposits hills from every
 walker into ONE shared bias; the analysis-side equivalent is merging the
 per-directory ledgers (stable-sorted by deposition step) and reconstructing
-the FES from the merged set.  v2 has no multi-walker PRODUCER yet — the
-API here takes a list of run directories regardless, and is the base the
+the FES from the merged set.  There is no multi-walker PRODUCER yet: this API
+takes a list of run directories regardless, and is the base the
 later OPES / metadynamics orchestration work consumes.
 
 Consistency rule: every walker must have biased the same grids the same way

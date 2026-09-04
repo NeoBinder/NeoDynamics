@@ -40,9 +40,7 @@ stated honestly:
 * Constraints are NOT removed by ``removeBonds`` (also the source verbatim):
   with ``constraints: HBonds`` an ML region containing protein keeps its
   X-H constraints — no energy double-count (constraints are workless), but
-  those internal DOFs stay rigid rather than NNP-flexible;
-* link-atom capping and re-fit boundary parameters are FUTURE WORK, to be
-  decided together with true QM/MM (a new ADR, per the dev plan).
+  those internal DOFs stay rigid rather than NNP-flexible.
 
 Documented deviations from the source (each is a seam, not physics):
 

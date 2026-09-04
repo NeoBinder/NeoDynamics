@@ -1,4 +1,4 @@
-"""TorchScript export of a trained linear ML-CV model (issue #9 期 1).
+"""TorchScript export of a trained linear ML-CV model (ADR-0006).
 
 The export is the phase-2 HANDOFF artifact: what
 ``docs/adr/0006-mlcv-injection-torchcv.md`` designs the simulation core to

@@ -422,5 +422,5 @@ pixi run -e ml test-ml # ML/MM torch tier (openmm-torch + torch env; see ADR-000
 Version numbers are derived from git tags via
 [versioningit](https://github.com/jwodder/versioningit) — nothing is
 hardcoded. OpenMM upgrades are explicit events: the version is pinned in
-`pixi.toml`, the `openmm_privates.py` gate is re-verified and golden tapes
+`pyproject.toml` ([tool.pixi]), the `openmm_privates.py` gate is re-verified and golden tapes
 re-recorded. MIT license — see [LICENSE](LICENSE).

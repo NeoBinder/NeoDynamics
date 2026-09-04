@@ -1,4 +1,4 @@
-"""Run-directory artifact readers for the mlcv featurizer (issue #9 期 1).
+"""Run-directory artifact readers for the mlcv featurizer.
 
 Reads back EXACTLY what v2 runs write — through the core producers' own
 formats, never a parallel one:
@@ -11,18 +11,14 @@ formats, never a parallel one:
   position order), reached through the run's ``manifest.json`` ->
   ``plan_raw.input_files.system`` (:class:`neomd.manifest.RunManifest`).
 * step-indexed tapes (``colvar.tsv`` / ``restraint.tsv``): delegated to
-  :mod:`neomd.analysis` (the W1-a canonical reader) when that package is
-  importable, with a minimal local fallback carrying the same semantics for
-  checkouts where the analysis subpackage is not merged.  The fallback is
-  expected to become dead code once W1-a lands; it exists so this track
-  stays buildable on its declared base (feat/w1b-cv-triples).
+  :mod:`neomd.analysis`'s canonical reader when that package is importable,
+  with a minimal local fallback carrying the same semantics otherwise.
 
 Honest data limitations (documented in the README ML-CV section too):
 
 * DCD stores float32 Angstrom coordinates, so every geometry feature is
-  computed from float32-quantized positions (~1e-7 relative) — the geometry
-  itself is pinned bit-exactly against direct positions by the W1-b CV
-  tests; here the round-trip tier is float32.
+  computed from float32-quantized positions (~1e-7 relative); the
+  round-trip tier here is float32.
 * runs WITHOUT a trajectory probe (``trajectory_interval: 0``) persist no
   per-frame positions; the featurizer then serves tape features only and
   refuses position-dependent features with a clean user error.
@@ -56,13 +52,13 @@ DCD_FILENAME = "output.dcd"
 
 
 # ---------------------------------------------------------------------------
-# step-indexed tsv tapes (colvar.tsv family) — W1-a delegation + fallback
+# step-indexed tsv tapes (colvar.tsv family)
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class TsvData:
-    """One step-tsv tape read back (the W1-a ``analysis.readers.TsvData``
+    """One step-tsv tape read back (the ``analysis.readers.TsvData``
     shape, so consumers do not care which reader produced it)."""
 
     steps: np.ndarray  # (n,) int64, non-decreasing
@@ -113,9 +109,9 @@ def _read_step_tsv_local(path) -> TsvData:
 
 
 def read_step_tsv(path) -> TsvData:
-    """Read one step-tsv artifact; delegates to ``neomd.analysis`` (W1-a)
+    """Read one step-tsv artifact; delegates to ``neomd.analysis``
     when importable, else the local fallback (see module docstring)."""
-    try:  # W1-a's canonical reader (feat/w1a-analysis); absent on this base
+    try:
         from neomd.analysis.readers import read_tsv
 
         return read_tsv(path)
@@ -124,7 +120,7 @@ def read_step_tsv(path) -> TsvData:
 
 
 # ---------------------------------------------------------------------------
-# DCD frames (the positions-bearing artifact v2 runs actually write)
+# DCD frames
 # ---------------------------------------------------------------------------
 
 

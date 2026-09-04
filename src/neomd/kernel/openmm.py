@@ -1,30 +1,24 @@
-"""OpenMMKernel — the production adapter on the KernelPort seam (plan §2 D, §5 1.2).
+"""OpenMMKernel — the production adapter on the KernelPort seam.
 
-This is the ONLY core module allowed to import openmm.  Everything the v1
-engine knew about building a simulation was moved here *verbatim in spirit*:
+This is the ONLY core module allowed to import openmm.  Building blocks:
 
-* ``_create_simulation`` (v1 src/neomd/generic/engine.py:53-74):
-  deserialize the System, load topology+positions (PDBxFile for .pdbx/.cif,
-  PDBFile for .pdb), build the integrator, set the context box from the
-  COMPLEX FILE HEADER (the loaded topology), falling back to the System's
-  default box when the file carries none (v1 8d04b0c; earlier v1 used the
-  System default unconditionally — "please double check the box vectors is
-  correct"), then the resume branches in v1 order: ``checkpoint`` wins over
-  ``state``, else ``setPositions`` + ``setVelocitiesToTemperature``.
-* ``get_integrator`` (same v1 file, lines 14-26): LangevinIntegrator with
+* ``_create_simulation``: deserialize the System, load topology+positions
+  (PDBxFile for .pdbx/.cif, PDBFile for .pdb), build the integrator, set
+  the context box from the COMPLEX FILE HEADER (the loaded topology),
+  falling back to the System's default box when the file carries none,
+  then the resume branches in order: ``checkpoint`` wins over ``state``,
+  else ``setPositions`` + ``setVelocitiesToTemperature``.
+* ``get_integrator``: LangevinIntegrator with
   temperature in K, ``friction_coeff / picoseconds``, ``dt * picoseconds``,
   ``setRandomNumberSeed(spec.seed)``; any other ``integrator_name`` raises
-  ``NotImplementedError("integrator not defined")`` (the v1 message).
-* ``get_platform`` (v1 src/neomd/utils.py): "cuda" -> CUDA platform with
+  ``NotImplementedError("integrator not defined")``.
+* ``get_platform``: "cuda" -> CUDA platform with
   ``CudaPrecision=single`` and ``DeviceIndex`` honoring CUDA_VISIBLE_DEVICES
-  (first visible device), "cpu" -> CPU platform, anything else raises the v1
-  NotImplementedError.
+  (first visible device), "cpu" -> CPU platform.
 
-DELIBERATE v2 FIX (documented deviation from v1, proven by the Phase 0 golden
-harness -- see tests/golden/scenarios.py):  v1 called
-``setVelocitiesToTemperature(temperature)`` with NO seed, which draws a fresh
-random velocity set per Context and is not bit-reproducible.  This adapter
-passes ``spec.seed`` as the randomSeed argument.  Pair it with a NONZERO
+Velocity seeding: ``setVelocitiesToTemperature`` is always called WITH
+``spec.seed`` — an unseeded draw picks a fresh random velocity set per
+Context and is not bit-reproducible.  Pair it with a NONZERO
 ``spec.seed`` (OpenMM treats seed 0 as "pick a unique random seed") for
 reproducible runs.
 
@@ -41,8 +35,8 @@ Determinism notes (empirical, openmm 8.6 / CPU platform):
   (the openmm-sanctioned way to mutate a System after Context creation; the
   context keeps positions/velocities/parameters across the reinitialization).
 
-Bias compilation is verbatim v1 force construction (restraints/constructor.py
-``generate_CustomCentroidBondForce`` and friends):
+Bias compilation mirrors v1 force construction verbatim (the physics, never
+"improved"):
 ``CustomCentroidBondForce(len(groups), energy)`` + ``addGroup`` per group +
 ``addBond(range(n))`` + ``addGlobalParameter`` per typed Param
 (kJ/mol -> kilojoules_per_mole, nm -> nanometer, deg -> degree,
@@ -50,17 +44,16 @@ dimensionless -> bare float) + ``setUsesPeriodicBoundaryConditions(bias.periodic
 ``CustomTorsionForce(energy)`` + ``addTorsion(bias.torsion)``; and
 ``CustomCVForce(energy)`` wrapping the BiasIR's CVIR (same centroid/torsion
 compilation, with CVIR.bond_params becoming per-bond parameters for the
-RMSD-style reference-position CVs colvars.py emits).  The W1-b kind-driven
+RMSD-style reference-position CVs colvars.py emits).  The kind-driven
 CVs compile to their own inner forces (``_compile_cv``): coordination is a
 CustomNonbondedForce whose per-pair membership product selects the grp1 x
 grp2 cross pairs, and the path CVs are CustomCVForces over one RMSDForce
 per reference frame with the Branduardi closed-form expressions (nesting
 inside the metadynamics table's CustomCVForce verified on 8.6 / CPU).
 
-Force-group assignment ports v1 ``max_force_grps`` (builder/neosystem.py:12-18,
-94-122): the bias force takes ``max(freeGroups)`` where free groups are
-``set(range(32)) - groups already used by system forces``; exhausting all 32
-groups raises the v1 RuntimeError.
+Force-group assignment: the bias force takes ``max(freeGroups)`` where free
+groups are ``set(range(32)) - groups already used by system forces``;
+exhausting all 32 groups raises RuntimeError.
 
 ML/MM (ADR-0004): ``KernelSpec.ml_region`` is assembled in ``__init__`` —
 mechanical embedding (ported verbatim from openmm-ml, ``neomd.ml.embedding``)
@@ -94,11 +87,10 @@ from .port import (
 __all__ = ["OpenMMKernel"]
 
 #: Param.unit -> callable(float) producing an openmm Quantity (or bare float
-#: for dimensionless).  Mirrors v1's unit choices at addGlobalParameter time.
-#: The VOCABULARY is the port's (port.CANONICAL_FACTORS — pinned equal by
-#: tests so the adapter's table and the shared canonical table cannot drift;
-#: only the target type is adapter-specific: Quantities here, canonical
-#: floats everywhere else).
+#: for dimensionless).  The VOCABULARY is the port's (port.CANONICAL_FACTORS
+#: — pinned equal by tests so the adapter's table and the shared canonical
+#: table cannot drift; only the target type is adapter-specific: Quantities
+#: here, canonical floats everywhere else).
 _UNIT_MAP = {
     "kJ/mol": lambda v: v * unit.kilojoules_per_mole,
     "nm": lambda v: v * unit.nanometer,
@@ -108,12 +100,11 @@ _UNIT_MAP = {
 
 
 def _to_quantity(param: Param):
-    """Convert a port Param to the openmm quantity v1 passed to openmm."""
+    """Convert a port Param to the openmm Quantity the Context expects."""
     return _UNIT_MAP[param.unit](param.value)
 
 
 def _make_integrator(spec: KernelSpec) -> openmm.Integrator:
-    """Port of v1 ``get_integrator`` (generic/engine.py:14-26)."""
     integrator_name = spec.integrator.get("integrator_name", "langevinintegrator")
     if integrator_name.lower() == "langevinintegrator":
         integrator = openmm.LangevinIntegrator(
@@ -230,7 +221,7 @@ def _make_boost_integrator(spec: KernelSpec, channels: dict,
 
 
 def _platform_config(spec: KernelSpec) -> dict:
-    """Port of v1 ``get_platform`` (utils.py:6-49) -> Simulation kwargs."""
+    """Platform selection -> Simulation kwargs."""
     if spec.platform.lower() == "cuda":
         platform = openmm.Platform.getPlatformByName("CUDA")
         visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
@@ -250,7 +241,7 @@ def _platform_config(spec: KernelSpec) -> dict:
 
 
 def _load_structure(topology_file: str):
-    """Topology + positions from a coordinate file (v1 loader convention)."""
+    """Topology + positions from a coordinate file."""
     suffix = os.path.splitext(topology_file)[1].lower()
     if suffix in (".pdbx", ".cif"):
         return app.PDBxFile(topology_file)
@@ -272,9 +263,8 @@ def _deserialize_system(system_xml: str) -> openmm.System:
 
 
 def _apply_system_modifications(system: openmm.System, spec: KernelSpec) -> None:
-    """Port of v1 NeoSystem.from_config system mutations (neosystem.py:74-78,
-    84-92): barostat + per-particle mass overrides, applied BEFORE the Context
-    is created, exactly like v1 built its System before _create_simulation."""
+    """Barostat + per-particle mass overrides, applied BEFORE the Context
+    is created."""
     if spec.barostat:
         barostat = openmm.MonteCarloBarostat(
             spec.barostat.get("pressure", 1.0),
@@ -287,8 +277,7 @@ def _apply_system_modifications(system: openmm.System, spec: KernelSpec) -> None
         for index, mass in spec.particle_masses.items():
             system.setParticleMass(int(index), float(mass))
     if spec.dummy_exceptions:
-        # v1 179ae35 neosystem.py: addException(index, partner, 0, 1, 0) —
-        # chargeProduct 0, sigma 1 nm, epsilon 0 (a zeroed pair interaction)
+        # zeroed pair interaction: chargeProduct 0, sigma 1 nm, epsilon 0
         nonbonded = [force for force in system.getForces()
                      if force.getName() == "NonbondedForce"]
         if len(nonbonded) != 1:
@@ -312,12 +301,12 @@ def _assemble_ml_region(system: openmm.System, spec: KernelSpec, positions,
     MM; the NNP Force (TorchForce/mock) is added AFTER it and this System is
     never serialized again — which is the whole reason ml_region lives
     adapter-side and never touches system.xml at the prepare layer.  Runs
-    pre-Context (called from ``__init__``), like the v1 modification order.
+    pre-Context (called from ``__init__``).
 
     ``structure_topology``: the loaded complex structure's topology — the
-    W3-c ``residues`` selectors resolve against it HERE (the definitive
-    resolution; ``neomd validate --check-files`` is the early echo of the
-    same grammar against the same file).
+    ``residues`` selectors resolve against it HERE (the definitive
+    resolution; ``neomd validate --check-files`` echoes the same grammar
+    against the same file).
     """
 
     def pick_group(target: openmm.System) -> int:
@@ -373,11 +362,10 @@ class OpenMMKernel:
         """The openmm Simulation, created lazily on first use.
 
         Deferring Context creation lets install_bias() add forces to the
-        System *before* the Context exists — exactly v1's order (restraints
-        were added to the System in NeoSystem.from_config before
-        _create_simulation).  reinitialize(preserveState=True) — required when
+        System *before* the Context exists (the restraint-install order).
+        reinitialize(preserveState=True) — required when
         forces are added to a live Context — perturbs constrained-DOF
-        velocities at the 1e-2 nm/ps level, which broke trajectory-level v1
+        velocities at the 1e-2 nm/ps level, which breaks trajectory-level
         parity (proven by the golden tapes); the pre-Context path avoids it
         entirely.  Mid-run installs (bias epochs) still take the
         reinitialize path.
@@ -389,7 +377,7 @@ class OpenMMKernel:
                 self._integrator,
                 **self._platform_kwargs,
             )
-            # v1 8d04b0c: prefer the box recorded in the complex file header
+            # prefer the box recorded in the complex file header
             # (the loaded topology); fall back to the System's default box
             # when the complex has none.  Resume paths are unaffected —
             # checkpoint/state loads overwrite the box with the recorded one.
@@ -414,8 +402,6 @@ class OpenMMKernel:
                 simulation.loadState(state)
             else:
                 simulation.context.setPositions(self._structure.positions)
-                # v2 fix: seed the velocity draw (v1 left it nondeterministic;
-                # the Phase 0 golden harness proved seeding is required).
                 simulation.context.setVelocitiesToTemperature(
                     self.spec.temperature, self.spec.seed)
             self._simulation = simulation
@@ -449,9 +435,8 @@ class OpenMMKernel:
 
     def box_vectors(self) -> np.ndarray | None:
         """Live periodic box (3, 3) nm rows, or None when non-periodic —
-        the port operation that replaced the driver's duck-punched
-        ``simulation.context.getState()`` reach-through (the box query stays
-        inside the adapter, where openmm objects are sanctioned)."""
+        the box query stays inside the adapter, where openmm objects are
+        sanctioned."""
         if not self.system.usesPeriodicBoundaryConditions():
             return None
         a, b, c = self.simulation.context.getState().getPeriodicBoxVectors()
@@ -485,8 +470,7 @@ class OpenMMKernel:
     def group_energy(self, groups) -> float:
         """Potential energy (kJ/mol) of a SET of force groups alone.
 
-        The per-restraint bias-energy read the restraint reporter needs
-        (v1 read ``getState(getEnergy=True, groups={...})`` the same way):
+        The per-restraint bias-energy read the restraint reporter needs:
         ``groups`` is any iterable of force-group ids.  Callers duck-type
         this public method; kernels without it report no per-group energy.
         """
@@ -495,10 +479,9 @@ class OpenMMKernel:
         ).getPotentialEnergy().value_in_unit(unit.kilojoule_per_mole)
 
     def _dof(self) -> int:
-        """Degrees of freedom, ported from openmm's StateDataReporter.
+        """Degrees of freedom, following openmm's StateDataReporter.
 
-        Convention (openmm/app/statedatareporter.py, 8.6, _initializeConstants
-        + _constructReportValues): 3 per particle with mass, minus one per
+        Convention (openmm/app/statedatareporter.py, 8.6): 3 per particle with mass, minus one per
         constraint touching a massive particle, minus 3 when a
         CMMotionRemover is present.  Temperature is then 2*KE/(dof*R) — or
         the integrator's own ``computeSystemTemperature`` when it provides
@@ -534,7 +517,7 @@ class OpenMMKernel:
         self.simulation.step(n)
 
     # ------------------------------------------------------------------
-    # bias installation (verbatim v1 force construction + force groups)
+    # bias installation
     # ------------------------------------------------------------------
 
     def install_bias(self, bias: BiasIR) -> int:
@@ -551,7 +534,7 @@ class OpenMMKernel:
         self.system.addForce(force)
         self._installed.append((group, force))
         # Pre-Context installs need no reinitialize — the Context is built
-        # with the force already present (v1's order).  Mid-run installs must
+        # with the force already present.  Mid-run installs must
         # reinitialize, which perturbs constrained-DOF velocities slightly
         # (see the lazy `simulation` property docstring).
         if self._simulation is not None:
@@ -571,9 +554,8 @@ class OpenMMKernel:
 
     def _pick_force_group(self) -> int:
         """The shared port policy (pick_free_force_group): max of the free
-        force-group ids — v1 ``max_force_grps`` (builder/neosystem.py:12-18,
-        94-122) — with the exhaustion error listing the system forces that
-        hold each group."""
+        force-group ids, with the exhaustion error listing the system
+        forces that hold each group."""
         forces = list(self.system.getForces())
         return pick_free_force_group(
             (force.getForceGroup() for force in forces),
@@ -609,7 +591,7 @@ class OpenMMKernel:
             for name, param in bias.params.items():
                 force.addGlobalParameter(name, _to_quantity(param))
             # openmm derives CustomCVForce PBC from its inner forces (there
-            # is no setter — v1's rmsd CustomCVForce left it derived too)
+            # is no setter)
             return force
         if bias.kind == "CustomCVTableForce":
             if bias.table is None:
@@ -620,8 +602,8 @@ class OpenMMKernel:
             f"bias kind {bias.kind!r} is not defined (bias {bias.label!r})")
 
     def _compile_table(self, label: str, table: "TableSpec") -> openmm.CustomCVForce:
-        """Port of v1 ``prepare_metadynamics_bias`` (metadynamics/engine.py
-        77-131), verbatim: varNames cv%d, CustomCVForce("table(...)"),
+        """Metadynamics table bias, verbatim physics: varNames cv%d,
+        CustomCVForce("table(...)"),
         Continuous{1,2,3}DFunction over the grids, mixed periodic check."""
         var_names = ["cv%d" % i for i in range(len(table.cvs))]
         force = openmm.CustomCVForce("table(%s)" % ", ".join(var_names))
@@ -658,10 +640,7 @@ class OpenMMKernel:
         """Live update of one installed-bias global parameter
         (port.BiasParamOps).
 
-        v1 ``run_smd`` pushed the interpolated ramp values with
-        ``simulation.context.setParameter(f'{parameter}{force_name}',
-        current_param)`` (generic/pipeline.py) — the same call one
-        abstraction level up.  ``value`` is kernel-canonical (nm / kJ/mol /
+        ``value`` is kernel-canonical (nm / kJ/mol /
         radians), matching how ``_compile_centroid``'s Quantity
         constructors land in the Context's md unit system.
         """
@@ -736,7 +715,7 @@ class OpenMMKernel:
 
         Supports the CV kinds colvars.py emits: centroid distance/angle (and
         the distance_ref variant whose bond_params are per-bond parameters),
-        the torsion CV ("theta"), and the three W1-b kind-driven CVs —
+        the torsion CV ("theta"), and the three kind-driven CVs —
         RMSDForce, CustomNonbondedForce (coordination) and PathCV (the
         Branduardi s/z path variables over per-image RMSDForces).
         """
@@ -751,9 +730,10 @@ class OpenMMKernel:
                 force.addPerBondParameter(name)
             force.addBond(list(range(len(cv.groups))),
                           [_to_quantity(cv.bond_params[n]) for n in names])
-            # v1 sets force-level PBC unconditionally True on every CV force
-            # (all generate_colvar_* functions); CVIR.periodic is the CV's
-            # intrinsic periodicity for the metadynamics table, not this flag.
+            # force-level PBC is True on every CV force (the geometry lives
+            # in the expression's minimum-image distances); CVIR.periodic is
+            # the CV's intrinsic periodicity for the metadynamics table, not
+            # this flag.
             force.setUsesPeriodicBoundaryConditions(True)
             return force
         if cv.kind == "CustomTorsionForce":
@@ -768,15 +748,15 @@ class OpenMMKernel:
             force.setUsesPeriodicBoundaryConditions(True)
             return force
         if cv.kind == "RMSDForce":
-            # v1 generate_restraint_rmsd (constructor.py:401-423): RMSDForce
-            # over FULL-system reference positions with a restrained subset
-            # (openmm requires one reference position per System particle)
+            # RMSDForce over FULL-system reference positions with a
+            # restrained subset (openmm requires one reference position per
+            # System particle)
             if cv.ref_positions is None or cv.indices is None:
                 raise ValueError(f"cv {cv.label!r}: RMSDForce needs ref_positions and indices")
             ref = np.asarray(cv.ref_positions, dtype=np.float64) * unit.nanometer
             return openmm.RMSDForce(ref, list(cv.indices))
         if cv.kind == "CustomNonbondedForce":
-            # coordination CV (W1-b): the pair kernel summed over the
+            # coordination CV: the pair kernel summed over the
             # grp1 x grp2 atom pairs.  Implemented over ALL system pairs with
             # two membership parameters — (a1*b2 + a2*b1) is 1 exactly on
             # cross-group pairs, 0 on intra-group ones — instead of explicit
@@ -817,7 +797,7 @@ class OpenMMKernel:
                     openmm.CustomNonbondedForce.NoCutoff)
             return force
         if cv.kind == "PathCV":
-            # path CV s/z (W1-b, Branduardi-Gervasio-Parrinello JCP 2007):
+            # path CV s/z (Branduardi-Gervasio-Parrinello JCP 2007):
             # a CustomCVForce over one RMSDForce per reference frame (d1..dP,
             # full-system frame positions + selected atoms) with the closed-
             # form expressions and a global lambda.  Nesting works: the
@@ -986,13 +966,13 @@ class OpenMMKernel:
     def write_structure(self, path) -> None:
         """Write the CURRENT positions as a PDBx/mmCIF structure to ``path``.
 
-        The final-positions artifact seam (v1 ``save_last`` wrote
-        ``last.pdbx``): the driver duck-types this public method — the port
+        The final-positions artifact seam: the driver duck-types this public
+        method — the port
         has no structure-writing operation, so kernels without it (the fake)
         simply skip the artifact.  ``keepIds=True`` keeps the input topology's
-        atom/residue ids verbatim (v1's runbooks bridged legs through exactly
-        this call).  The RUNTIME context box is written into the topology
-        before the file is serialized (v1 8d04b0c ``save_last`` fix), so the
+        atom/residue ids verbatim.  The RUNTIME context box is written into
+        the topology
+        before the file is serialized, so the
         output header always matches the coordinates — an NPT run's barostat
         may have moved the box away from the input file's header (periodic
         systems only; vacuum keeps the input topology's absent box).
@@ -1000,8 +980,8 @@ class OpenMMKernel:
         state = self.simulation.context.getState(getPositions=True)
         positions = state.getPositions()
         if self.system.usesPeriodicBoundaryConditions():
-            # periodic systems: carry the RUNTIME box into the header (v1
-            # 8d04b0c save_last fix).  Vacuum systems keep the input
+            # periodic systems: carry the RUNTIME box into the header.
+            # Vacuum systems keep the input
             # topology's (absent) box — no zero CRYST1 record is invented.
             self._structure.topology.setPeriodicBoxVectors(
                 state.getPeriodicBoxVectors())
@@ -1019,13 +999,7 @@ class OpenMMKernel:
 
 
 class _OpenMMBiasOps:
-    """BiasOps over the table biases an OpenMMKernel installed.
-
-    Port of the v1 metadynamics engine's live-bias surface:
-    ``getCollectiveVariableValues`` (engine.py:187-189), group-energy read
-    (engine.py:228-240 / 296-298) and the table update lines from
-    ``continue_metadynamics``/``_addGaussian`` (engine.py:139-146, 218-226).
-    """
+    """BiasOps over the table biases an OpenMMKernel installed."""
 
     def __init__(self, kernel: "OpenMMKernel"):
         self._kernel = kernel

@@ -1,4 +1,4 @@
-"""RunManifest — run provenance: plan fingerprint + epoch chain (plan §5 item 1.7).
+"""RunManifest — run provenance: plan fingerprint + epoch chain.
 
 A manifest answers, for any run directory, "what exactly produced these
 artifacts?": the frozen plan (fingerprint + raw config), the kernel adapter,

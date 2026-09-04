@@ -1,11 +1,9 @@
-"""Unified collective-variable vocabulary (v2 migration plan §5 item 1.4).
+"""Unified collective-variable vocabulary.
 
-Ported verbatim from v1 ``src/neomd/metadynamics/colvar.py`` (expressions) and
-``src/neomd/restraints/reporter.py`` (numpy geometry).  Every CV is a registry
-entry of kind ``"cv"`` — a knowledge triple:
+Every CV is a registry entry of kind ``"cv"`` — a knowledge triple:
 
-    schema    required/optional spec keys (documentation + future validation;
-              validation itself is plan.py's job, not the vocabulary's)
+    schema    required/optional spec keys (documentation; validation itself
+              is plan.py's job, not the vocabulary's)
     make_cv   (name, spec) -> (CVIR, grid)
               emits the kernel-agnostic CVIR carrying the *verbatim* v1
               expression string, plus the grid dict in the CV's natural unit
@@ -16,21 +14,18 @@ entry of kind ``"cv"`` — a knowledge triple:
 Units follow the kernel-port convention: positions nm, masses dalton.  Grid
 ranges keep v1's key convention — ``min_cv_nm``/``max_cv_nm``/``biasWidth_nm``
 for nanometric CVs, ``min_cv_degree``/``max_cv_degree``/``biasWidth_degree``
-for angular ones — so the natural unit of the grid is nm or degree exactly as
-in v1.  Grid data is deliberately NOT part of :class:`CVIR` (see port.py).
+for angular ones — so the natural unit of the grid is nm or degree.  Grid
+data is deliberately NOT part of :class:`CVIR` (see port.py).
 
-Periodicity defaults mirror v1 ``_make_bias_variable``'s ``default_periodic``:
-distance/min_distances/distance_ref/angle False, dihedral True.  ``spec``
-may override with ``is_period`` (v1 behavior); the CVIR carries the intrinsic
-per-type default because a distance is not periodic however you bias it.
+Periodicity defaults: distance/min_distances/distance_ref/angle False,
+dihedral True.  ``spec`` may override with ``is_period``; the CVIR carries
+the intrinsic per-type default because a distance is not periodic however
+you bias it.
 
-Index keys accept the v1 comma-string form ("1,2,3", parsed exactly like v1's
-``idstr2list``) and plain lists of ints.
+Index keys accept the comma-string form ("1,2,3") and plain lists of ints.
 
-W1-b additions (issue #14 residue): ``rmsd``, ``coordination``, ``path_s`` and
-``path_z``.  There is NO v1 prior art for these (legacy greps are incidental),
-so unlike the five originals the physics comes from the primary literature
-instead of a verbatim v1 port:
+``rmsd``, ``coordination``, ``path_s`` and ``path_z`` are kind-driven CVs
+whose physics comes from the primary literature:
 
 * ``rmsd`` — the first-class CV form of the existing rmsd RESTRAINT geometry
   (Branduardi et al. use RMSD-to-reference as the archetypal path metric).
@@ -68,8 +63,8 @@ instead of a verbatim v1 port:
       s = sum_a a*w_a / sum_a w_a        (a = 1..P, so s in [1, P])
       z = -lambda * ln( sum_a w_a )      (nm)
 
-  Representation choice (documented per the W1-b brief): TWO registry entries
-  (``path_s`` and ``path_z``) sharing ONE spec-block grammar
+  Representation choice: TWO registry entries (``path_s`` and ``path_z``)
+  sharing ONE spec-block grammar
   (``ref_path_file`` + ``restr_grp`` + ``lambda``) rather than a single
   ``path`` entry emitting two CVs.  Rationale: every existing consumer —
   MetadynamicsRun, ColvarProbe, the plan layer — assumes one colvar entry
@@ -90,9 +85,10 @@ instead of a verbatim v1 port:
   max-shifted log-sum-exp forms, which agree with the naive form to float
   precision wherever the naive form does not underflow.
 
-Grid conventions for the new CVs: ``rmsd`` and ``path_z`` are nanometric
-(``min_cv_nm``/...); ``coordination`` and ``path_s`` are dimensionless and use
-the suffix-less grid keys ``min_cv``/``max_cv``/``biasWidth``.
+Grid conventions for the kind-driven CVs: ``rmsd`` and ``path_z`` are
+nanometric (``min_cv_nm``/...); ``coordination`` and ``path_s`` are
+dimensionless and use the suffix-less grid keys
+``min_cv``/``max_cv``/``biasWidth``.
 """
 
 from __future__ import annotations
@@ -119,8 +115,8 @@ class Colvar:
 
 #: the verbatim v1 expression strings (single source of truth for tests/docs).
 #: distance_ref's embedded 40-space alignment is part of the verbatim string.
-#: The W1-b entries are NOT v1-verbatim (no v1 prior art): rmsd/coordination
-#: hold the exact kernel strings the adapters compile, path_s/path_z hold the
+#: The kind-driven entries hold different things: rmsd/coordination hold the
+#: exact kernel strings the adapters compile, path_s/path_z hold the
 #: literature closed forms (the per-spec openmm expression is GENERATED over
 #: the per-image inner CVs d1..dP inside kernel/openmm.py's _compile_cv).
 CV_EXPRESSIONS = {
@@ -147,13 +143,13 @@ CV_EXPRESSIONS = {
 
 
 # --------------------------------------------------------------------------
-# spec parsing — v1 semantics preserved (utils.idstr2list / floatstr2list)
+# spec parsing (comma-string / list normalization)
 # --------------------------------------------------------------------------
 
 def _index_list(value, key: str) -> list[int]:
-    """Normalize an index group: v1 comma-string or plain int iterable."""
+    """Normalize an index group: comma-separated string or plain ints."""
     if isinstance(value, str):
-        return list(map(int, value.split(",")))  # v1 idstr2list
+        return list(map(int, value.split(",")))
     if isinstance(value, (list, tuple)):
         return [int(v) for v in value]
     raise TypeError(
@@ -162,9 +158,9 @@ def _index_list(value, key: str) -> list[int]:
 
 
 def _float_list(value, key: str) -> list[float]:
-    """Normalize a float triple: v1 comma-string or plain float iterable."""
+    """Normalize a float triple: comma-separated string or plain floats."""
     if isinstance(value, str):
-        return [float(x) for x in value.split(",")]  # v1 colvar ref_pos split
+        return [float(x) for x in value.split(",")]
     if isinstance(value, (list, tuple)):
         return [float(x) for x in value]
     raise TypeError(
@@ -173,7 +169,7 @@ def _float_list(value, key: str) -> list[float]:
 
 
 def _grid(spec: dict, suffix: str, default_periodic: bool) -> dict:
-    """Grid dict in the CV's natural unit; keys mirror v1's config names.
+    """Grid dict in the CV's natural unit; keys keep the v1 config spelling.
 
     ``suffix`` "" (dimensionless CVs: coordination, path_s) selects the
     suffix-less keys ``min_cv``/``max_cv``/``biasWidth``."""
@@ -192,11 +188,11 @@ def _grid(spec: dict, suffix: str, default_periodic: bool) -> dict:
 
 
 # --------------------------------------------------------------------------
-# numpy geometry — ported from v1 restraints/reporter.py (no openmm units)
+# numpy geometry (no openmm units)
 # --------------------------------------------------------------------------
 
 def _com(masses: np.ndarray, positions: np.ndarray, idxlist) -> np.ndarray:
-    """Center of mass of one atom group (v1 reporter.calculate_com)."""
+    """Center of mass of one atom group."""
     idx = np.asarray(idxlist, dtype=int)
     m = np.asarray(masses, dtype=np.float64)[idx]
     return (m[:, None] * np.asarray(positions, dtype=np.float64)[idx]).sum(
@@ -208,7 +204,7 @@ def _group_coms(masses, positions, cv: CVIR) -> list[np.ndarray]:
 
 
 def _angle_3points_rad(A, B, C) -> float:
-    """v1 reporter.angle_3points_rad."""
+    """Angle at B (radians)."""
     vec1 = A - B
     vec2 = C - B
     return np.arccos(
@@ -216,7 +212,7 @@ def _angle_3points_rad(A, B, C) -> float:
 
 
 def _dihedral_deg(p1, p2, p3, p4) -> float:
-    """v1 reporter.calculate_dihedral (degrees, in (-180, 180])."""
+    """Dihedral angle in degrees, in (-180, 180]."""
     p1 = np.array(p1, dtype=np.float64)
     p2 = np.array(p2, dtype=np.float64)
     p3 = np.array(p3, dtype=np.float64)
@@ -240,10 +236,10 @@ def _dihedral_deg(p1, p2, p3, p4) -> float:
 
 
 # --------------------------------------------------------------------------
-# W1-b numpy geometry (no v1 prior art — from the primary literature; the
-# fake kernel carries a MIRROR of these helpers, its value track, pinned in
-# agreement by tests — the same dual-track discipline the COM/angle/dihedral
-# geometry above already follows between this module and kernel/fake.py)
+# kind-driven CV numpy geometry (literature-derived).  The fake kernel
+# carries a MIRROR of these helpers as its value track, pinned in agreement
+# by tests — the same dual-track discipline the geometry above follows
+# between this module and kernel/fake.py.
 # --------------------------------------------------------------------------
 
 def _kabsch_rmsd(mobile, reference) -> float:
@@ -322,7 +318,7 @@ def _path_values(mobile, images, lam: float) -> tuple[float, float]:
 
 
 # --------------------------------------------------------------------------
-# make_cv / evaluate per type (expressions VERBATIM from v1 colvar.py)
+# make_cv / evaluate per type
 # --------------------------------------------------------------------------
 
 def _make_distance(name: str, spec: dict):
@@ -352,7 +348,7 @@ def _make_dihedral(name: str, spec: dict):
         kind="CustomTorsionForce",
         expression=CV_EXPRESSIONS["dihedral"],
         groups=groups,  # full groups (reporter/evaluate use their COMs)
-        torsion=tuple(g[0] for g in groups),  # v1 addTorsion takes grp[i][0]
+        torsion=tuple(g[0] for g in groups),  # first atom of each group
         periodic=True,
         label=name,
     )
@@ -431,9 +427,9 @@ def _evaluate_distance_ref(positions, masses, cv: CVIR) -> float:
 
 
 # --------------------------------------------------------------------------
-# W1-b reference-file readers (multi-model forms of the restraint's loaders;
-# same column conventions as restraints.py — only kernel/openmm.py may import
-# openmm, so these stay dependency-free)
+# reference-file readers (multi-model forms of the restraint's loaders;
+# same column conventions as restraints.py — only kernel/openmm.py may
+# import openmm, so these stay dependency-free)
 # --------------------------------------------------------------------------
 
 def _read_pdb_models(path: str) -> list[np.ndarray]:
@@ -535,7 +531,7 @@ def _read_reference_models(path: str) -> list[np.ndarray]:
 
 
 # --------------------------------------------------------------------------
-# W1-b make_cv / evaluate (rmsd / coordination / path_s / path_z)
+# kind-driven make_cv / evaluate (rmsd / coordination / path_s / path_z)
 # --------------------------------------------------------------------------
 
 def _make_rmsd(name: str, spec: dict):
@@ -614,7 +610,7 @@ def _evaluate_path(positions, masses, cv: CVIR) -> float:
 
 
 # --------------------------------------------------------------------------
-# schemas — keys mirror v1 metadynamics colvar configs
+# schemas
 # --------------------------------------------------------------------------
 
 _NM_GRID = {
@@ -678,7 +674,7 @@ _DISTANCE_REF_ENTRY = Colvar(
 )
 
 # --------------------------------------------------------------------------
-# W1-b schemas + registration (issue #14 residue)
+# kind-driven schemas + registration
 # --------------------------------------------------------------------------
 
 _DIMLESS_GRID = {

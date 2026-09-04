@@ -1,10 +1,10 @@
 """AnalysisError — the user-facing failure kind for artifact analysis.
 
-The analysis subpackage reads artifacts a run already wrote; every way a user
-can point it at the wrong thing (missing run directory, no ``hills.npz``, a
-malformed tape, a column that does not exist) raises :class:`AnalysisError`,
-which the CLI renders multi-line without a traceback and exits 2 — the same
-contract the plan validators follow (:mod:`neomd.errors`).
+Every way a user can point the analysis subpackage at the wrong thing
+(missing run directory, no ``hills.npz``, a malformed tape, a column that
+does not exist) raises :class:`AnalysisError`, which the CLI renders
+multi-line without a traceback and exits 2 — the same contract as the plan
+validators (:mod:`neomd.errors`).
 """
 
 from __future__ import annotations

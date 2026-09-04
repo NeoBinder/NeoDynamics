@@ -1,7 +1,7 @@
-"""neomd.mlcv — ML collective variables, phase 1 (issue #9 期 1).
+"""neomd.mlcv — ML collective variables (ADR-0006, phase 1).
 
-An OUT-OF-TREE-STYLE tool layer: numpy-only, zero simulation-core changes
-(no port/kernel code in this track — the phase-2 injection is designed in
+A numpy-only, out-of-tree-style tool layer: zero simulation-core changes
+(the phase-2 TorchCV injection is designed in
 ``docs/adr/0006-mlcv-injection-torchcv.md``).  The workflow:
 
     featurize   run dirs / trajectory + feature config -> features.npz

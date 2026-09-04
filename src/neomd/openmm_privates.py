@@ -1,5 +1,4 @@
-"""openmm_privates — the ONE isolated home for openmm private-API usage
-(v2 improvements item 6).
+"""openmm_privates — the ONE isolated home for openmm private-API usage.
 
 The system-preparation workflow needs three openmm internals that have no
 public equivalent (as of the pinned release):
@@ -82,11 +81,11 @@ def _openmm():
 
 
 def custom_bonds(top, pos, custom_config):
-    """Port of v1 ``custom_bonds``: teach a topology about custom residues.
+    """Teach a topology about custom residues.
 
     ``custom_config`` maps resname -> ``{"bonds_from_ffxml": path}`` and/or
     ``{"custom_bonds": [[atom1, atom2], ...]}``.  A residue already known to
-    the topology's standard bonds is an error (v1 message verbatim).
+    the topology's standard bonds is an error (message kept verbatim).
 
     Private surface: ``top._standardBonds`` (read/write), ``top._bonds``
     (write), then the public ``createStandardBonds`` /
@@ -132,7 +131,7 @@ def custom_bonds(top, pos, custom_config):
 
 
 def custom_addH(modeller, forcefield, custom_config):
-    """Port of v1 ``custom_addH``: teach modeller.addHydrogens about custom
+    """Teach modeller.addHydrogens about custom
     residues, reading the H-parent graph from an ffxml.
 
     ``forcefield`` may be a plain openmm ForceField or a ComplexForceField-

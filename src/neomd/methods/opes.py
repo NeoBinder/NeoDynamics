@@ -1,72 +1,68 @@
 """OPES — on-the-fly probability enhanced sampling, a method knowledge triple.
 
-Structural mirror of :mod:`neomd.methods.metadynamics` (issue #11, W2-a,
-path B 自研): the bias is a ``BiasIR(kind="CustomCVTableForce")`` installed
-through ``kernel.install_bias``, the update cycle rides the driver's
-``on_step`` hook (``on_step_interval = opes_set.pace`` — OPES updates its
-averaged quantities on a cadence of PACE steps, far slower than the MD
-step), and live bias access goes through ``kernel.bias_ops()``
+Structural mirror of :mod:`neomd.methods.metadynamics`: the bias is a
+``BiasIR(kind="CustomCVTableForce")`` installed through
+``kernel.install_bias``, the update cycle rides the driver's ``on_step``
+hook (``on_step_interval = opes_set.pace`` — OPES updates its averaged
+quantities on a cadence of PACE steps, far slower than the MD step), and
+live bias access goes through ``kernel.bias_ops()``
 (cv_values / bias_energy / update_table).  The fake kernel runs the whole
 OPES math deterministically (no RNG anywhere — the compression below is
 nearest-kernel, not random).
 
-SPEC (implementation contract, in order of authority):
+Physics — Invernizzi & Parrinello, JCTC 16, 7113 (2020) and Invernizzi,
+Piaggi & Parrinello, JCTC 18, 3988 (2022), cross-checked against the PLUMED
+reference implementation (``src/opes/OPESmetad.cpp``, LGPL, consulted as
+documentation only — no code copied):
 
-1. cyrushu's issue #11 comment (2026-07-22) — the paper-abstract spec this
-   module was written against.  Its formulas, verbatim:
+* weighted KDE of the unbiased marginal
+  ``P_n(s) = Σ_k w_k G(s, s_k) / Σ_k w_k``, ``w_k = exp(β V_{k-1}(s_k))``;
+  OPES-explore instead estimates the SAMPLED (biased) distribution with
+  ``w_k = 1`` (plain KDE).
+* ``V_n(s) = (1 - 1/γ) (1/β) log( P_n(s)/Z_n + ε )`` (standard) and
+  ``V_n(s) = (γ - 1) (1/β) log( p^WT_n(s)/Z_n + ε )`` (explore).
+* ``Z_n = (1/|Ω_n|) ∫_{Ω_n} P_n ds`` — the KDE averaged over the EXPLORED
+  CV region (the exit-time fix).
+* ``ε = exp( -ΔE / (k_B T (1 - 1/γ)) )``, ``γ = ΔE / (k_B T)`` — BARRIER
+  derives both; no biasFactor/height keys exist in the schema.
+* adaptive bandwidth
+  ``σ_i(n) = σ_i(0) [N_eff (d+2)/4]^{-1/(d+4)}``,
+  ``N_eff = (Σ w_k)^2 / Σ w_k^2`` (Silverman shrinking; default ON).
+* kernel compression: append a kernel only when a NEW CV region is
+  sampled, otherwise merge it into the existing set.
+* input parameters: initial kernel width, PACE, BARRIER — here the width
+  is each colvar's ``biasWidth`` (the same key metadynamics uses) and
+  PACE/BARRIER live in ``opes_set``.
+* explore-mode FES estimator ``F_n(s) = -γ (1/β) log p^WT_n(s)``; the
+  standard-mode estimator is ``F_n(s) = -(1/β) log P_n(s)`` (the two are
+  equivalent in standard mode, bias-converted vs KDE).
 
-   * weighted KDE of the unbiased marginal
-     ``P_n(s) = Σ_k w_k G(s, s_k) / Σ_k w_k``, ``w_k = exp(β V_{k-1}(s_k))``;
-     OPES-explore instead estimates the SAMPLED (biased) distribution with
-     ``w_k = 1`` (plain KDE).
-   * ``V_n(s) = (1 - 1/γ) (1/β) log( P_n(s)/Z_n + ε )`` (standard) and
-     ``V_n(s) = (γ - 1) (1/β) log( p^WT_n(s)/Z_n + ε )`` (explore).
-   * ``Z_n = (1/|Ω_n|) ∫_{Ω_n} P_n ds`` — the KDE averaged over the EXPLORED
-     CV region (the exit-time fix).
-   * ``ε = exp( -ΔE / (k_B T (1 - 1/γ)) )``, ``γ = ΔE / (k_B T)`` — BARRIER
-     derives both; no biasFactor/height keys exist in the schema.
-   * adaptive bandwidth
-     ``σ_i(n) = σ_i(0) [N_eff (d+2)/4]^{-1/(d+4)}``,
-     ``N_eff = (Σ w_k)^2 / Σ w_k^2`` (Silverman shrinking; default ON).
-   * kernel compression: append a kernel only when a NEW CV region is
-     sampled, otherwise merge it into the existing set.
-   * input parameters: initial kernel width, PACE, BARRIER — here the width
-     is each colvar's ``biasWidth`` (the same key metadynamics uses) and
-     PACE/BARRIER live in ``opes_set``.
-   * explore-mode FES estimator ``F_n(s) = -γ (1/β) log p^WT_n(s)``; the
-     standard-mode estimator is ``F_n(s) = -(1/β) log P_n(s)`` (spec §2 —
-     the two are equivalent in standard mode, bias-converted vs KDE).
+Implementation details from the papers / PLUMED:
 
-2. Invernizzi & Parrinello, JCTC 16, 7113 (2020) and Invernizzi, Piaggi &
-   Parrinello, JCTC 18, 3988 (2022) for the details the comment summarizes,
-   cross-checked against the PLUMED reference implementation
-   (``src/opes/OPESmetad.cpp``, LGPL, consulted as documentation only — no
-   code copied).  Details taken from there because the comment is silent:
+* compression is NEAREST-KERNEL within a Mahalanobis threshold
+  ``COMPRESSION_THRESHOLD`` (default 1) in units of the EXISTING kernel's
+  sigma: merge if ``Σ_i (Δs_i / σ_i)^2 < threshold^2`` (σ of the old
+  kernel), else append; merging sums heights, takes the weighted-average
+  center and the weighted second moment of sigma, and then RETRIES
+  recursively (the merged kernel may now be mergeable with another).
+* kernels are truncated at ``KERNEL_CUTOFF`` sigmas:
+  ``G → (exp(-||Δ||²/2) - exp(-cutoff²/2))`` beyond which they are 0 —
+  the sum stays finite and compactly supported.
+* ``Z_n`` is evaluated by substituting the integral with a sum over the
+  COMPRESSED kernel positions (paper §"Making the Bias"):
+  ``Z = (1/N_ker) Σ_k [ Σ_j G_j(s_k) ] / KDEnorm``.
+* γ = ΔE/(k_BT) is derived from BARRIER (PLUMED's default), ``Σw`` is
+  seeded with ``w_0 = ε^{prefactor}`` at ``counter = 1`` (a virtual
+  unbiased kernel that keeps N_eff finite at the start), and each kernel's
+  height is multiplied by ``∏_i σ_i(0)/σ_i(n)`` — the ``1/(√2π σ)``
+  Gaussian normalization up to a constant that Z absorbs.
+* deposit cadence PACE fires ONE kernel deposit + Z refresh + table push
+  per event; nothing is updated per-MD-step.
 
-   * compression is NEAREST-KERNEL within a Mahalanobis threshold
-     ``COMPRESSION_THRESHOLD`` (default 1) in units of the EXISTING kernel's
-     sigma: merge if ``Σ_i (Δs_i / σ_i)^2 < threshold^2`` (σ of the old
-     kernel), else append; merging sums heights, takes the weighted-average
-     center and the weighted second moment of sigma, and then RETRIES
-     recursively (the merged kernel may now be mergeable with another).
-   * kernels are truncated at ``KERNEL_CUTOFF`` sigmas:
-     ``G → (exp(-||Δ||²/2) - exp(-cutoff²/2))`` beyond which they are 0 —
-     the sum stays finite and compactly supported.
-   * ``Z_n`` is evaluated by substituting the integral with a sum over the
-     COMPRESSED kernel positions (paper §"Making the Bias"):
-     ``Z = (1/N_ker) Σ_k [ Σ_j G_j(s_k) ] / KDEnorm``.
-   * PLUMED derives γ = ΔE/(k_BT) from BARRIER by default (matches the
-     comment), seeds ``Σw`` with ``w_0 = ε^{prefactor}`` at ``counter = 1``
-     (a virtual unbiased kernel that keeps N_eff finite at the start), and
-     multiplies each kernel's height by ``∏_i σ_i(0)/σ_i(n)`` — the
-     ``1/(√2π σ)`` Gaussian normalization up to a constant that Z absorbs.
-   * deposit cadence PACE fires ONE kernel deposit + Z refresh + table push
-     per event; nothing is updated per-MD-step.
+Deliberate deviations (none contradicts the physics):
 
-Deliberate deviations (documented, none contradicts the spec):
-
-* the ledger is BRAND NEW: ``kernels.npz`` carries every PRE-compression
-  deposit ``{steps, positions (n,ncv), sigmas (n,ncv), heights (n,),
+* the ledger: ``kernels.npz`` carries every PRE-compression deposit
+  ``{steps, positions (n,ncv), sigmas (n,ncv), heights (n,),
   logweights (n,)}`` in kernel CV units (nm / radian — the same space
   metadynamics' hills live in).  Like ``hills.npz`` it is method STATE, not
   reporting: it is written by the deposit hook itself (a probe fires
@@ -76,11 +72,10 @@ Deliberate deviations (documented, none contradicts the spec):
   is physics, exactly like ``hills.npz``.
 * the deposit weight reads the bias through the TABLE the simulated system
   feels (``bias_ops().bias_energy``), not a parallel continuous evaluation —
-  one definition of the bias on this seam (the dual-track decision #5,
-  applied to OPES' weight the way metadynamics applies it to hill heights).
+  one definition of the bias on this seam.
 * PLUMED widens a user-provided SIGMA by √γ in explore mode; we keep the
-  declared ``biasWidth`` verbatim as σ(0) in both modes — the spec calls it
-  the initial kernel width and does not mention any widening.
+  declared ``biasWidth`` verbatim as σ(0) in both modes — it is the initial
+  kernel width.
 * resume replays the (trimmed) ledger through the SAME deposit math and
   recomputes Z ONCE from the final compressed set (PLUMED's restart rule) —
   deterministic, so a resumed run's kernels and table are bit-identical to
@@ -123,7 +118,7 @@ LABEL = "opes"
 KERNELS_FILENAME = "kernels.npz"
 FES_FILENAME = "fes.tsv"
 
-#: the two OPES variants (spec §3: 收敛导向 vs 探索导向 — expose both)
+#: the two OPES variants (well-tempered target vs uniform-exploration target)
 MODES = ("standard", "explore")
 
 #: element budget of one kernel-evaluation broadcast block (kernels x points)
@@ -163,7 +158,7 @@ class MethodResult:
 
 # ---------------------------------------------------------------------------
 # grid standardization — shared with metadynamics (degrees -> radians for
-# angular CVs through THE port table; same comments apply)
+# angular CVs through the shared port table)
 # ---------------------------------------------------------------------------
 
 
@@ -226,7 +221,7 @@ class OPESRun:
         self.sink = sink
         self.log = LOG if logger is None else logger
 
-        # -- opes_set (the spec's 3 parameters + mode + tuning knobs) ------
+        # -- opes_set (pace + barrier + mode + tuning knobs) -----------------
         opes = dict(getattr(plan, "opes_set", None) or {})
         missing = [key for key in ("pace", "barrier") if key not in opes]
         if missing:
@@ -252,7 +247,7 @@ class OPESRun:
         self.fixed_sigma = bool(opes.get("fixed_sigma", False))
         self.no_zed = bool(opes.get("no_zed", False))
 
-        # -- BARRIER-derived constants (spec; PLUMED default mapping) -------
+        # -- BARRIER-derived constants (PLUMED default mapping) -------------
         self.temperature = float(getattr(plan, "temperature", 298.0))
         self.kt = MOLAR_GAS_CONSTANT_R_KJ * self.temperature  # kJ/mol
         self.bias_factor = self.barrier / self.kt  # gamma = ΔE / (k_B T)
@@ -283,7 +278,7 @@ class OPESRun:
                 f"opes_set.compression_threshold ({self.compression_threshold}) "
                 f"cannot be >= the kernel cutoff ({self.cutoff:.6f} sigma)")
 
-        # -- collective variables through the cv registry (metadynamics) ---
+        # -- collective variables through the cv registry -------------------
         colvar_cfg = dict(getattr(plan, "colvars", None) or {})
         if not colvar_cfg:
             raise ValueError("opes requires plan.colvars (1-3 entries)")
@@ -313,7 +308,7 @@ class OPESRun:
             self.cvs.append((name, cv, entry))
             self.grids.append(gspec)
 
-        # σ(0): the declared biasWidths (spec: initial kernel width)
+        # σ(0): the declared biasWidths (the initial kernel width)
         self.sigma0 = np.array([g.width for g in self.grids], dtype=np.float64)
         self.ncv = len(self.grids)
 
@@ -352,7 +347,7 @@ class OPESRun:
         )
         bias = BiasIR(
             kind="CustomCVTableForce",
-            energy="table(%s)" % ", ".join(var_names),  # v1 expression
+            energy="table(%s)" % ", ".join(var_names),
             table=table,
             label=LABEL,
         )
@@ -488,7 +483,7 @@ class OPESRun:
     # -- the deposit cycle (one kernel + one Z refresh + one table push) -----
 
     def _deposit(self, step: int, view) -> None:
-        """One OPES update, every ``pace`` steps (the spec's PACE cadence)."""
+        """One OPES update, every ``pace`` steps (the PACE cadence)."""
         position = self._ops.cv_values(LABEL)
         energy = self._ops.bias_energy(LABEL)  # kJ/mol — the tabulated bias
         log_weight = energy / self.kt
@@ -514,7 +509,7 @@ class OPESRun:
             base_height = weight
             size = neff
 
-        # σ(n) = σ(0) · [size·(d+2)/4]^{-1/(d+4)}  (spec / paper Eq. 6)
+        # σ(n) = σ(0) · [size·(d+2)/4]^{-1/(d+4)}  (paper Eq. 6)
         sigma = np.array(self.sigma0, dtype=np.float64)
         if not self.fixed_sigma:
             sigma = sigma * (size * (self.ncv + 2) / 4.0) ** (
@@ -620,7 +615,7 @@ class OPESRun:
 
     @property
     def _grid_shape(self) -> tuple:
-        """Table layout: v1's reversed-axis convention (last CV fastest)."""
+        """Table layout: the reversed-axis convention (last CV fastest)."""
         return tuple(g.bins for g in reversed(self.grids))
 
     def _grid_points(self) -> tuple:
@@ -635,8 +630,8 @@ class OPESRun:
 
     def _to_table_layout(self, values: np.ndarray) -> np.ndarray:
         """Config-order point values -> the reversed-axis table array, with
-        v1's periodic seam (``dist[-1] = dist[0]`` in metadynamics'
-        ``_addGaussian``): a periodic axis's LAST grid point must carry the
+        the periodic seam (``dist[-1] = dist[0]`` in metadynamics'
+        ``_add_gaussian``): a periodic axis's LAST grid point must carry the
         FIRST's value — the KDE is periodic by construction up to floating
         point, and openmm's periodic spline demands exact equality there."""
         _, shape = self._grid_points()
@@ -739,7 +734,7 @@ class OPESRun:
     def get_free_energy(self) -> np.ndarray:
         """The mode's FES estimator on the deposition grid (kJ/mol).
 
-        standard (spec §2: equivalent to the bias conversion):
+        standard (equivalent to the bias conversion):
         ``F = -(1/β) log(P̃/Z + ε)``; explore: ``F = -γ (1/β) log(p^WT/Z + ε)``
         — both finite everywhere through the ε regularization.  With no
         kernels deposited yet the grid is exactly zero (no data, no FES).

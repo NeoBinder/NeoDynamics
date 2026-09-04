@@ -1,21 +1,19 @@
 """ReplayKernel — golden-tape playback on the KernelPort seam.
 
-PURPOSE (v2 migration plan §5 Phase 4 item 4.6)
------------------------------------------------
-After flip day v1 is deleted and the parity suite can no longer RUN v1 to
-produce reference numbers.  The golden tapes (``tests/golden/v1/*.json``,
-recorded by the Phase 0 harness) become the only carrier of v1's behavior,
-and this adapter plays them back: parity assertions drive neomd plans over
-a :class:`ReplayKernel` and check that the driver/probe plumbing reproduces
-the recorded energy sequence.  It keeps driver, probe and method logic
-testable in a CI world with no openmm and no v1.
+PURPOSE
+-------
+The golden tapes (``tests/golden/v1/*.json``) are the recorded reference
+behavior, and this adapter plays them back: parity assertions drive neomd
+plans over a :class:`ReplayKernel` and check that the driver/probe plumbing
+reproduces the recorded energy sequence.  It keeps driver, probe and method
+logic testable in a CI world with no openmm.
 
 It is NOT a physics kernel: energies come from the tape, positions are
 SYNTHETIC (see below), biases are bookkeeping.  Where the fake kernel is a
 stand-in *physics engine* (textbook Langevin), the replay kernel is a
-*recording* — it answers "did the pipeline observe what v1 observed", never
-"is the physics right" (§7: golden samples catch behavior changes, they do
-not prove absolute correctness).
+*recording* — it answers "did the pipeline observe what the recording
+observed", never "is the physics right" (golden samples catch behavior
+changes, they do not prove absolute correctness).
 
 Tape format (tests/golden/trim.py, schema 1)
 --------------------------------------------
@@ -30,8 +28,7 @@ Tape format (tests/golden/trim.py, schema 1)
   themselves were trimmed away (only their hashes are committed), so the
   replay kernel cannot and does not reproduce them.  A tape that wants
   positional playback must carry ``coord_frames_data`` — raw (N, 3) float
-  arrays sampled every ``coord_interval`` (default 100) steps; none of the
-  current v1 tapes do.
+  arrays sampled every ``coord_interval`` (default 100) steps.
 * ``num_particles`` — optional particle count; otherwise the count comes
   from ``spec.system_data`` (positions shape), falling back to 1.
 
@@ -45,16 +42,15 @@ path fits the field's pattern::
     ReplayKernel(spec)          # reads the tape from spec.system_xml
     KernelFactory.create(KernelSpec(kind="replay", system_xml=tape_json))
 
-Registration follows the established adapter pattern: ``openmm.py`` and
-``fake.py`` self-register at module import AND are re-registered by
-``kernel/_bootstrap.ensure_adapters`` (which run.py calls before every
-factory create).  ``_bootstrap`` deliberately does NOT know replay — replay
-is a parity tool joining the runtime registry only on flip-day, so this
-module self-registers at import (bottom of the file) and anything that
-creates replay kernels imports it first (the CLI's ``run --kernel replay``
-does exactly that; the parity tests import it in-test).  Until the import
-happens, ``KernelFactory`` treats ``kind="replay"`` as unknown — which is
-exactly what tests/v2/test_kernel.py's factory test still asserts.
+Registration: ``openmm.py`` and ``fake.py`` self-register at module import
+AND are re-registered by ``kernel/_bootstrap.ensure_adapters`` (which run.py
+calls before every factory create).  ``_bootstrap`` deliberately does NOT
+know replay, so this module self-registers at import (bottom of the file)
+and anything that creates replay kernels imports it first (the CLI's
+``run --kernel replay`` does exactly that; the parity tests import it
+in-test).  Until the import happens, ``KernelFactory`` treats
+``kind="replay"`` as unknown — which is exactly what
+tests/v2/test_kernel.py's factory test still asserts.
 
 Semantics of the core operations
 -----------------------------
@@ -108,8 +104,7 @@ from .port import BiasIR, EnergyReport, KernelFactory, KernelSpec, pick_free_for
 __all__ = ["ReplayKernel", "load_tape"]
 
 #: default energy sampling interval of the golden harness
-#: (tests/golden/trim.py ENERGY_INTERVAL — none of the v1 tapes carries the
-#: field, the trimming rule fixes it at 10)
+#: (tests/golden/trim.py ENERGY_INTERVAL — the trimming rule fixes it at 10)
 DEFAULT_SAMPLE_INTERVAL = 10
 
 #: default coordinate sampling interval (tests/golden/trim.py COORD_INTERVAL)

@@ -1,64 +1,51 @@
-"""Well-tempered metadynamics — a method knowledge triple (plan §5 item 2.2).
+"""Well-tempered metadynamics — a method knowledge triple.
 
-Verbatim port of v1 ``src/neomd/metadynamics/engine.py`` (``MetadynamicsEngine``,
-itself derived from openmm ``app/metadynamics.py``) onto the v2 seams: the
-bias is a ``BiasIR(kind="CustomCVTableForce")`` installed through
-``kernel.install_bias`` (compiled by the kernel exactly like v1's
-``prepare_metadynamics_bias``), the deposition cycle rides the driver's
-``on_step`` hook (``on_step_interval = meta_set.frequency`` — the driver's
-boundary arithmetic replaces v1's hand-rolled ``while stepsToGo > 0`` chunking,
-landing on the exact same multiples), and live bias access goes through
-``kernel.bias_ops()`` (cv_values / bias_energy / update_table).
+The physics is the verbatim v1 port (the numbers, not just the shape) onto
+the v2 seams: the bias is a ``BiasIR(kind="CustomCVTableForce")`` installed
+through ``kernel.install_bias``, the deposition cycle rides the driver's
+``on_step`` hook (``on_step_interval = meta_set.frequency``), and live bias
+access goes through ``kernel.bias_ops()``
+(cv_values / bias_energy / update_table).
 
-Physics ported VERBATIM (discipline §8 #3 — the numbers, not just the shape):
+Physics:
 
-* hill height (v1 ``run_md`` lines 296-302):
-  ``height * exp(-E_bias / (R * deltaT))`` with ``deltaT = T*(biasFactor-1)``
-  and ``E_bias`` the force-group energy of the metadynamics force alone.
-  The tempering argument reproduces v1's openmm Quantity arithmetic
-  BIT-EXACTLY in pure floats (:func:`_tempered_height` below; openmm is
-  never imported here, methods stay kernel-agnostic).
-* ``_addGaussian`` (v1 lines 191-217 == openmm metadynamics.py 193-219):
-  per-axis Gaussians on the ``linspace(0, 1, bins)`` grid (INCLUSIVE of 1.0,
-  so grid point ``i`` sits at ``minimum + i*(maximum-minimum)/(bins-1)``),
-  v1's periodic distance handling including the ``dist[-1] = dist[0]`` seam,
-  the reversed-axis outer product
-  ``reduce(np.multiply.outer, reversed(axisGaussians))``, and the
-  height-accumulation in kJ/mol.
-* ``_scaledVariance`` — the port source is openmm's ``BiasVariable``
-  (``openmm/app/metadynamics.py`` line 305):
-  ``self._scaledVariance = (self.biasWidth/(self.maxValue-self.minValue))**2``
-  — the width normalized by the grid RANGE (dimensionless, so the unit
-  cancels).  ``BiasVariable.__init__`` also *standardizes* min/max/width via
-  ``value_in_unit_system(md_unit_system)``; openmm's md unit system is
-  radian-based (verified: ``(1*degree).value_in_unit_system(md_unit_system)``
-  == pi/180), so angular CV grids declared in degrees become radians before
-  they reach the kernel — matching what openmm's own
-  ``getCollectiveVariableValues`` returns for torsion CVs (verified: radians).
-  Distance grids are nanometers on both kernels already.
-* ``update_context_check`` (v1 lines 160-173): ``update_context_frequency is
-  None`` -> push the table every hill; otherwise push only when more than
+* hill height: ``height * exp(-E_bias / (R * deltaT))`` with
+  ``deltaT = T*(biasFactor-1)`` and ``E_bias`` the force-group energy of the
+  metadynamics force alone.  The tempering argument reproduces v1's openmm
+  Quantity arithmetic BIT-EXACTLY in pure floats (:func:`_tempered_height`
+  below; openmm is never imported here, methods stay kernel-agnostic).
+* ``_add_gaussian``: per-axis Gaussians on the ``linspace(0, 1, bins)`` grid
+  (INCLUSIVE of 1.0, so grid point ``i`` sits at
+  ``minimum + i*(maximum-minimum)/(bins-1)``), the periodic distance
+  handling including the ``dist[-1] = dist[0]`` seam, the reversed-axis
+  outer product ``reduce(np.multiply.outer, reversed(axisGaussians))``, and
+  the height-accumulation in kJ/mol.
+* ``_scaled_variance`` — openmm ``BiasVariable``'s
+  ``(biasWidth/(maxValue-minValue))**2``: the width normalized by the grid
+  RANGE (dimensionless, so the unit cancels).  ``BiasVariable.__init__``
+  also *standardizes* min/max/width via ``value_in_unit_system
+  (md_unit_system)``; openmm's md unit system is radian-based
+  (``(1*degree).value_in_unit_system(md_unit_system)`` == pi/180), so
+  angular CV grids declared in degrees become radians before they reach the
+  kernel — matching what openmm's own ``getCollectiveVariableValues``
+  returns for torsion CVs (radians).  Distance grids are nanometers on both
+  kernels already.
+* ``update_context_check``: ``update_context_frequency is None`` -> push the
+  table every hill; otherwise push only when more than
   ``update_context_frequency`` steps elapsed since the last push.  The bias
   matrix always accumulates; only the kernel/context push is throttled.
 
-Deliberate deviations (documented, none touches the physics):
+Artifacts and resume:
 
-* artifacts are BRAND NEW (plan R3-Q3): ``colvar.tsv`` (ColvarProbe, natural
-  CV units — degrees for dihedrals) and ``hills.npz`` — the hill LEDGER
-  ``{steps, positions (n, ncv), heights (n,)}`` in kernel CV units — replace
-  v1's ``COLVAR.npy`` + ``bias_last.npy``.  Old consumers (gethill/hills_ana)
-  break on flip day, acknowledged.
-* resume (v1 ``continue_metadynamics``): instead of persisting the whole bias
-  matrix, the ledger is REPLAYED through the deposition math
-  (deterministic — same hills in, same matrix out), then pushed to the kernel
-  once, exactly where v1 called ``updateParametersInContext``.  A resumed
-  run's hills are bit-identical to a straight run's (the §6 meta-resume row,
-  asserted in tests/v2 on the fake tier).
-* v1's cycle loop ran ``ceil(steps/frequency)`` cycles (overshooting
-  ``steps`` when the two are not commensurate); the v2 driver contract stops
-  exactly at ``plan.steps``, so hills land on ``floor(steps/frequency)``
-  multiples.  For commensurate runs (the golden scenario 2000/100, all tests)
-  the behavior is identical.
+* artifacts: ``colvar.tsv`` (ColvarProbe, natural CV units — degrees for
+  dihedrals) and ``hills.npz`` — the hill LEDGER ``{steps, positions
+  (n, ncv), heights (n,)}`` in kernel CV units.
+* resume: instead of persisting the whole bias matrix, the ledger is
+  REPLAYED through the deposition math (deterministic — same hills in, same
+  matrix out), then pushed to the kernel once.  A resumed run's hills are
+  bit-identical to a straight run's (asserted in tests/v2 on the fake tier).
+* the driver contract stops exactly at ``plan.steps``, so hills land on
+  ``floor(steps/frequency)`` multiples.
 """
 
 from __future__ import annotations
@@ -133,7 +120,7 @@ class MethodResult:
     """Outcome of one metadynamics run (drive() appends it to RunOutcome.results)."""
 
     steps_done: int  # final absolute step count
-    fgroup: int  # force-group id of the installed bias (v1 max of free groups)
+    fgroup: int  # force-group id of the installed bias
     n_hills: int  # hills deposited (incl. replayed ones after a resume)
     fes_sum: float  # sum of the free-energy grid (kJ/mol) — a drift sentinel
     positions_sha256: str = ""  # sha256 of the final positions (float64 nm)
@@ -147,19 +134,18 @@ class MethodResult:
 
 
 def _is_angular(cv: CVIR) -> bool:
-    """Angular CVs are declared in degrees by v1 configs (dihedral, angle)."""
+    """Angular CVs are declared in degrees (dihedral, angle)."""
     return cv_is_angular(cv)
 
 
 def _standardize(value: float, cv: CVIR) -> float:
     """degree -> radian for angular CVs, nm as-is — openmm's md unit system.
 
-    Port of ``BiasVariable._standardize(minValue*degree, ...)``: v1 handed the
-    engine degree Quantities and BiasVariable converted them into the md unit
-    system, whose angle unit is the RADIAN (verified: ``(1*degree).
+    openmm's ``BiasVariable._standardize`` converts declared values into the
+    md unit system, whose angle unit is the RADIAN (``(1*degree).
     value_in_unit_system(md_unit_system)`` == pi/180 — the exact factor in
     port.CANONICAL_FACTORS).  The kernel-side table limits and the values
-    returned by ``bias_ops().cv_values()`` then agree exactly as in v1.
+    returned by ``bias_ops().cv_values()`` then agree exactly.
     """
     if _is_angular(cv):
         return to_canonical(value, "deg")
@@ -169,7 +155,7 @@ def _standardize(value: float, cv: CVIR) -> float:
 def _grid_unit(cv: CVIR) -> str:
     """Kernel unit of one CV's deposition grid (the fes.tsv column header):
     radians for angular CVs, nm for nanometric ones (distances, RMSD, path
-    z), '' for the dimensionless W1-b CVs (coordination, path s)."""
+    z), '' for the dimensionless CVs (coordination, path s)."""
     if _is_angular(cv):
         return "rad"
     if cv.kind == "CustomNonbondedForce":
@@ -200,7 +186,7 @@ def _make_evaluator(entry, cv: CVIR) -> Callable:
 
 def _tempered_height(height: float, energy: float, delta_t: float) -> float:
     """v1's well-tempered hill height, bit-exact float port of the openmm
-    Quantity arithmetic in ``engine.py:299-301``::
+    Quantity arithmetic::
 
         height = self.height * np.exp(
             -energy / (unit.MOLAR_GAS_CONSTANT_R * self._deltaT))
@@ -255,7 +241,7 @@ class MetadynamicsRun:
         self.sink = sink
         self.log = LOG if logger is None else logger
 
-        # -- meta_set (v1 engine __init__) ---------------------------------
+        # -- meta_set -------------------------------------------------------
         meta = dict(getattr(plan, "meta_set", None) or {})
         missing = [key for key in ("biasFactor", "height", "frequency")
                    if key not in meta]
@@ -264,9 +250,9 @@ class MetadynamicsRun:
                 f"meta_set requires {', '.join(missing)} "
                 f"(got keys {sorted(meta)})")
         if float(meta["biasFactor"]) <= 1.0:
-            raise ValueError("biasFactor should be > 1.0")  # v1 message
+            raise ValueError("biasFactor should be > 1.0")
         self.bias_factor = float(meta["biasFactor"])
-        self.height = float(meta["height"])  # kJ/mol (v1 kilojoules_per_mole)
+        self.height = float(meta["height"])  # kJ/mol
         self.frequency = int(meta["frequency"])
         if self.frequency < 1:
             raise ValueError(
@@ -275,10 +261,9 @@ class MetadynamicsRun:
         self.update_context_frequency = (None if update_context is None
                                          else int(update_context))
         self.temperature = float(getattr(plan, "temperature", 298.0))
-        # v1: self._deltaT = temperature * (biasFactor - 1)
         self.deltaT = self.temperature * (self.bias_factor - 1.0)
 
-        # -- collective variables through the cv registry (v1 generate_colvar)
+        # -- collective variables through the cv registry ------------------
         colvar_cfg = dict(getattr(plan, "colvars", None) or {})
         if not colvar_cfg:
             raise ValueError("metadynamics requires plan.colvars (1-3 entries)")
@@ -304,17 +289,16 @@ class MetadynamicsRun:
             )
             self.cvs.append((name, cv, entry))
             self.grids.append(gspec)
-            # openmm BiasVariable line 305, verbatim:
+            # openmm BiasVariable scaled variance, verbatim:
             self._scaled_variance.append(
                 (gspec.width / (gspec.maximum - gspec.minimum)) ** 2)
 
-        # v1 prepare_metadynamics_bias: total bias over the REVERSED-axis grid
+        # total bias over the REVERSED-axis grid
         self._shape = tuple(g.bins for g in reversed(self.grids))
         self._total_bias = np.zeros(self._shape, dtype=np.float64)
         self._hills_steps: list[int] = []
         self._hills_positions: list[list[float]] = []
         self._hills_heights: list[float] = []
-        # v1 engine __init__: self.last_update_context_step = 0
         self._last_update_context_step = 0
         self.fgroup: int | None = None
 
@@ -337,7 +321,7 @@ class MetadynamicsRun:
         )
         bias = BiasIR(
             kind="CustomCVTableForce",
-            energy="table(%s)" % ", ".join(var_names),  # v1 expression
+            energy="table(%s)" % ", ".join(var_names),
             table=table,
             label=LABEL,
         )
@@ -390,7 +374,7 @@ class MetadynamicsRun:
         """End-of-run artifacts + the result drive() records."""
         from neomd.driver import CHECKPOINT_FILENAME
 
-        # v1 save_last: bias + colvar + checkpoint at run end
+        # end-of-run artifacts: ledger + checkpoint + fes
         self._save_hills()
         if self.sink is not None:
             self.sink.write_bytes(CHECKPOINT_FILENAME, self.kernel.snapshot())
@@ -415,16 +399,14 @@ class MetadynamicsRun:
         return run_prepared_method(self.kernel, self.plan, self.prepare(),
                                    sink=self.sink, logger=self.log)
 
-    # -- resume (v1 continue_metadynamics) ------------------------------------
+    # -- resume ---------------------------------------------------------------
 
     def _replay_ledger(self, resume_plan) -> None:
         """Replay the hills ledger into the bias matrix and push it.
 
-        v1 loaded ``bias_last.npy`` (the full matrix) + ``COLVAR.npy``; the v2
-        ledger stores the hills themselves and the bias matrix is REBUILT by
-        replaying them through the deposition math — deterministic, and
-        ``update_table`` replaces v1's unconditional
-        ``setFunctionParameters + updateParametersInContext`` pair.
+        The ledger stores the hills themselves; the bias matrix is REBUILT
+        by replaying them through the deposition math (deterministic), and
+        one ``update_table`` pushes the rebuilt matrix to the kernel.
 
         The kernel restore and the ledger TRIM (hills deposited past the
         checkpoint step are dropped before replay) belong to
@@ -462,10 +444,10 @@ class MetadynamicsRun:
         self.log.info("Load bias FILE:%s (%d hills replayed)",
                       HILLS_FILENAME, len(steps))
 
-    # -- the deposition cycle (v1 run_md inner body) ---------------------------
+    # -- the deposition cycle -------------------------------------------------
 
     def _deposit(self, step: int, view) -> None:
-        """One hill, the verbatim v1 cycle body (engine.py lines 292-302)."""
+        """One hill deposit (the verbatim v1 cycle body)."""
         position = self._ops.cv_values(LABEL)
         energy = self._ops.bias_energy(LABEL)  # kJ/mol, the force group alone
         height = _tempered_height(self.height, energy, self.deltaT)
@@ -477,7 +459,6 @@ class MetadynamicsRun:
         self._hills_steps.append(int(step))
         self._hills_positions.append([float(v) for v in position])
         self._hills_heights.append(float(height))
-        # v1 saved its bias + COLVAR every cycle; the ledger replaces both
         self._save_hills()
         if self._update_context_check(step):
             self._ops.update_table(LABEL, self._total_bias.flatten())
@@ -499,11 +480,10 @@ class MetadynamicsRun:
             gaussian = axis_gaussians[0]
         else:
             gaussian = reduce(np.multiply.outer, reversed(axis_gaussians))
-        # v1 converts the height Quantity to kJ/mol right here — same float
         self._total_bias += height * gaussian
 
     def _update_context_check(self, step: int) -> bool:
-        """v1 ``update_context_check`` (engine.py lines 160-173)."""
+        """Whether to push the bias table to the kernel at ``step``."""
         if self.update_context_frequency is None:
             return True
         if step - self._last_update_context_step > self.update_context_frequency:
@@ -514,7 +494,7 @@ class MetadynamicsRun:
     # -- artifacts -----------------------------------------------------------------
 
     def _save_hills(self) -> None:
-        """hills.npz — the NEW ledger (plan R3-Q3): steps, positions, heights."""
+        """hills.npz — the deposit ledger: steps, positions, heights."""
         if self.sink is None:
             return
         steps = np.asarray(self._hills_steps, dtype=np.int64)
@@ -527,7 +507,7 @@ class MetadynamicsRun:
         self.sink.write_bytes(HILLS_FILENAME, buffer.getvalue())
 
     def get_free_energy(self) -> np.ndarray:
-        """v1 ``get_free_energy``: ``-((T+deltaT)/deltaT) * totalBias`` kJ/mol.
+        """``-((T+deltaT)/deltaT) * total_bias``, kJ/mol.
 
         Shape is the reversed-axis grid convention (``tuple(bins for grid in
         reversed(grids))``), values at the ``linspace(0, 1, bins)`` grid
@@ -537,13 +517,13 @@ class MetadynamicsRun:
                 * self._total_bias)
 
     def write_fes(self, path) -> None:
-        """Write ``fes.tsv`` (new format): one row per grid point.
+        """Write ``fes.tsv``: one row per grid point.
 
-        Columns: each CV's coordinate in its kernel unit (nm / radian for
-        the v1 CVs; dimensionless CVs — coordination, path s — carry no unit
-        tag) followed by the free energy in kJ/mol.  Rows follow the bias
-        array's C order (v1's reversed-axis convention: the FIRST configured
-        CV varies fastest, the LAST slowest).
+        Columns: each CV's coordinate in its kernel unit (nm / radian;
+        dimensionless CVs — coordination, path s — carry no unit tag)
+        followed by the free energy in kJ/mol.  Rows follow the bias array's
+        C order (the reversed-axis convention: the FIRST configured CV
+        varies fastest, the LAST slowest).
         """
         fes = self.get_free_energy()
         coords = [np.linspace(grid.minimum, grid.maximum, num=grid.bins)
