@@ -95,7 +95,7 @@ ml_region:
 - **结论**：`ml` 环境临时 pin `openmm = "8.5.*"` + `openmm-torch = "1.5.*"` +
   `pytorch = "2.12.*"`（solve-group `ml`，与 default/test/dev 的 8.6 隔离；
   ml 门只跑 `tests/v2/test_mlmm.py`，不触 openmm_privates 的 8.6 门）。固定
-  决策 #10 纪律照记：这是 pixi.toml 里的显式 pin；conda-forge 出 tracking
+  决策 #10 纪律照记：这是 pyproject.toml [tool.pixi] 里的显式 pin；conda-forge 出 tracking
   8.6 的 openmm-torch 构建后，升级该 pin 是一次显式事件。
 - 默认门（`pixi run test`）保持 **torch-free**：真实 torch 测试全部
   `pytest.importorskip("torch")` / `importorskip("openmmtorch")` /

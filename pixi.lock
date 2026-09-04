@@ -533,12 +533,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/validators-0.35.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/xmltodict-1.0.4-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
-      - pypi: ../NeoTopology
       - pypi: ./
-      - pypi: https://pypi.tuna.tsinghua.edu.cn/packages/28/7f/cfd9bc4b1f5e424eeea83d0493e43f3b1b02707ce8e50c47945873982bd5/wrapt-2.3.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
-      - pypi: https://pypi.tuna.tsinghua.edu.cn/packages/33/07/fcfdd7a2872f5b348953de35acce1544dab0c1e8368dca54279b1cde5c15/pyfiglet-0.8.post1-py2.py3-none-any.whl
-      - pypi: https://pypi.tuna.tsinghua.edu.cn/packages/84/d0/205d54408c08b13550c733c4b85429e7ead111c7f0014309637425520a9a/deprecated-1.3.1-py2.py3-none-any.whl
-      - pypi: https://pypi.tuna.tsinghua.edu.cn/packages/a9/d3/c94840c7e282c18979513ac257d5099efb0a4149df933d132d75d9229158/mendeleev-1.1.0-py3-none-any.whl
       - pypi: https://pypi.tuna.tsinghua.edu.cn/packages/ba/a3/383eb3d658f36c6e531c8cf1e348ccb4b5031231df4aeb7742bb159a3166/python_box-7.4.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
   docs:
     channels:
@@ -7857,68 +7852,11 @@ packages:
   - pkg:pypi/zipp?source=hash-mapping
   size: 24190
   timestamp: 1779159948016
-- pypi: ../NeoTopology
-  name: neotopology
-  requires_dist:
-  - mendeleev
-  - pint
-  - rdkit
-  - numpy
-  - pytest>=7.4.4
-  - pytest>=7.0.0 ; extra == 'dev'
-  - pytest-cov>=4.0.0 ; extra == 'dev'
-  - ruff>=0.1.0 ; extra == 'dev'
-  - mypy>=1.0.0 ; extra == 'dev'
-  requires_python: '>=3.11'
 - pypi: ./
   name: neodynamics
   requires_dist:
   - python-box>=7.3.2
   requires_python: '>=3.12'
-- pypi: https://pypi.tuna.tsinghua.edu.cn/packages/28/7f/cfd9bc4b1f5e424eeea83d0493e43f3b1b02707ce8e50c47945873982bd5/wrapt-2.3.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
-  name: wrapt
-  version: 2.3.0
-  sha256: 5d221a6e6ddd302b8397433184e96b59f259f50024b854db1c411a881586b6b8
-  index: https://pypi.tuna.tsinghua.edu.cn/simple
-  requires_dist:
-  - pytest ; extra == 'dev'
-  - setuptools ; extra == 'dev'
-  requires_python: '>=3.9'
-- pypi: https://pypi.tuna.tsinghua.edu.cn/packages/33/07/fcfdd7a2872f5b348953de35acce1544dab0c1e8368dca54279b1cde5c15/pyfiglet-0.8.post1-py2.py3-none-any.whl
-  name: pyfiglet
-  version: 0.8.post1
-  sha256: d555bcea17fbeaf70eaefa48bb119352487e629c9b56f30f383e2c62dd67a01c
-  index: https://pypi.tuna.tsinghua.edu.cn/simple
-- pypi: https://pypi.tuna.tsinghua.edu.cn/packages/84/d0/205d54408c08b13550c733c4b85429e7ead111c7f0014309637425520a9a/deprecated-1.3.1-py2.py3-none-any.whl
-  name: deprecated
-  version: 1.3.1
-  sha256: 597bfef186b6f60181535a29fbe44865ce137a5079f295b479886c82729d5f3f
-  index: https://pypi.tuna.tsinghua.edu.cn/simple
-  requires_dist:
-  - wrapt>=1.10,<3
-  - inspect2 ; python_full_version < '3'
-  - tox ; extra == 'dev'
-  - pytest ; extra == 'dev'
-  - pytest-cov ; extra == 'dev'
-  - bump2version<1 ; extra == 'dev'
-  - setuptools ; python_full_version >= '3.12' and extra == 'dev'
-  requires_python: '>=2.7,!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*'
-- pypi: https://pypi.tuna.tsinghua.edu.cn/packages/a9/d3/c94840c7e282c18979513ac257d5099efb0a4149df933d132d75d9229158/mendeleev-1.1.0-py3-none-any.whl
-  name: mendeleev
-  version: 1.1.0
-  sha256: be3f3468d444ba30d0db6eff3b0660a76637b6f34177a7c18860592fcb718a47
-  index: https://pypi.tuna.tsinghua.edu.cn/simple
-  requires_dist:
-  - pygments>=2.11.2,<3.0.0
-  - sqlalchemy>=1.4.0
-  - colorama>=0.4.6,<0.5.0
-  - deprecated>=1.2.14,<2.0.0
-  - numpy>=2.0,<3.0
-  - pandas>=1.1.0 ; python_full_version < '3.12'
-  - pandas>=2.1,<3.0 ; python_full_version >= '3.12' and python_full_version < '3.14'
-  - pydantic>=2.9.2,<3.0.0
-  - pyfiglet>=0.8.post1,<0.9
-  requires_python: '>=3.9,<3.14'
 - pypi: https://pypi.tuna.tsinghua.edu.cn/packages/ba/a3/383eb3d658f36c6e531c8cf1e348ccb4b5031231df4aeb7742bb159a3166/python_box-7.4.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
   name: python-box
   version: 7.4.1

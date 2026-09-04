@@ -71,7 +71,7 @@ attribution，逐字移植纪律）实现于 openmm 边界模块内；不整体�
    `output.state`/λ-轨迹新带。
 5. **基准**：CDK2/trypsin 对拍文献值（OpenFE 公开基准数据可直接作参照
    数字），这是物理正确性的唯一裁判（decision #9：金带只证行为不变）。
-6. **版本纪律**：openmmtools pin 进 `pixi.toml`（decision #10 同款事件：
+6. **版本纪律**：openmmtools pin 进 `pyproject.toml` ([tool.pixi])（decision #10 同款事件：
   显式 pin + 复核 `openmm_privates.py` 门 + 我们自身的 openmm 8.6.x pin
   与 openmmtools 的兼容矩阵核对）。
 

@@ -101,7 +101,7 @@ float64 边界转换与 openmm 路径一致，保证双轨 bit 对拍可 pin。�
   **能量单位 kJ/mol 只在"把模型当力用"的 ML/MM 拼写里成立**——CV 拼写
   下包装模型的输出是模型自然单位的 CV 值（无量纲 TICA 分量 / 概率），
   物理量纲由外层包装 bias（表格、谐波）赋予，与其它每个 CV kind 一致。
-- torch/openmm-torch 的 pin 进 pixi.toml 按决策 #10 纪律管理（升级 =
+- torch/openmm-torch 的 pin 进 pyproject.toml（[tool.pixi]） 按决策 #10 纪律管理（升级 =
   显式事件：重验私有 API 门 + 重录金样）。
 
 ### 6. source-scan 扩展

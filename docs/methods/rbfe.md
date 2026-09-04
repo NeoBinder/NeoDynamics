@@ -121,7 +121,7 @@ BAR 取两窗、MBAR 取整条阶梯，输入就是窗口目录列表（du 带�
 - **resume**：窗口目录的 manifest + epoch 链（`resume:<step>`）驱动
   自动续跑；编排器自己不碰带。
 - **环境**：openmmtools 只在 `rbfe` pixi env（prepare 边界依赖），
-  版本 pin 进 `pixi.toml`（decision #10 纪律）；该 env 的门是
+  版本 pin 进 `pyproject.toml` ([tool.pixi])（decision #10 纪律）；该 env 的门是
   `pixi run -e rbfe test-rbfe`（默认档 + openmmtools 门控 alchemy 冒烟）。
 
 ## 参考文献与 ADR

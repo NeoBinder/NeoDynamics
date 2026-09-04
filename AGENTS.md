@@ -140,7 +140,7 @@ pixi run test-golden   # golden-sample parity vs recorded tapes, bit-exact (~3 m
 pixi run test-legacy   # frozen v1 live tests (excluded from CI)
 pixi run -e ml test-ml # ML/MM torch tier (openmm-torch + torch env, ADR-0004;
                        #   carries a TEMPORARY openmm 8.5.* pin until conda-forge
-                       #   openmm-torch tracks 8.6 — see pixi.toml + ADR-0004)
+                       #   openmm-torch tracks 8.6 — see pyproject.toml [tool.pixi] + ADR-0004)
 uvx ruff check .       # the lint gate (E4/E7/E9/F + isort; config + excludes in pyproject.toml)
 pixi run docs-gen      # regenerate docs/reference/configuration.md from the live package
 pixi run docs-build    # mkdocs build --strict (the docs-site gate)
@@ -221,7 +221,7 @@ Challenge these only with new evidence, and update the docs if one changes.
 9. **Golden samples catch behavior changes; they do not prove physical
    correctness.** The fake kernel implements only textbook Langevin and
    must not grow OpenMM corner-case mimicry.
-10. **Version bumps of OpenMM are explicit events**: pin in `pixi.toml`,
+10. **Version bumps of OpenMM are explicit events**: pin in `pyproject.toml` ([tool.pixi]),
     re-verify the `openmm_privates.py` gate, re-record golden tapes once.
 
 ## Working discipline
