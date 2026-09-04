@@ -1,29 +1,21 @@
-"""GAFF/antechamber knowledge — verbatim port of v1's
-``neomd/builder/template_generator.py`` + the parameterization role of
-``neomd/builder/forcefiled.py`` (v2 migration plan §5 item 2.4).
+"""GAFF/antechamber knowledge.
 
-What v1 did, and where it went:
-
-* v1's ``GAFFTemplateGenerator`` subclass of openmmforcefields (the
-  ``_run_antechamber`` directory dance, ``get_charges_from_mol2``, the
-  charge-redistribution ``generate_residue_template``) lives here as
-  :class:`AntechamberBackend` — a plain class implementing the
+* :class:`AntechamberBackend` — a plain class implementing the
   :class:`~neomd.tools.port.ChargeBackend` / ``ParamBackend`` protocols,
-  executing antechamber/parmchk2 through a :class:`~neomd.tools.port.ToolRunner`
-  instead of mutating the interpreter working directory (v1's ``chdir``
-  dance became the runner's ``cwd``).
-* v1's ``~100-line`` vendored copy of openmm's ``_matchAllResiduesToTemplates``
-  (which existed ONLY to rename topology atoms to template atom names) is
-  deleted; :func:`rename_atoms_by_template` re-derives the matches per residue
-  through openmm's own matcher instead of copying its matching loop.
-* v1's ``ComplexForceField`` (force field assembly + ``sys_params_from_config``
-  + GAFF generator registration) is :func:`build` — the ``ForceFieldBuilder``
-  seam consumed by ``neomd.system``.
+  executing antechamber/parmchk2 through a
+  :class:`~neomd.tools.port.ToolRunner` with per-call directory isolation
+  (the interpreter working directory is never mutated).
+* :class:`GAFFTemplateGenerator` — a THIN subclass of the public
+  openmmforcefields generator; no openmmforcefields internals are copied.
+* :func:`rename_atoms_by_template` — rename topology atoms to their matched
+  template's atom names, re-derived per residue through openmm's own matcher.
+* :func:`build` — the ``ForceFieldBuilder`` seam entry consumed by
+  ``neomd.system``.
 
 Unit convention (deliberate simplification, documented): partial charges are
 plain floats in *elementary charge* everywhere inside neomd ("elementary
-charge as float"); v1 multiplied a pint unit — the only place a unit appears
-now is the assignment boundary into an openff ``Molecule``/an openmm System.
+charge as float"); the only place a unit appears is the assignment boundary
+into an openff ``Molecule``/an openmm System.
 """
 
 from __future__ import annotations
@@ -65,7 +57,7 @@ PARMCHK2 = "parmchk2"
 
 
 # ---------------------------------------------------------------------------
-# gaff version knowledge (v1's gaff->bcc / gaff2->abcg2 mapping, verbatim)
+# gaff version knowledge (gaff -> bcc / gaff2 -> abcg2)
 # ---------------------------------------------------------------------------
 
 def _resolve_gaff_forcefield_name(gaff_version) -> str:
@@ -73,7 +65,7 @@ def _resolve_gaff_forcefield_name(gaff_version) -> str:
     ('gaff-2.11') to a full openmmforcefields force field name.
 
     A bare major resolves to the newest shipped minor of that major.  An
-    unknown *major* is deliberately not rejected here — the verbatim v1
+    unknown *major* is not rejected here — the
     ``ValueError("gaff major version ... unknown")`` fires in
     :class:`AntechamberBackend.__init__`.
     """
@@ -108,17 +100,14 @@ def _charge_number(value) -> float:
 
 
 # ---------------------------------------------------------------------------
-# mol2 knowledge (v1 get_charges_from_mol2 + the parent's gaff-type reader)
+# mol2 knowledge
 # ---------------------------------------------------------------------------
 
 def _parse_mol2_atoms(mol2_text: str) -> list[dict]:
     """Parse the ``@<TRIPOS>ATOM`` block of a mol2 file.
 
     Columns (1-based, whitespace-separated): 1 id, 2 name, 3 x, 4 y, 5 z,
-    6 type, ... last column charge — the same last-column charge convention
-    v1's ``get_charges_from_mol2`` used.  v1 called the openmmforcefields
-    parent's private column-sliced reader; v2 parses the block itself so the
-    backend owns its whole pipeline.
+    6 type, ... last column charge.
     """
     atoms: list[dict] = []
     section = None
@@ -138,7 +127,7 @@ def _parse_mol2_atoms(mol2_text: str) -> list[dict]:
 
 
 def _charges_from_mol2(mol2_text: str) -> np.ndarray:
-    """v1 ``get_charges_from_mol2`` port — pint-free plain numpy floats."""
+    """mol2 charges as a plain numpy float array (elementary charge)."""
     return np.asarray([atom["charge"] for atom in _parse_mol2_atoms(mol2_text)],
                       dtype=float)
 
@@ -150,8 +139,8 @@ def _charges_from_mol2(mol2_text: str) -> np.ndarray:
 class AntechamberBackend:
     """ChargeBackend + ParamBackend backed by AmberTools antechamber/parmchk2.
 
-    All knowledge is v1's, executed through ``runner`` with per-call directory
-    isolation: input files travel in via ``inputs``, results come back via
+    Commands execute through ``runner`` with per-call directory isolation:
+    input files travel in via ``inputs``, results come back via
     ``ToolResult.files`` — nothing is ever written to the current directory.
 
     Parameters
@@ -169,7 +158,7 @@ class AntechamberBackend:
         self.runner = runner
         self._gaff_forcefield_name = _resolve_gaff_forcefield_name(gaff_version)
         self._gaff_major_version = self._gaff_forcefield_name.split("-")[1].split(".")[0]
-        # v1 verbatim: gaff -> bcc, gaff2 -> abcg2
+        # gaff -> bcc, gaff2 -> abcg2
         if self._gaff_major_version == "1":
             self._atom_type = "gaff"
             self._charge_type = "bcc"
@@ -195,12 +184,12 @@ class AntechamberBackend:
         """Shipped ``gaff(.2).dat`` used by parmchk2 (parent-class resource)."""
         return _gaff_dat_path(self._gaff_forcefield_name)
 
-    # -- command construction (v1 verbatim, routed through the runner) ------
+    # -- command construction -------------------------------------------------
 
     def _supports_acdoctor(self) -> bool:
-        """v1 probe: does ``antechamber -h`` advertise the ``-dr`` acdoctor
-        option?  v1 used ``subprocess.getoutput`` (exit code ignored) — a
-        failing probe here keeps its stdout through ToolError."""
+        """Probe: does ``antechamber -h`` advertise the ``-dr`` acdoctor
+        option?  A failing probe still keeps its stdout (exit code ignored,
+        like ``subprocess.getoutput``)."""
         try:
             result = self.runner.run([ANTECHAMBER, "-h"])
             output = result.stdout
@@ -216,12 +205,11 @@ class AntechamberBackend:
     def _run_in_isolation(
         self, input_format: str, input_bytes: bytes, net_charge: float, verbosity: int = 0,
     ) -> tuple[bytes, bytes]:
-        """The exact v1 antechamber + parmchk2 command pair, in isolation.
+        """The antechamber + parmchk2 command pair, in isolation.
 
         Raises :class:`ToolError` (carrying command, output and the input file
-        contents) where v1 raised its hand-formatted exceptions: non-zero exit
-        or a missing ``out.mol2`` / ``out.frcmod`` is the same failure v1
-        detected with ``os.path.exists``.
+        contents) on a non-zero exit or a missing ``out.mol2`` /
+        ``out.frcmod``.
         """
         local_input_filename = "in." + input_format
 
@@ -244,8 +232,7 @@ class AntechamberBackend:
             command, inputs={local_input_filename: input_bytes}, outputs=["out.mol2"])
         mol2_bytes = mol2_result.files["out.mol2"]
 
-        # Run parmchk2 with gaff.dat copied next to the mol2 (v1's shutil.copy
-        # became a runner input).
+        # Run parmchk2 with gaff.dat copied next to the mol2 (as a runner input).
         parmchk_command = [
             PARMCHK2,
             "-i", "out.mol2",
@@ -264,9 +251,8 @@ class AntechamberBackend:
         return mol2_bytes, frcmod_result.files["out.frcmod"]
 
     def _check_for_errors(self, outputtext: str) -> None:
-        """v1's call into the openmmforcefields parent's error scan, ported
-        for the signature v1 used (bare output text): any line containing
-        'ERROR' (case-insensitive) in the parmchk2 output is fatal."""
+        """Any line containing 'ERROR' (case-insensitive) in the parmchk2
+        output is fatal."""
         error_lines = [line for line in outputtext.split("\n") if "ERROR" in line.upper()]
         if error_lines:
             raise RuntimeError(
@@ -281,7 +267,7 @@ class AntechamberBackend:
         verbosity=0,
         net_charge=0,
     ):
-        """v1-signature facade: run the pair and write the results to the
+        """Compatibility facade: run the pair and write the results to the
         requested filenames.  Kept so the openmmforcefields parent (which calls
         ``_run_antechamber`` from its own code path) delegates here unchanged.
         """
@@ -304,31 +290,27 @@ class AntechamberBackend:
     def charges(self, molecule, net_charge=None) -> np.ndarray:
         """Run antechamber (``-c bcc`` / ``-c abcg2``) and return the mol2
         partial charges as a plain numpy array of floats (elementary charge;
-        v1 returned a pint array — see the module docstring)."""
+        see the module docstring)."""
         if net_charge is None:
             net_charge = _charge_number(molecule.total_charge)
         sdf_bytes = _molecule_to_sdf_bytes(molecule)
         mol2_bytes, _ = self._run_in_isolation("mdl", sdf_bytes, net_charge)
         return _charges_from_mol2(mol2_bytes.decode())
 
-    # -- ParamBackend / v1 generate_residue_template ------------------------
+    # -- ParamBackend / generate_residue_template ----------------------------
 
     def ffxml(self, molecule, residue_name: str | None = None) -> str:
         """ParamBackend entry: residue template + additional parameters."""
         return self._generate_template(molecule, residue_name, None)
 
     def generate_residue_template(self, molecule, original_residue=None, residue_atoms=None):
-        """v1 ``generate_residue_template`` port (same name, same role).
-
-        Differences from v1, all deliberate and documented:
+        """Deliberate differences from the openmmforcefields 0.16 parent:
 
         * the template falls back to the molecule's canonical SMILES when no
-          ``original_residue`` is given (v1 dereferenced ``.name`` and would
-          have crashed — the openmmforcefields 0.16 parent calls this method
-          without a residue);
-        * atom names are made unique when blank/duplicated (v1 only asserted
-          uniqueness because its callers always provided PDB names; the
-          uniqueness *rule* itself is unchanged);
+          ``original_residue`` is given (the parent calls this method without
+          a residue, and dereferencing ``.name`` would crash);
+        * atom names are made unique when blank/duplicated (the uniqueness
+          *rule* itself is unchanged);
         * partial charges stay in a plain float array instead of being written
           back onto the molecule with a pint unit.
         """
@@ -340,7 +322,7 @@ class AntechamberBackend:
         smiles = molecule.to_smiles()
         _logger.info(f"Generating a residue template for {smiles} using {self._gaff_forcefield_name}")
 
-        # v1 asserted unique names; make them unique first (see docstring)
+        # make atom names unique first (see docstring)
         _ensure_unique_atom_names(molecule)
         assert len(molecule.atoms) == len({atom.name for atom in molecule.atoms})
 
@@ -417,8 +399,7 @@ class AntechamberBackend:
 
     @staticmethod
     def _molecule_has_user_charges(molecule) -> bool:
-        """Port of the openmmforcefields parent's helper with the semantics v1
-        relied on: charges present and not all ~zero -> user charges."""
+        """Charges present and not all ~zero -> user charges."""
         if molecule.partial_charges is None:
             return False
         partial_charges = molecule.partial_charges.m_as(openff_unit.elementary_charge)
@@ -448,8 +429,7 @@ def _molecule_to_sdf_bytes(molecule) -> bytes:
 
 def _ensure_unique_atom_names(molecule) -> None:
     """Assign ``<symbol><count>`` names when names are blank or duplicated
-    (port of the openmmforcefields parent's ``_generate_unique_atom_names``;
-    no-op when the names are already unique)."""
+    (no-op when the names are already unique)."""
     names = [atom.name or "" for atom in molecule.atoms]
     if names and len(set(names)) == len(names) and all(names):
         return
@@ -461,8 +441,8 @@ def _ensure_unique_atom_names(molecule) -> None:
 
 
 def _frcmod_to_ffxml(frcmod_filename: str) -> str:
-    """v1 verbatim: frcmod -> parmed AmberParameterSet -> OpenMM ffxml string,
-    with the same cross-parmed-version signature introspection v1 used."""
+    """frcmod -> parmed AmberParameterSet -> OpenMM ffxml string, with
+    cross-parmed-version signature introspection."""
     import parmed
 
     leaprc = StringIO("parm = loadamberparams %s" % frcmod_filename)
@@ -483,7 +463,7 @@ def _frcmod_to_ffxml(frcmod_filename: str) -> str:
 def _build_residue_template_xml(
     ffxml_contents: str, molecule, charges, residue_name: str, residue_atoms,
 ) -> str:
-    """v1 verbatim: graft the ``Residues`` subtree (Atom name/type/charge,
+    """Graft the ``Residues`` subtree (Atom name/type/charge,
     Bond / ExternalBond rules) onto the parmed ffxml and pretty-print."""
     root = etree.fromstring(ffxml_contents.encode())
     # Create residue definitions
@@ -527,20 +507,18 @@ def _residue_template_name(ffxml_contents: str) -> str:
 # ---------------------------------------------------------------------------
 
 class GAFFTemplateGenerator(_LibraryGAFFTemplateGenerator):
-    """v1's ``GAFFTemplateGenerator`` subclass, ported as a THIN subclass of
-    the public openmmforcefields generator again.
+    """A THIN subclass of the public openmmforcefields GAFF generator.
 
     Only three things are overridden; no openmmforcefields internals are
     copied:
 
     * ``_run_antechamber`` — delegates to :class:`AntechamberBackend`, i.e.
-      the isolated runner (this is v1's reason for subclassing);
-    * ``generate_residue_template`` — delegates to the backend so the v1
-      charge redistribution / ExternalBond / residue-name rules apply, records
+      the isolated runner;
+    * ``generate_residue_template`` — delegates to the backend so the charge
+      redistribution / ExternalBond / residue-name rules apply, records
       the produced template name in ``generated_templates`` and honors
-      ``debug_ffxml_filename`` (v1's ``_load_ffxml_into_forcefield`` debug
-      dump);
-    * ``generator`` — v1's lazy one-time GAFF parameter load
+      ``debug_ffxml_filename`` (debug dump of the generated ffxml);
+    * ``generator`` — lazy one-time GAFF parameter load
       (``forcefield.loadFile(self.gaff_xml_filename)``) before the parent's
       matching runs.  The parent's ``gaff_xml_filename`` / ``gaff_dat_filename``
       properties are used as-is.
@@ -549,7 +527,7 @@ class GAFFTemplateGenerator(_LibraryGAFFTemplateGenerator):
     def __init__(self, runner: ToolRunner | None = None, gaff_version: str = "2",
                  molecules=None, cache=None, debug_ffxml_filename=None):
         forcefield_name = _resolve_gaff_forcefield_name(gaff_version)
-        # build the backend first so v1's verbatim unknown-major-version error
+        # build the backend first so the unknown-major-version error
         # fires before the parent's INSTALLED_FORCEFIELDS check
         self._backend = AntechamberBackend(
             runner if runner is not None else SubprocessToolRunner(),
@@ -589,9 +567,9 @@ class GAFFTemplateGenerator(_LibraryGAFFTemplateGenerator):
 
 def register_gaff_generator(forcefield, molecules=None, gaff_version: str = "2",
                             runner: ToolRunner | None = None):
-    """v1's wiring on a REAL openmm ``ForceField``: create the runner-backed
-    generator, add the ligand molecules, register the template-generator
-    callback.  Returns the generator (inspect ``generated_templates`` or call
+    """Create the runner-backed generator on a real openmm ``ForceField``,
+    add the ligand molecules, register the template-generator callback.
+    Returns the generator (inspect ``generated_templates`` or call
     ``add_molecules`` later)."""
     generator = GAFFTemplateGenerator(
         runner=runner, gaff_version=gaff_version, molecules=molecules)
@@ -600,15 +578,13 @@ def register_gaff_generator(forcefield, molecules=None, gaff_version: str = "2",
 
 
 # ---------------------------------------------------------------------------
-# rename-after-match (replaces v1's ~100-line vendored openmm copy)
+# rename-after-match
 # ---------------------------------------------------------------------------
 
 def rename_atoms_by_template(forcefield, topology, residue_templates=None):
     """Rename topology atoms to their matched template's atom names.
 
-    This is the ONLY behavior v1's vendored copy of openmm's
-    ``_matchAllResiduesToTemplates`` added; instead of copying that method,
-    the matches are re-derived per residue with openmm's own matcher:
+    Matches are re-derived per residue with openmm's own matcher:
 
     * ``forcefield._getResidueTemplateMatches(res, bondedToAtom)`` — the one
       private openmm call on the normal path (openmm's matching loop itself
@@ -649,14 +625,14 @@ def rename_atoms_by_template(forcefield, topology, residue_templates=None):
 
 
 # ---------------------------------------------------------------------------
-# ForceFieldBuilder seam entry (v1 ComplexForceField's role)
+# ForceFieldBuilder seam entry
 # ---------------------------------------------------------------------------
 
 def sys_params_from_config(sys_config):
-    """v1 ``ComplexForceField.sys_params_from_config`` port, verbatim
-    (constraints=HBonds, nonbonded_method=pme, nonbondedCutoff=1.0 nm,
-    rigidWater=True, removeCMMotion=False, hydrogenMass=4 amu).  The one
-    deviation: the config mapping is copied instead of mutated in place."""
+    """createSystem defaults (constraints=HBonds, nonbonded_method=pme,
+    nonbondedCutoff=1.0 nm, rigidWater=True, removeCMMotion=False,
+    hydrogenMass=4 amu).  The config mapping is copied, not mutated in
+    place."""
     if sys_config is None:
         sys_config = {}
     else:
@@ -677,8 +653,8 @@ def sys_params_from_config(sys_config):
 
 def build(topology, positions=None, ligands=None, ff_kwargs=None, sys_kwargs=None,
           *, runner: ToolRunner | None = None, rename_by_template=None):
-    """``ForceFieldBuilder`` seam entry — the role v1's ``ComplexForceField``
-    played.  Signature-compatible with the ``neomd.system`` seam
+    """``ForceFieldBuilder`` seam entry, signature-compatible with the
+    ``neomd.system`` seam
     ``build(topology, positions, ligands, ff_kwargs, sys_kwargs)``.
 
     Assembles a plain openmm ``ForceField`` (base force field + water model +

@@ -1,6 +1,6 @@
 """RBFE λ-ladder orchestration — the runner above ``method: "rbfe"``.
 
-W3-a's mini multi-leg loop (issue #8; ADR-0003 item 3 / ADR-0007 §3): ONE
+The multi-leg loop (ADR-0003 item 3 / ADR-0007 §3): ONE
 plan carrying ``method: "rbfe"`` + ``alchemical.ladder`` becomes N window
 runs, each a complete :func:`neomd.driver.drive()` — its own directory
 (``window_00``, ``window_01``, ...), manifest, checkpoint and ``du.tsv``

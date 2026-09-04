@@ -1,23 +1,22 @@
 """FES reconstruction from the hills ledger — the WT estimator, conventions
-ported verbatim from :mod:`neomd.methods.metadynamics` (issue #16, W1-a).
+ported verbatim from :mod:`neomd.methods.metadynamics`.
 
 The bias is the sum of deposited Gaussians; the free-energy surface in the
 well-tempered limit is the producer's own estimator (``get_free_energy``)::
 
     FES = -((T + deltaT) / deltaT) * bias,   deltaT = T * (biasFactor - 1)
 
-which is the standard ``-gamma/(gamma-1) * V`` WTMetaD relation spelled the
-way v1 spelled it (:func:`wt_fes_factor` reproduces the exact float sequence).
+(the standard ``-gamma/(gamma-1) * V`` WTMetaD relation; see
+:func:`wt_fes_factor`).
 
 Two evaluation paths, one math:
 
 * :func:`reconstruct_bias` — the DEPOSITION-GRID replay: ``_addGaussian``
   ported verbatim (inclusive ``linspace(0, 1, bins)`` grid, scaled variance
   ``(width/range)**2``, the periodic ``dist[-1] = dist[0]`` seam, the
-  reversed-axis outer product, hill-by-hill accumulation in ledger order).
-  Replaying the same operations in the same order makes the result
-  BIT-IDENTICAL to the running method's own ``_total_bias`` (pinned by the
-  tests against a real run's ``fes.tsv``).
+  reversed-axis outer product, hill-by-hill accumulation in ledger order)
+  so the result is BIT-IDENTICAL to the running method's ``_total_bias``
+  (pinned by the tests against a real run's ``fes.tsv``).
 * :func:`bias_at_points` — the same Gaussians evaluated at arbitrary points
   (minimal-image wrap for periodic axes).  Algebraically identical to the
   grid path at grid points (pinned to ~1e-12); it exists for reweighting and
@@ -91,13 +90,13 @@ def reconstruct_bias(hills: HillsData, meta: RunMeta,
                      upto_step: int | None = None) -> np.ndarray:
     """Sum of deposited Gaussians on the deposition grid, kJ/mol.
 
-    ``_addGaussian`` (v1 ``MetadynamicsEngine``, == openmm
-    ``app/metadynamics.py``) ported VERBATIM: per-axis Gaussians on the
-    inclusive ``linspace(0, 1, bins)`` grid with scaled variance
-    ``(width / (max - min))**2``, v1's periodic-distance handling including
-    the ``dist[-1] = dist[0]`` seam, the reversed-axis outer product, and
-    hill-by-hill ``total += height * gaussian`` accumulation in ledger order
-    — so the replay is bit-identical to the running method's ``_total_bias``.
+    ``_addGaussian`` ported VERBATIM (per-axis Gaussians on the inclusive
+    ``linspace(0, 1, bins)`` grid with scaled variance
+    ``(width / (max - min))**2``, the producer's periodic-distance handling
+    including the ``dist[-1] = dist[0]`` seam, the reversed-axis outer
+    product, and hill-by-hill ``total += height * gaussian`` accumulation in
+    ledger order — so the replay is bit-identical to the running method's
+    ``_total_bias``.
 
     ``upto_step`` cuts the ledger at that step INCLUSIVE (the same ``<=``
     the resume trimmer uses) — the FES as it stood at that point in the run.

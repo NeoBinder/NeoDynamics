@@ -1,10 +1,9 @@
-"""prepare — the system-preparation WORKFLOW (split out of system.py per the
-v2 improvements list item 6: system.py keeps the kernel-agnostic
-:class:`~neomd.system.SystemBundle`, this module owns the v1-ported
-``bin/prepare_openmm_system.py`` orchestration).
+"""prepare — the system-preparation WORKFLOW (system.py keeps the
+kernel-agnostic :class:`~neomd.system.SystemBundle`, this module owns the
+system-preparation orchestration).
 
 This is a WORKFLOW, not a core-spine module, so it imports openmm directly
-at call time (the plan's "only kernel/openmm.py imports openmm in core"
+at call time (the "only kernel/openmm.py imports openmm in core"
 rule refers to the spine; system preparation, like the openmm adapter,
 lives at the openmm boundary).  The openmm import is lazy (via
 :func:`_openmm`) so importing this module alone never drags the engine in.
@@ -13,7 +12,7 @@ Every openmm PRIVATE attribute the workflow needs lives in
 :mod:`neomd.openmm_privates` (version-pinned, isolated, source-scanned) —
 nothing below touches an underscored openmm name.
 
-The tools seam (plan §5 items 2.4/2.5) is unchanged: the heavy
+The tools seam: the heavy
 parameterization knowledge (ComplexForceField, GAFF template generation,
 rename-after-match) lives in ``neomd.tools.antechamber``;
 :func:`prepare_system` takes that layer as a hook parameter
@@ -73,12 +72,12 @@ def _openmm():
 
 
 # ---------------------------------------------------------------------------
-# v1 structure loading
+# structure loading
 # ---------------------------------------------------------------------------
 
 
 def load_complex(complex_path):
-    """Port of v1 ``io/system_loader.load_complex`` (PDB/PDBxFile)."""
+    """Topology + positions from a complex coordinate file (PDB/PDBxFile)."""
     from .system import _check_complex_suffix
 
     _check_complex_suffix(complex_path)
@@ -89,7 +88,7 @@ def load_complex(complex_path):
 
 
 def sys_params_from_config(sys_config):
-    """Port of v1 ``ComplexForceField.sys_params_from_config`` (defaults are
+    """createSystem kwargs from the ``system_params`` config (defaults are
     physics: constraints HBonds, nonbonded PME, cutoff 1.0 nm, rigid water,
     no CMMotion removal, hydrogenMass 4 amu)."""
     _, app, unit, _ = _openmm()
@@ -158,10 +157,10 @@ class PlainForceFieldBuilder:
     """openmm-only :class:`ForceFieldBuilder` — the no-tools fallback.
 
     Builds ``openmm.app.ForceField(base_ff, water_model, *additional xml)``
-    (v1 ComplexForceField defaults) and calls ``createSystem``.  Limitations
+    (the legacy defaults) and calls ``createSystem``.  Limitations
     versus the tools layer, by construction:
 
-    * no rename-after-match template matching (v1 ``rename_by_template``);
+    * no rename-after-match template matching;
     * ligands require a GAFF generator hook (``gaff_factory``) — the default
       hook lazily imports ``neomd.tools.antechamber`` and fails with a
       clear message when that layer is absent.
@@ -183,7 +182,7 @@ class PlainForceFieldBuilder:
         )
         if self._cache is not None and self._cache[0] == key:
             return self._cache[1]
-        # v1 ComplexForceField.__init__ defaults, verbatim
+        # legacy ForceField defaults, verbatim (physics, not architecture)
         forcefield = app.ForceField(
             ff_kwargs.get("base_ff", "amber/protein.ff14SB.xml"),
             ff_kwargs.get("water_model", "amber/tip3p_standard.xml"),
@@ -219,7 +218,7 @@ class PlainForceFieldBuilder:
 def _default_gaff_factory():
     """GAFF generator factory from the tools layer (lazy, clear failure).
 
-    Returns an INSTANCE (v1 ``GAFFTemplateGenerator`` shape): the plain
+    Returns an INSTANCE (GAFFTemplateGenerator shape): the plain
     builder calls ``add_molecules(mol)`` on the result and registers its
     BOUND ``.generator`` callback with the openmm ForceField — handing back
     the CLASS would register the unbound function and explode with a
@@ -266,14 +265,13 @@ def _default_forcefield_builder(gaff=None):
 
 
 # ---------------------------------------------------------------------------
-# ligand loading for the prepare workflow (v1 builder/ligand.py essentials;
-# the full ligand workflow — smiles validation, charge assignment — lives in
-# neomd.tools.ligand, plan §5 item 2.6)
+# ligand loading for the prepare workflow (the full ligand workflow —
+# smiles validation, charge assignment — lives in neomd.tools.ligand)
 # ---------------------------------------------------------------------------
 
 
 def _ligand_from_path(ligand_path: str):
-    """Port of v1 ``Ligand.from_path`` (rdkit file -> openff Molecule)."""
+    """rdkit file -> openff Molecule."""
     try:
         from openff.toolkit.topology import Molecule as openff_Molecule
         from rdkit import Chem
@@ -311,11 +309,11 @@ def _ligands_from_config(ligands_config):
 
     * a sequence of openff Molecule objects (the prepared form the ligand
       workflow / tools layer produces);
-    * the v1 mapping ``{name: {"path": ..., "resname": ...}}`` — and when an
+    * the mapping ``{name: {"path": ..., "resname": ...}}`` — and when an
       entry carries the ligand-workflow keys (``smiles`` /
       ``partial_charges``), the WHOLE mapping loads through
-      ``neomd.tools.ligand.ligands_from_config`` (plan §5 item 2.6): v1's
-      SMILES graph validation, charge-file reading and ``template_ffxml``
+      ``neomd.tools.ligand.ligands_from_config``: SMILES graph validation,
+      charge-file reading and ``template_ffxml``
       capture, with ``.molecule`` extracted so the workflow below keeps
       handling plain openff Molecules.
     """
@@ -357,10 +355,7 @@ def _ligands_from_config(ligands_config):
 
 
 def system_from_gromacs(config: Mapping):
-    """Port of v1 ``prepare_system``'s from_gromacs branch.
-
-    Returns (topology, positions, system, ligands=None).
-    """
+    """(topology, positions, system, ligands=None) from a GROMACS gro/top."""
     _, app, _, _ = _openmm()
     gro = app.GromacsGroFile(config.get("gro"))
     _top = app.GromacsTopFile(
@@ -374,10 +369,7 @@ def system_from_gromacs(config: Mapping):
 
 
 def system_from_amber(config: Mapping):
-    """Port of v1 ``prepare_system``'s from_amber branch.
-
-    Returns (topology, positions, system, ligands=None).
-    """
+    """(topology, positions, system, ligands=None) from AMBER prmtop/inpcrd."""
     _, app, _, _ = _openmm()
     coord = app.AmberInpcrdFile(config.get("inpcrd"))
     _top = app.AmberPrmtopFile(config.get("prmtop"))
@@ -387,7 +379,7 @@ def system_from_amber(config: Mapping):
 
 
 # ---------------------------------------------------------------------------
-# make_system — the orchestration port
+# make_system — the orchestration
 # ---------------------------------------------------------------------------
 
 
@@ -395,7 +387,7 @@ def _make_system(
     protein_config, ligands_config, forcefield_kwargs, sys_params,
     additional_config, builder,
 ):
-    """Port of v1 ``make_system`` (see module docstring for the seams)."""
+    """Build the solvated system (see module docstring for the seams)."""
     _, app, unit, _ = _openmm()
 
     protein = None
@@ -475,7 +467,7 @@ def _make_system(
         "add_hydrogens": True,
         "add_solv_ions": True,
         "ion_Strength": 0.1,
-        "center_model": True,  # v1 179ae35: centering is now optional
+        "center_model": True,  # centering is optional
         **additional_config,
     }
 
@@ -527,7 +519,7 @@ def _make_system(
                 )
             )
             res.name = resvariant[index]
-    # v1 179ae35: gate the model centering on additional_config's
+    # gate the model centering on additional_config's
     # center_model (default on) — some workflows need the input frame kept
     if additional_config.get("center_model"):
         box_center_vec = 0.5 * box_vectors[0] + 0.5 * box_vectors[1] + 0.5 * box_vectors[2]
@@ -556,8 +548,7 @@ def prepare_system(config: Mapping, *, forcefield: ForceFieldBuilder | None = No
                    gaff: Callable[[], Any] | None = None) -> SystemBundle:
     """Prepare a system and write it to ``config["output_dir"]``.
 
-    Port of v1 ``bin/prepare_openmm_system.py::prepare_system`` (config is
-    the same dict/Box shape v1's yaml produced; a path is NOT accepted —
+    ``config`` is the prepared config dict (a path is NOT accepted —
     load yaml/json yourself, workflows take data).  Branches:
 
     * ``from_gromacs`` / ``from_amber``: pre-parameterized topologies
@@ -565,7 +556,7 @@ def prepare_system(config: Mapping, *, forcefield: ForceFieldBuilder | None = No
     * otherwise ``make_system`` orchestration: protein (custom bonds) ->
       ligand placement -> box -> custom addH -> addHydrogens (variants +
       custom_resname_dict validation) -> centering (gated by
-      ``additional_config["center_model"]``, default on — v1 179ae35) ->
+      ``additional_config["center_model"]``, default on) ->
       addSolvent -> builder.build (createSystem), and writes ``solv.pdbx``,
       ``ligand.json`` (when ligands) and ``system.xml``.
 
@@ -652,7 +643,7 @@ def prepare_system(config: Mapping, *, forcefield: ForceFieldBuilder | None = No
         modifications=_extract_modifications(config),
     )
 
-    # QC hook (issue #15): quality-check the artifacts just written — the
+    # QC hook: quality-check the artifacts just written — the
     # same files a downstream run consumes — and leave qc_report.json next
     # to them.  Default mode soft: raw preparation inputs routinely carry
     # fixable clashes (that is what minimization is for), so the report

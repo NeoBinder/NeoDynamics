@@ -6,7 +6,7 @@ multi-line message answering four questions:
     what key is wrong, where did it come from (file:line when known),
     what value was found, and what did you probably mean.
 
-Design constraints (v2 migration plan §5 item 1.1):
+Design constraints:
 
 * dependency-free (stdlib ``difflib`` only) — imported everywhere;
 * provenance is optional: a Plan built from a bare dict has no ``file:line``,

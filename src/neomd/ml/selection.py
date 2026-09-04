@@ -1,4 +1,4 @@
-"""selection — the ml_region residue-selector grammar (ADR-0004, W3-c).
+"""selection — the ml_region residue-selector grammar (ADR-0004).
 
 Active-site ML regions are spelled as RESIDUE SELECTORS instead of raw
 particle indices, so a plan can say "the ligand plus residue 29 of chain A"

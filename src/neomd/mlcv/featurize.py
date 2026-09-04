@@ -1,13 +1,13 @@
-"""The mlcv featurizer: run-dir data -> named feature columns (issue #9 期 1).
+"""The mlcv featurizer: run-dir data -> named feature columns (ADR-0006).
 
-Phase 1 of the ML-CV track is an OUT-OF-TREE-STYLE tool: numpy-only, zero
-changes to the simulation core (the phase-2 injection is designed in
+A numpy-only, out-of-tree-style tool: zero changes to the simulation core
+(the phase-2 injection is designed in
 ``docs/adr/0006-mlcv-injection-torchcv.md``).  Features reuse the PUBLIC cv
 registry (``registry.get("cv", type).make_cv / evaluate``) — the featurizer
-never re-implements CV geometry, it re-uses the W1-b dual-track evaluate
-implementations (distance / angle / dihedral / min_distances / distance_ref
-/ rmsd / coordination / path_s / path_z) plus two local, mass-based feature
-kinds with no registry entry:
+never re-implements CV geometry, it re-uses the registry's dual-track
+evaluate implementations (distance / angle / dihedral / min_distances /
+distance_ref / rmsd / coordination / path_s / path_z) plus two local,
+mass-based feature kinds with no registry entry:
 
 * ``contact`` — a smoothed contact indicator between two atom groups: the
   same rational switching function the coordination CV sums over pairs,

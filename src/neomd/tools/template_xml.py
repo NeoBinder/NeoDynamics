@@ -1,28 +1,18 @@
-"""Template XML processing — verbatim port of v1 ``bin/template_xml_processor.py``
-(v2 migration plan §6 parity row "Template XML processing"; verification =
-ffxml hash).
+"""Template XML processing.
 
-v1's standalone script had two subcommands, each driven by a YAML config file
-(v1 loaded it with ``Box.from_yaml``; the port reads the same file with
-``yaml.safe_load`` into the plain-dict config convention used across neomd):
+Two subcommands, each driven by a YAML config file (``yaml.safe_load``
+into the plain-dict config convention used across neomd):
 
 ``generate_template``
     Parameterize one ligand with GAFF and write the produced residue
-    template (+ additional parameters) to ``output_xml``.  v1 built an
-    openmm ``Modeller`` from the ligand, renamed its first residue to
-    ``ligand.molecule.name``, registered a ``ComplexForceField`` GAFF
-    generator with ``debug_ffxml_filename = output_xml`` — the debug-file
-    trick WAS the output mechanism — and let openmm's template matching
-    call ``generator(forcefield.forcefield, residue)``.  The v2 route calls
+    template (+ additional parameters) to ``output_xml``.  Calls
     :class:`~neomd.tools.antechamber.AntechamberBackend.generate_residue_template`
-    directly (the same parameterization knowledge, without openmm
-    ``ForceField`` scaffolding just to harvest the xml); the returned
-    ffxml string is written to ``config["output_xml"]`` — v1's
-    debug-file mechanism, relocated to the caller.
+    directly — no openmm ``ForceField`` scaffolding just to harvest the
+    xml.
 
 ``modify_template``
     Rewrite ``PeriodicTorsionForce`` ``Proper`` torsions of an existing
-    ffxml from CSV parameter tables (:func:`fix_torsion_params`, verbatim:
+    ffxml from CSV parameter tables (:func:`fix_torsion_params`:
     both-direction class-key matching, removal loop, rebuild loop with
     periodicity/phase/k columns and an optional ``divide_factor`` the k
     column is divided by), then pretty-print (:func:`prettify_xml`) and
@@ -30,19 +20,13 @@ v1's standalone script had two subcommands, each driven by a YAML config file
 
 Fidelity notes (deviations, all deliberate):
 
-* v1's ``generate_template`` printed its failure message when openmm's
-  generator callback returned falsy.  The direct backend route cannot
-  return falsy — failure surfaces as an exception — so
-  :func:`generate_template` prints v1's ``Failed to parameterize
-  ligand.`` and re-raises (v1 itself let antechamber exceptions
-  propagate as tracebacks; only the falsy branch was silent).
-* ``fix_torsion_params`` skipped fix entries whose value was not a
-  ``Box``; the dict port checks ``isinstance(..., dict)`` — the same
-  filter with the plain config type.
-* v1's ``modify_template`` contains a COMMENTED-OUT call to
-  ``strip_all_element_text_tail(root)``; the comment (and the whitespace
-  behavior it implies — element text/tail is NOT stripped before
-  pretty-printing) is kept verbatim.  See :func:`modify_template`.
+* :func:`generate_template` prints ``Failed to parameterize ligand.``
+  and re-raises on failure (the parameterization cannot return falsy —
+  failure surfaces as an exception).
+* ``fix_torsion_params`` skips fix entries whose value is not a ``dict``.
+* the commented-out ``strip_all_element_text_tail(root)`` call in
+  :func:`modify_template` is kept verbatim: element text/tail is NOT
+  stripped before pretty-printing.
 """
 
 from __future__ import annotations
@@ -68,11 +52,9 @@ __all__ = [
 
 
 class _Residue:
-    """The one attribute of an openmm topology residue that v1's
-    ``generate_template`` flow consumed: its (renamed) name.  v1 built a
-    whole ``app.Modeller`` and renamed its first residue to
-    ``ligand.molecule.name`` so the GAFF generator would name the template
-    after the ligand; the backend route needs only that name.
+    """The one attribute the generate_template flow needs from a topology
+    residue: its (renamed) name — the GAFF generator names the template
+    after the ligand.
     """
 
     def __init__(self, name):
@@ -80,8 +62,8 @@ class _Residue:
 
 
 def generate_template(config, *, runner: ToolRunner | None = None) -> str:
-    """v1 ``generate_template`` port: parameterize the (single) configured
-    ligand via GAFF and write the ffxml to ``config["output_xml"]``.
+    """Parameterize the (single) configured ligand via GAFF and write the
+    ffxml to ``config["output_xml"]``.
 
     ``runner`` selects the :class:`~neomd.tools.port.ToolRunner` executing
     antechamber/parmchk2 (a ``FakeToolRunner`` in tests; a
@@ -99,8 +81,7 @@ def generate_template(config, *, runner: ToolRunner | None = None) -> str:
     except Exception:
         print("Failed to parameterize ligand.")
         raise
-    # v1's debug_ffxml_filename mechanism: the produced template is written
-    # to the configured output file
+    # the produced template is written to the configured output file
     with open(output_xml, "w") as outfile:
         outfile.write(ffxml_contents)
     print(f"Ligand has been successfully parameterized, "
@@ -109,7 +90,7 @@ def generate_template(config, *, runner: ToolRunner | None = None) -> str:
 
 
 def fix_torsion_params(torsions, fix_info):
-    """v1 verbatim: remove every ``Proper`` torsion whose four classes match
+    """Remove every ``Proper`` torsion whose four classes match
     a fix key (in either direction, ``c1-c2-c3-c4`` or reversed), then
     rebuild one ``Proper`` per keyed fix entry from its CSV table
     (``periodicity`` rounded to int, ``phase`` verbatim, ``k`` divided by
@@ -131,7 +112,6 @@ def fix_torsion_params(torsions, fix_info):
         torsions.remove(torsion)
 
     for key, _fix_info in fix_info.items():
-        # v1 skipped entries that were not Box objects; the dict port
         if not isinstance(_fix_info, dict):
             continue
         if not _fix_info.get('param_csv'):
@@ -156,9 +136,9 @@ def fix_torsion_params(torsions, fix_info):
 
 
 def strip_all_element_text_tail(root):
-    """v1 verbatim (and, exactly as in v1, never called — see the commented
-    call site in :func:`modify_template`): strip surrounding whitespace off
-    every element's text and tail."""
+    """Strip surrounding whitespace off every element's text and tail
+    (never called — see the commented call site in
+    :func:`modify_template`)."""
     for e in root.iter():
         if e.text is not None:
             original = e.text
@@ -198,9 +178,8 @@ def prettify_xml(elem):
 
 
 def modify_template(config) -> None:
-    """v1 ``modify_template`` port: apply ``config["fix_params"]`` to
-    ``config["in_xml"]`` and pretty-print the result to
-    ``config["out_xml"]`` (utf-8)."""
+    """Apply ``config["fix_params"]`` to ``config["in_xml"]`` and
+    pretty-print the result to ``config["out_xml"]`` (utf-8)."""
     tree = ET.parse(config["in_xml"])
     root = tree.getroot()
     for fix_param, fix_info in config["fix_params"].items():
@@ -216,7 +195,7 @@ def modify_template(config) -> None:
 
 
 def _load_config(path):
-    """v1's ``Box.from_yaml(filename=...)`` as the neomd plain-dict read."""
+    """Read a YAML config file into a plain dict."""
     import yaml
 
     with open(path) as handle:
@@ -232,8 +211,8 @@ def _cli_modify_template(args):
 
 
 def main(argv=None):
-    """The v1 template_xml_processor CLI (argparse surface verbatim);
-    ``argv`` defaults to ``sys.argv[1:]``."""
+    """The template_xml_processor CLI; ``argv`` defaults to
+    ``sys.argv[1:]``."""
     parser = argparse.ArgumentParser(description="process templates with .xml format")
     subparsers = parser.add_subparsers(dest='command', required=True)
 

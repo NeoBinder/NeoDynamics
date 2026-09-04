@@ -1,4 +1,4 @@
-"""run — the C facade of neomd (v2 migration plan §2, §5 item 1.6).
+"""run — the C facade of neomd.
 
 One entry point, three levels of disclosure:
 
@@ -18,9 +18,8 @@ and in CI.
 :func:`compile` is the L2 companion: it builds the :class:`KernelSpec`
 (system_xml / topology_file from ``plan.input_files``, the raw integrator
 dict, temperature, seed, platform, resume from the derived checkpoint/state,
-the raw barostat dict **augmented with the plan seed** — v1
-``NeoSystem.add_barostat`` did ``barostat.setRandomNumberSeed(config.seed)``
-— and per-particle mass overrides ported from v1 ``neosystem.py:74-78``),
+the raw barostat dict **augmented with the plan seed**, and per-particle
+mass overrides from ``system_modification``),
 registers the kernel adapters, creates the kernel through
 :class:`~neomd.kernel.port.KernelFactory`, and wraps everything in a
 :class:`~neomd.sinks.LocalDirSink` on ``plan.output_dir`` plus
@@ -190,18 +189,17 @@ def _scan_plugins() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Plan -> KernelSpec (the v1-semantics port lives here)
+# Plan -> KernelSpec
 # ---------------------------------------------------------------------------
 
 
 def _particle_masses(system_modification) -> dict[int, float] | None:
     """``{particle index: mass}`` from raw ``system_modification`` entries.
 
-    Verbatim port of v1 ``neosystem.py:74-78``: a mapping of
-    ``{index: {"mass": value}}`` where every entry with a "mass" key sets that
-    particle's mass (entries describing other modifications are ignored, as in
-    v1).  The list spelling plan.py also accepts (``[{"index": i, "mass": m},
-    ...]``) is normalized the same way.
+    A mapping of ``{index: {"mass": value}}`` where every entry with a
+    "mass" key sets that particle's mass (entries describing other
+    modifications are ignored).  The list spelling plan.py also accepts
+    (``[{"index": i, "mass": m}, ...]``) is normalized the same way.
     """
     if not system_modification:
         return None
@@ -222,11 +220,10 @@ def _particle_masses(system_modification) -> dict[int, float] | None:
 
 def _dummy_exceptions(system_modification) -> tuple[tuple[int, int], ...] | None:
     """Flattened ``(particle, partner)`` pairs from raw ``system_modification``
-    entries — v1 179ae35 ``neosystem.py``: ``{index:
-    {"dummy_atom_Nonbond_Exception": [partners...]}}`` adds one
-    zero-interaction NonbondedForce exception per pair.  Both the mapping and
-    list spellings accepted by ``_particle_masses`` are normalized the same
-    way.
+    entries: ``{index: {"dummy_atom_Nonbond_Exception": [partners...]}}``
+    adds one zero-interaction NonbondedForce exception per pair.  Both the
+    mapping and list spellings accepted by ``_particle_masses`` are
+    normalized the same way.
     """
     if not system_modification:
         return None
@@ -268,22 +265,20 @@ def build_kernel_spec(plan: Plan, *, kind: str = "openmm",
                       platform: str = "cpu") -> KernelSpec:
     """Compile the plan into a :class:`~neomd.kernel.port.KernelSpec`.
 
-    THE one spec builder (improvements-list item 4): both ``compile()`` and
-    direct ``drive()`` calls consume exactly this — there is no second,
-    weaker spec path anymore.  Everything an adapter needs, with v1
-    semantics preserved:
+    THE one spec builder: both ``compile()`` and direct ``drive()`` calls
+    consume exactly this — there is no second, weaker spec path.
 
     * ``system_xml`` / ``topology_file`` come straight from ``input_files``;
-    * the integrator dict is the RAW plan section (plus the v1 defaults for
+    * the integrator dict is the RAW plan section (plus the defaults for
       the name/friction/dt keys the section may omit);
     * ``resume`` comes from the plan's DERIVED checkpoint/state (the
-      ``continue_md`` resolution of v1 ``modify_config``);
+      ``continue_md`` resolution);
     * the barostat dict is the RAW section **augmented with the plan seed**
-      (v1 ``add_barostat`` seeded it from ``config.seed``); the openmm
-      adapter takes pressure/frequency from it and defaults temperature to
-      the plan temperature, exactly like v1 defaulted it from the config;
+      (the adapter seeds the barostat from the plan seed, never its own);
+      the openmm adapter takes pressure/frequency from it and defaults
+      temperature to the plan temperature;
     * ``particle_masses`` from ``system_modification`` (see above).
-    * ``ml_region`` (ADR-0004 + W3-c) is the RAW section verbatim — the
+    * ``ml_region`` (ADR-0004) is the RAW section verbatim — the
       openmm adapter assembles the mechanical embedding + NNP force from it
       BEFORE creating a Context (it must never reach system.xml: the NNP
       Force is not XML-serializable); ``residues`` selectors resolve there
@@ -412,7 +407,7 @@ def compile(plan_or_dict, *, kernel: str = "openmm", platform: str = "cpu",
 
 def md_run(target, *, platform: str = "cpu", kernel: str = "openmm",
            logger=None, **overrides):
-    """Run an experiment; the only v2 entry point (see module docstring).
+    """Run an experiment; the entry point (see module docstring).
 
     Parameters
     ----------

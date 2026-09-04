@@ -1,4 +1,4 @@
-"""BAR and MBAR free-energy estimators (issue #8 / W3-a; ADR-0007).
+"""BAR and MBAR free-energy estimators (ADR-0007).
 
 The RBFE λ ladder's analysis half: the du tapes (``du.tsv``, one per λ
 window — see :class:`neomd.probes.DuProbe`) hold, for every sample of a

@@ -1,54 +1,42 @@
-"""Restraint knowledge triples (v2 migration plan §5 items 1.4 / 2.1).
-
-Phase 1 ports the ``distance`` and ``dihedral`` types; the remaining six v1
-types (funnel, angle, dist_ref_position, rmsd, xyz_box, vec_restraint) join
-this file in Phase 2 by appending one entry + one register() call each.
+"""Restraint knowledge triples.
 
 Every restraint is a registry entry of kind ``"restraint"`` — a knowledge
 triple:
 
-    schema       required/optional spec keys mirroring the v1 configs
+    schema       required/optional spec keys
     make_bias    (name, spec) -> list[BiasIR]
                  emits kernel-agnostic BiasIR objects whose ``energy`` is the
-                 VERBATIM v1 force expression with the {0}/{_name}
-                 substitution already applied (v1 constructor.py lines
-                 170-199 for distance, 235-273 for dihedral, and the Phase 2
-                 lines cited per type below — that string is the physics;
-                 never "improve" it)
+                 verbatim v1 force expression with the {0}/{_name}
+                 substitution already applied — that string is the physics;
+                 never "improve" it
     observables  (name, spec) -> ObservableSpec (a plain dict, see below)
 
-v1 semantics preserved deliberately:
+v1 unit/semantics conventions kept deliberately:
 
 * ``restr_k`` is used directly as kJ/mol per nm^order (per deg^order) — v1
   attaches it as a bare ``kilojoules_per_mole`` global parameter, so a
   quadratic distance restraint's k is numerically kJ/mol/nm^2.
-* bound emission uses v1's truthiness check ``if spec.get("min_nm")`` — a
-  bound of 0.0 means "absent" exactly as in v1.
-* the dihedral max_degree is normalized by v1's ``fix_max_angle`` (max
-  becomes ``min + 360*ceil((min-max)/360)``), applied to the emitted Param,
-  never to the caller's spec dict.
-* ``order`` defaults to 2 and ``is_periodic`` to True, both via
-  ``spec.get(...)`` like v1.
+* bound emission uses the truthiness check ``if spec.get("min_nm")`` — a
+  bound of 0.0 means "absent" (except ``distances``, see below).
+* the dihedral max_degree is normalized by ``_fix_max_angle`` (max becomes
+  ``min + 360*ceil((min-max)/360)``), applied to the emitted Param, never to
+  the caller's spec dict.
+* ``order`` defaults to 2 and ``is_periodic`` to True via ``spec.get(...)``
+  (``dist_ref_position``/``xyz_box`` default ``is_periodic`` to False).
 
 ObservableSpec (plain dict, consumed by probes):
     {"quantity": "distance" | "dihedral" | ...,   # what colvars.evaluate computes
      "groups":   [[atom indices], ...]}           # the COM groups to feed it
 
-Phase 2 (§5 item 2.1) adds the remaining six v1 types and two ObservableSpec
-shape extensions their reporters need:
+Shape extensions used by multi-quantity types:
 
     "ref": [float, float, float]                  # dist_ref_position: the
                                                  # reference point (nm);
                                                  # vec_restraint: the reference
                                                  # VECTOR ref1 - ref2 (nm)
-    multi-quantity types (funnel) return {"dist": <spec>, "angle": <spec>}
-    keyed like the v1 reporter line; rmsd returns {} — v1's reporter logged
-    the rmsd restraint's ENERGY only (no geometric quantity exists for an
-    RMSD over a subset of particles).
-
-Post-flip additions extend the same triple shape: ``distances`` (v1 179ae35
-multi-bond packing) and ``boresch`` (v2-native, from the primary literature —
-no v1 prior art; see the section comment for its provenance).
+    funnel returns {"dist": <spec>, "angle": <spec>}; rmsd returns {} (no
+    geometric quantity exists for an RMSD over a subset of particles — its
+    energy is reported only).
 """
 
 from __future__ import annotations
@@ -108,7 +96,7 @@ def _fix_max_angle(min_angle: float, max_angle: float) -> float:
 
 
 # --------------------------------------------------------------------------
-# distance (v1 constructor.generate_restraint_distance, lines 170-199)
+# distance
 # --------------------------------------------------------------------------
 
 _DISTANCE_MIN_FUNC = "(k{0}/2)*(max(dis1{0} - distance(g1,g2), 0)^order{0})"
@@ -165,7 +153,7 @@ def _observables_distance(name: str, spec: dict) -> ObservableSpec:
 
 
 # --------------------------------------------------------------------------
-# dihedral (v1 constructor.generate_restraint_dihedral, lines 235-273)
+# dihedral
 # --------------------------------------------------------------------------
 
 def _make_bias_dihedral(name: str, spec: dict) -> list[BiasIR]:
@@ -173,7 +161,6 @@ def _make_bias_dihedral(name: str, spec: dict) -> list[BiasIR]:
     max_degree = _fix_max_angle(min_degree, spec["max_degree"])
     grps = [_index_list(spec[f"grp{i}"], f"grp{i}") for i in range(1, 5)]
 
-    # string composition replicated verbatim from v1 lines 253-264
     arctan_x = f"atan(tan((dihedral(g1,g2,g3,g4)-(min_dih{name}+max_dih{name})/2)/2))"
     arctan_half_diff = f"atan(tan((max_dih{name} - min_dih{name})/4))"
     energy_min = f"abs(min({arctan_x} - (-({arctan_half_diff})), 0))"
@@ -249,17 +236,14 @@ register("restraint", "distance", _DISTANCE_ENTRY)
 register("restraint", "dihedral", _DIHEDRAL_ENTRY)
 
 
-# ===========================================================================
-# Phase 2 — the remaining six v1 types (migration plan §5 item 2.1)
-#
-# Ported VERBATIM from v1 src/neomd/restraints/constructor.py; observables
-# mirror v1 src/neomd/restraints/reporter.py.  One entry + one register()
-# call per type, exactly as the module docstring promised.
-# ===========================================================================
+# ==========================================================================
+# Remaining v1 restraint types.  Force expressions are the v1 strings
+# verbatim; observables mirror the v1 reporter quantities.
+# ==========================================================================
 
 
 # --------------------------------------------------------------------------
-# angle (v1 constructor.generate_restraint_angle, lines 202-232)
+# angle
 # --------------------------------------------------------------------------
 
 _ANGLE_MIN_FUNC = "(k{0}/2)*(max(ang1{0} - angle(g1, g2, g3), 0)^order{0})"
@@ -312,10 +296,10 @@ def _observables_angle(name: str, spec: dict) -> ObservableSpec:
 
 
 # --------------------------------------------------------------------------
-# funnel (v1 constructor.generate_restraint_funnel, lines 96-167)
+# funnel
 #
-# THREE forces over [restr_grp, gate_grp, pocket_grp], returned in v1's
-# order [lower_wall, side_wall, upper_wall].  The side wall is a sigmoid of
+# THREE forces over [restr_grp, gate_grp, pocket_grp], returned in the order
+# [lower_wall, side_wall, upper_wall].  The side wall is a sigmoid of
 # distance(g1,g2)*(-cos(angle(g1,g2,g3))) with params a/b/c/d filled from
 # width/steepness/s_center/buffer — the expression string is the physics.
 # --------------------------------------------------------------------------
@@ -373,8 +357,8 @@ def _make_bias_funnel(name: str, spec: dict) -> list[BiasIR]:
 
 
 def _observables_funnel(name: str, spec: dict) -> ObservableSpec:
-    # v1 reporter.get_restraint_funnel: dist = |com(restr) - com(gate)|,
-    # angle = angle at com(gate) between com(restr) and com(pocket)
+    # dist = |com(restr) - com(gate)|; angle at com(gate) between
+    # com(restr) and com(pocket)
     return {
         "dist": {
             "quantity": "distance",
@@ -395,10 +379,10 @@ def _observables_funnel(name: str, spec: dict) -> ObservableSpec:
 
 
 # --------------------------------------------------------------------------
-# dist_ref_position (v1 constructor.generate_dist_ref_position, lines 348-399)
+# dist_ref_position
 #
-# v1 k rule: a truthy ``restr_k_per_atom`` wins and scales with the group
-# size (k = per_atom * len(grp)); otherwise plain ``restr_k`` is used.
+# k rule: a truthy ``restr_k_per_atom`` wins and scales with the group size
+# (k = per_atom * len(grp)); otherwise plain ``restr_k`` is used.
 # --------------------------------------------------------------------------
 
 _DIST_REF_MIN_FUNC = "0.5*k{0}*min(((x1-x0{0})^2+(y1-y0{0})^2+(z1-z0{0})^2)^0.5-min_dis{0},0)^order{0}"
@@ -409,7 +393,7 @@ def _make_bias_dist_ref_position(name: str, spec: dict) -> list[BiasIR]:
     grp = _index_list(spec["restr_grp"], "restr_grp")
     ref_pos = _float_list(spec["ref_position_nm"], "ref_position_nm")
     if spec.get("restr_k_per_atom"):
-        k = spec["restr_k_per_atom"] * len(grp)  # v1 per-atom scaling rule
+        k = spec["restr_k_per_atom"] * len(grp)  # per-atom scaling rule
     else:
         k = spec["restr_k"]
 
@@ -423,7 +407,7 @@ def _make_bias_dist_ref_position(name: str, spec: dict) -> list[BiasIR]:
     is_periodic = spec.get("is_periodic", False)  # v1 default_periodic=False
 
     def _params(bound_params: dict) -> dict:
-        # v1 _one_sided_restraint insertion order: k, refs+bound, order
+        # keep v1's _one_sided_restraint insertion order: k, refs+bound, order
         params = {f"k{name}": Param(k, "kJ/mol")}
         params.update(ref_params)
         params.update(bound_params)
@@ -453,7 +437,7 @@ def _make_bias_dist_ref_position(name: str, spec: dict) -> list[BiasIR]:
 
 
 def _observables_dist_ref_position(name: str, spec: dict) -> ObservableSpec:
-    # v1 reporter.get_restraint_dist_ref_position: |com - ref_position|
+    # |com - ref_position|
     return {
         "quantity": "distance_ref",
         "groups": [_index_list(spec["restr_grp"], "restr_grp")],
@@ -462,10 +446,10 @@ def _observables_dist_ref_position(name: str, spec: dict) -> ObservableSpec:
 
 
 # --------------------------------------------------------------------------
-# xyz_box (v1 constructor.generate_xyz_box, lines 276-345)
+# xyz_box
 #
-# Six independent one-sided walls, emitted in v1's order min_x, max_x,
-# min_y, max_y, min_z, max_z; each axis is optional (v1 truthiness check).
+# Six independent one-sided walls, emitted in the order min_x, max_x, min_y,
+# max_y, min_z, max_z; each axis is optional (truthiness check).
 # --------------------------------------------------------------------------
 
 _XYZ_BOX_FUNCS = [
@@ -503,7 +487,7 @@ def _make_bias_xyz_box(name: str, spec: dict) -> list[BiasIR]:
 
 
 def _observables_xyz_box(name: str, spec: dict) -> ObservableSpec:
-    # v1 reporter.get_restraint_xyz_box: the mass-weighted COM (x, y, z)
+    # the mass-weighted COM (x, y, z)
     return {
         "quantity": "com",
         "groups": [_index_list(spec["restr_grp"], "restr_grp")],
@@ -511,7 +495,7 @@ def _observables_xyz_box(name: str, spec: dict) -> ObservableSpec:
 
 
 # --------------------------------------------------------------------------
-# vec_restraint (v1 constructor.generate_vec_restraint, lines 63-93)
+# vec_restraint
 # --------------------------------------------------------------------------
 
 _VEC_RESTRAINT_FUNC = "(k{0}/2)*((x1-x2-ref_x1{0}+ref_x2{0})^2+(y1-y2-ref_y1{0}+ref_y2{0})^2+(z1-z2-ref_z1{0}+ref_z2{0})^2)"
@@ -542,7 +526,7 @@ def _make_bias_vec_restraint(name: str, spec: dict) -> list[BiasIR]:
 
 
 def _observables_vec_restraint(name: str, spec: dict) -> ObservableSpec:
-    # v1 reporter.get_vec_restraint: |(com1 - com2) - (ref1 - ref2)|
+    # |(com1 - com2) - (ref1 - ref2)|
     ref1 = _float_list(spec["pos_ref1_nm"], "pos_ref1_nm")
     ref2 = _float_list(spec["pos_ref2_nm"], "pos_ref2_nm")
     return {
@@ -556,12 +540,12 @@ def _observables_vec_restraint(name: str, spec: dict) -> ObservableSpec:
 
 
 # --------------------------------------------------------------------------
-# rmsd (v1 constructor.generate_restraint_rmsd, lines 401-423)
+# rmsd
 #
 # CustomCVForce wrapping an RMSDForce over FULL-system reference positions
-# (one per System particle — openmm's rule, kept from v1) with the restrained
-# subset ``indices``.  The reference file is read at make_bias call time by
-# a dependency-free reader (only kernel/openmm.py may import openmm).
+# (one per System particle — openmm's rule) with the restrained subset
+# ``indices``.  The reference file is read at make_bias call time by a
+# dependency-free reader (only kernel/openmm.py may import openmm).
 # --------------------------------------------------------------------------
 
 _RMSD_FUNC = "(k{0}/2)*max(0, RMSD-maxRMSD{0})^2"
@@ -684,7 +668,7 @@ def _observables_rmsd(name: str, spec: dict) -> ObservableSpec:
 
 
 # --------------------------------------------------------------------------
-# schemas + registration (Phase 2)
+# schemas + registration
 # --------------------------------------------------------------------------
 
 _ANGLE_ENTRY = Restraint(
@@ -810,7 +794,7 @@ register("restraint", "rmsd", _RMSD_ENTRY)
 
 
 # ===========================================================================
-# Post-flip port — distances (v1 179ae35 constructor.generate_restraint_distances)
+# distances
 #
 # Multiple one-sided distance restraints packed into ONE CustomCentroidBondForce
 # per side (min wall / max wall) with PER-BOND parameters — one force group
@@ -913,13 +897,13 @@ register("restraint", "distances", _DISTANCES_ENTRY)
 
 
 # ===========================================================================
-# boresch — v2-native (Wave 1 track W1-d, issue #8 slice)
+# boresch
 #
-# NO v1 prior art (grep of neomd_legacy/bin finds nothing): implemented from
-# the primary literature — Boresch, Karplus et al., "Absolute Binding Free
-# Energies: A Quantitative Approach for Their Calculation", J. Phys. Chem. B
-# 2003, 107, 9535-9551.  The orientation restraint holds a LIGAND to a
-# RECEPTOR through six components over 3+3 anchor atoms:
+# Implemented from the primary literature — Boresch, Karplus et al.,
+# "Absolute Binding Free Energies: A Quantitative Approach for Their
+# Calculation", J. Phys. Chem. B 2003, 107, 9535-9551.  The orientation
+# restraint holds a LIGAND to a RECEPTOR through six components over 3+3
+# anchor atoms:
 #
 #     r      = distance(a3, b3)                    1 term
 #     thetaA = angle(a1, a3, b3)     apex a3       } 2 angle terms
@@ -934,8 +918,7 @@ register("restraint", "distances", _DISTANCES_ENTRY)
 # periodic-safe form (k/2)(1 - cos(phi - phi0)) for the three dihedrals (the
 # GROMACS/YANK spelling; a bare quadratic in a torsion diverges across the
 # +/-180 deg wrap).  Near equilibrium the torsion term is (k/4)(phi-phi0)^2,
-# i.e. an effective quadratic constant of k/2 kJ/mol/rad^2 — the W3-a
-# standard-state/analytic-correction work must account for that.
+# i.e. an effective quadratic constant of k/2 kJ/mol/rad^2.
 #
 # Packing (the ``distances`` precedent): ONE CustomCentroidBondForce per
 # expression KIND — [distance, angle, torsion] — sharing the 32-force-group

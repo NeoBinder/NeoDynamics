@@ -1,16 +1,6 @@
-"""Resume — the single owner of continue_md semantics (v2 improvements P0-1).
+"""Resume — the single owner of continue_md semantics.
 
-Before this module existed, resume was scattered across five places with no
-owner and no trim-on-resume: Plan derivation resolved the checkpoint path,
-the OpenMM adapter loaded it at Context creation, ``run_md`` computed the
-remaining steps, each probe decided append-vs-recreate per artifact (the
-trajectory probe TRUNCATED the DCD while the state/colvar/restraint tapes
-appended — after a resume the files in one directory disagreed), and
-metadynamics replayed the hills ledger.  After a ``kill -9`` mid-run every
-tape held rows past the last checkpoint, so even appending probes duplicated
-them.
-
-The contract now:
+The contract:
 
 * :func:`plan_resume` is the ONLY place that restores a kernel for resume
   and the ONLY place that decides append-vs-fresh per artifact.  It runs
@@ -185,7 +175,7 @@ def plan_resume(plan, kernel, sink: ArtifactSink | None) -> ResumePlan | None:
     3. hand back one immutable :class:`ResumePlan`.
 
     Raises FileNotFoundError when ``continue_md`` is set but no checkpoint
-    exists anywhere (v1 failed the same way, just deeper in openmm), and
+    exists anywhere, and
     ValueError for ``state``-file resume on kernels that only understand
     checkpoint blobs (everything except the openmm adapter).
     """

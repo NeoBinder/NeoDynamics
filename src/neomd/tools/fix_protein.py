@@ -1,26 +1,20 @@
-"""Protein repair via PDBFixer (v2 migration plan §5 item 2.7; §6 parity
-row "convert / fix_protein", verification = output file hashes).
+"""Protein repair via PDBFixer (standalone utility script).
 
-:func:`fix_protein` is a VERBATIM port of v1 ``bin/fix_protein.py``
-(34 lines, no internal callers — a standalone utility script): same
-PDBFixer call sequence (findMissingResidues -> findMissingAtoms ->
-findNonstandardResidues -> replaceNonstandardResidues -> addMissingAtoms
--> addMissingHydrogens at pH -> removeHeterogens(False)), same print
-diagnostics, same box computation (cube of side ``max extent + 2 *
-padding`` from the repaired positions, installed as the topology's
-periodic box vectors as a plain numpy ``np.eye(3) * side`` — openmm's
-Topology accepts the raw array, which the v2 tests pin).
+:func:`fix_protein` runs the PDBFixer call sequence: findMissingResidues ->
+findMissingAtoms -> findNonstandardResidues -> replaceNonstandardResidues ->
+addMissingAtoms -> addMissingHydrogens at pH -> removeHeterogens(False),
+then computes the box as a cube of side ``max extent + 2 * padding`` from
+the repaired positions and installs it as the topology's periodic box
+vectors as a plain numpy ``np.eye(3) * side`` (openmm's Topology accepts
+the raw array, pinned by tests).
 
 Like :mod:`neomd.tools.convert`, this module imports **openmm** and, for
-the fixer itself, **pdbfixer**: it is a utility workflow (the same
-standing exception as ``system.py``'s prepare path), pure library code —
-no ToolRunner subprocess seam involved.
+the fixer itself, **pdbfixer**: pure library code — no ToolRunner
+subprocess seam involved.
 
-:func:`main` is NEW — v1 had no CLI for this script (the function was the
-only surface).  It adds the minimal argument set requested by the v2
-plan: ``input_pdb output_pdb [--padding nm] [--ph value] [--no-addh]``,
-writing the fixed structure as a PDB file after :func:`fix_protein`
-returns.
+:func:`main` adds the CLI: ``input_pdb output_pdb [--padding nm] [--ph
+value] [--no-addh]``, writing the fixed structure as a PDB file after
+:func:`fix_protein` returns.
 """
 
 from __future__ import annotations
@@ -67,8 +61,8 @@ def fix_protein(protein_path, padding=1.0 * unit.nanometer, pH_value=7.4, addH=T
 
 
 def main(argv=None) -> int:
-    """NEW in v2 (v1's fix_protein.py had no CLI): run :func:`fix_protein`
-    on ``input_pdb`` and write the repaired structure to ``output_pdb``.
+    """Run :func:`fix_protein` on ``input_pdb`` and write the repaired
+    structure to ``output_pdb``.
     """
     parser = argparse.ArgumentParser(
         description="repair a protein structure with PDBFixer "

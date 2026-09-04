@@ -1,7 +1,7 @@
 """FakeKernel — the deterministic CI workhorse on the KernelPort seam.
 
-NO openmm import: pure numpy textbook physics.  Per the plan's risk table
-(§7, "Fake kernel drift"), the fake deliberately does NOT mimic OpenMM
+NO openmm import: pure numpy textbook physics.  The fake deliberately does
+NOT mimic OpenMM
 corner-case behavior — it exists so driver/probe/method tests run fast and
 bit-reproducibly; the parity suite and golden tapes guard the real physics.
 
@@ -30,14 +30,13 @@ Physics (documented simplifications):
   numerical mock-NNP copy here would guard nothing — the torch-free ML/MM
   pipeline tier runs the mock NNP through the OPENMM adapter instead
   (KernelSpec.ml_region + model type "mock", no torch needed).
-* installed biases are evaluated geometrically (the v1 cores:
-  calculate_com / angle_3points_rad / calculate_dihedral from
-  src/neomd/restraints/reporter.py, ported to numpy below) and their energy
+* installed biases are evaluated geometrically (mass-weighted COM / angle /
+  dihedral numpy helpers below) and their energy
   expression is evaluated by a restricted arithmetic interpreter (the subset
-  of the openmm expression language v1 uses: + - * / ^ (=power) ,
+  of the openmm expression language in use: + - * / ^ (=power) ,
   max/min/abs/sqrt/exp/atan/tan/sin/cos, distance()/angle()/dihedral()
   between group centroids g1..g4, xN/yN/zN centroid coordinates,
-  ``";"``-separated intermediate assignments).  The W1-b kind-driven CVs
+  ``";"``-separated intermediate assignments).  The kind-driven CVs
   (RMSDForce / CustomNonbondedForce / PathCV — rmsd, coordination, path
   s/z) bypass the interpreter with direct numpy paths in
   ``_cv_expression_value`` (Kabsch RMSD, the coordination pair sum with the
@@ -66,7 +65,7 @@ bit-for-bit.
 
 Public helpers beyond the port operations (used by driver/probe tests):
 ``bias_values()`` — geometric value of each installed bias in report units
-(distance in nm, angle/dihedral in degrees), matching the v1 reporter and
+(distance in nm, angle/dihedral in degrees), matching the
 neomd.colvars evaluate conventions; ``group_energy(groups)`` — per-force-
 group bias-energy sum for the restraint reporter; ``energy_with_params()``
 — the port.ParamEnergy capability (bias-potential evaluation at
@@ -123,18 +122,18 @@ def _default_system_data() -> SystemData:
 
 
 # ----------------------------------------------------------------------
-# numpy geometry — ported from v1 restraints/reporter.py
+# numpy geometry — mass-weighted COM / angle / dihedral
 # ----------------------------------------------------------------------
 
 def _com(masses: np.ndarray, positions: np.ndarray, idxlist) -> np.ndarray:
-    """v1 reporter.calculate_com (mass-weighted)."""
+    """Mass-weighted center of geometry."""
     idx = np.asarray(idxlist, dtype=int)
     m = masses[idx]
     return (m[:, None] * positions[idx]).sum(axis=0) / m.sum()
 
 
 def _angle_3points_rad(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
-    """v1 reporter.angle_3points_rad."""
+    """Angle a-b-c in radians."""
     vec1 = a - b
     vec2 = c - b
     cos = np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
@@ -142,7 +141,7 @@ def _angle_3points_rad(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
 
 
 def _dihedral_rad(p1, p2, p3, p4) -> float:
-    """v1 reporter.calculate_dihedral, kept in radians."""
+    """Torsion p1-p2-p3-p4 in radians (praxeolitic form)."""
     p1, p2, p3, p4 = (np.asarray(p, dtype=np.float64) for p in (p1, p2, p3, p4))
     b1 = p2 - p1
     b2 = p3 - p2
@@ -156,11 +155,11 @@ def _dihedral_rad(p1, p2, p3, p4) -> float:
 
 
 # ----------------------------------------------------------------------
-# W1-b kind-driven CV geometry — the MIRROR of colvars.py's evaluate track
+# kind-driven CV geometry — the MIRROR of colvars.py's evaluate track
 # (same dual-track discipline as the COM/angle/dihedral helpers above; the
 # tests pin the two tracks in agreement).  These are NOT OpenMM corner-case
 # mimicry: they are the plain numpy evaluation of the same literature
-# formulas colvars.evaluate implements (settled decision #9's carve-out).
+# formulas colvars.evaluate implements.
 # ----------------------------------------------------------------------
 
 def _kabsch_rmsd(mobile, reference) -> float:
@@ -215,7 +214,7 @@ def _torsion_theta_rad(p1, p2, p3, p4) -> float:
 
     Same angle as ``_dihedral_rad`` but via the IUPAC atan2 form, which
     agrees with openmm bit-wise including the +/-pi branch of a planar-trans
-    torsion (the v1-reporter form returns -pi there, openmm +pi).
+    torsion (the reporter form returns -pi there, openmm +pi).
     """
     p1, p2, p3, p4 = (np.asarray(p, dtype=np.float64) for p in (p1, p2, p3, p4))
     b1 = p2 - p1
@@ -227,7 +226,7 @@ def _torsion_theta_rad(p1, p2, p3, p4) -> float:
 
 
 # ----------------------------------------------------------------------
-# restricted expression interpreter (the openmm subset v1 emits)
+# restricted expression interpreter (the openmm expression subset)
 # ----------------------------------------------------------------------
 
 _MATH_FUNCS = {
@@ -241,7 +240,7 @@ def _evaluate_expression(source: str, variables: dict[str, float],
                          coms: np.ndarray | None = None) -> float:
     """Evaluate an openmm-style custom-force expression in numpy.
 
-    Supports the v1 subset: numbers, names, unary +/-, + - * / and ``^``
+    Supports: numbers, names, unary +/-, + - * / and ``^``
     (power), the math functions above, distance()/angle()/dihedral() over
     group centroids g1..gN, and ``";"``-separated intermediate assignments
     (openmm's statement syntax).  Anything else is rejected loudly.
@@ -487,7 +486,7 @@ class FakeKernel:
         the force groups of installed torsion biases.  The fake has no
         system forces, so its whole potential lives in the installed
         biases — a dihedral restraint IS the dihedral energy a dual-boost
-        channel targets.  Both v2 torsion spellings match: a plain
+        channel targets.  Both torsion spellings match: a plain
         ``CustomTorsionForce`` and the dihedral-restraint triple's
         4-group ``CustomCentroidBondForce`` whose expression calls
         ``dihedral(g1..g4)``.  Group ids stay opaque (they are only ever
@@ -616,7 +615,7 @@ class FakeKernel:
 
     def _pick_force_group(self) -> int:
         """The shared port policy (pick_free_force_group), aligned with the
-        openmm adapter (improvements item 5): max free id first — 31, 30, …
+        openmm adapter: max free id first — 31, 30, …
         — so fake-kernel runs exercise the same ids production would."""
         return pick_free_force_group(
             (group for group, _ in self._biases),
@@ -681,8 +680,8 @@ class FakeKernel:
     def bias_values(self, positions: np.ndarray | None = None) -> dict[str, float]:
         """Geometric value of each installed bias in report units.
 
-        distance in nm, angle/dihedral in degrees (v1 reporter and
-        neomd.colvars conventions); keys are bias labels (falling back to
+        distance in nm, angle/dihedral in degrees (neomd.colvars
+        conventions); keys are bias labels (falling back to
         ``bias{group}`` for unlabeled biases).
         """
         pos = self._positions if positions is None else np.asarray(positions, dtype=np.float64)
@@ -757,7 +756,7 @@ class FakeKernel:
         coms: np.ndarray | None = None
         if bias.kind == "CustomCentroidBondForce":
             if bias.bonds is not None:
-                # multi-bond mode (v1 179ae35 distances): one force, N bonds,
+                # multi-bond mode: one force, N bonds,
                 # per-bond parameters — the same expression summed over bonds
                 total = 0.0
                 for bond in bias.bonds:
@@ -795,8 +794,8 @@ class FakeKernel:
     # -- table biases (metadynamics) ------------------------------------
 
     def _table_state(self, bias: BiasIR) -> tuple:
-        """(TableSpec, current values ndarray shaped like v1's reversed-axis
-        convention) for one CustomCVTableForce bias."""
+        """(TableSpec, current values ndarray in the reversed-axis layout)
+        for one CustomCVTableForce bias."""
         table = bias.table
         key = bias.label or "metadynamics"
         state = self._tables.get(key)
@@ -851,7 +850,7 @@ class FakeKernel:
 
     @staticmethod
     def _com_variables(coms: np.ndarray) -> dict[str, float]:
-        # centroid coordinates (v1 xyz_box-style x1/y1/z1)
+        # centroid coordinates (x1/y1/z1 variables)
         env: dict[str, float] = {}
         for i, com in enumerate(coms, start=1):
             env[f"x{i}"] = float(com[0])
@@ -867,7 +866,8 @@ class FakeKernel:
         """CV value in openmm canonical units (nm / radians / raw
         dimensionless).
 
-        Kind-driven CVs (W1-b, the RMSDForce precedent) take numpy special
+        Kind-driven CVs (RMSDForce / coordination / PathCV) take numpy
+        special
         paths; expression-driven ones go through the restricted interpreter.
         """
         if cv.kind == "RMSDForce":
@@ -956,9 +956,9 @@ class FakeKernel:
         self._tables = {k: (t, v.copy())
                         for k, (t, v) in payload.get("tables", {}).items()}
         self._rng.set_state(payload["rng_state"])
-        # v1 payloads predate steered MD: no overrides is the correct state
+        # older "neomd-fake-kernel-v1" payloads carry no overrides
         self._param_overrides = dict(payload.get("param_overrides", {}))
-        # v2 payloads without boost channels predate GaMD (ADR-0005): none
+        # payloads without a "boost" section predate GaMD (ADR-0005)
         boost = payload.get("boost") or {}
         self._boost = {
             label: {"groups": tuple(groups), "threshold": float(threshold),
@@ -975,8 +975,8 @@ KernelFactory.register_adapter("fake", FakeKernel)
 def _interp_multilinear(values: np.ndarray, grids, point) -> float:
     """Multilinear interpolation on the (reversed-axis) table grid.
 
-    ``values`` is shaped ``tuple(grid.bins for grid in reversed(grids))``
-    (v1's convention).  Periodic axes wrap; non-periodic axes clamp.
+    ``values`` is shaped ``tuple(grid.bins for grid in reversed(grids))``.
+    Periodic axes wrap; non-periodic axes clamp.
     """
     frac = []
     for grid in grids:  # iterate in logical (cvs) order

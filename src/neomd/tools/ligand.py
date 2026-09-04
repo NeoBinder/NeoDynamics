@@ -1,27 +1,22 @@
-"""Ligand workflow — verbatim port of v1 ``src/neomd/builder/ligand.py`` and
-``bin/ligand_processor.py`` (v2 migration plan §5 item 2.6, §6 parity row
-"Ligand processing").
+"""Ligand workflow.
 
-Two halves, mirroring v1's split:
+Two halves:
 
 * **Ligand knowledge** (:class:`Ligand`, :func:`load_rdmol`,
-  :func:`topology_from_rdkit`, :func:`ligands_from_config`) — what
-  ``bin/prepare_openmm_system.py`` consumed through
-  ``neomd.builder.ligand.ligands_from_config``: per-ligand ``{path, resname?,
-  template_ffxml?, smiles?, partial_charges?}`` entries, SMILES graph
-  validation (networkx isomorphism against the H-added SMILES target), and
-  partial-charge assignment from a last-column-floats file.
+  :func:`topology_from_rdkit`, :func:`ligands_from_config`) — per-ligand
+  ``{path, resname?, template_ffxml?, smiles?, partial_charges?}`` entries,
+  SMILES graph validation (networkx isomorphism against the H-added SMILES
+  target), and partial-charge assignment from a last-column-floats file.
   ``neomd.system`` delegates here when a prepare config's ligand entries
   carry the ``smiles`` / ``partial_charges`` keys.
 * **The ligand_processor CLI** (:func:`main` + one importable function per
-  subcommand) — v1 ``bin/ligand_processor.py`` was a pure-RDKit structure
-  utility with four subcommands:
+  subcommand) — a pure-RDKit structure utility with four subcommands:
 
   - ``convert``     — format conversion (.sdf/.pdb/.xyz; xyz input gets
     ``rdDetermineBonds.DetermineBonds``);
   - ``pos_smiles2sdf`` — map a SMILES onto an input coordinate file via MCS
-    matching + the iterative align/pin/constrained-MMFF loop (v1 179ae35;
-    ``--ignore_pos_ids`` excludes pose atoms from the match), write
+    matching + the iterative align/pin/constrained-MMFF loop
+    (``--ignore_pos_ids`` excludes pose atoms from the match), write
     .sdf/.pdb/.xyz; PDB input either plain (``--sanitize default``) or
     distance-threshold bonded (``--sanitize distance --max_bond A``);
   - ``reorder_sdf`` — permute the atom order of an SDF (1-based comma list);
@@ -29,28 +24,26 @@ Two halves, mirroring v1's split:
     to convergence, Butina clustering (threshold 1), write the cluster-center
     conformer of the lowest-energy cluster.
 
-  v1's CLI shells out to NOTHING — every step is in-process RDKit (no
-  antechamber/openbabel anywhere in it), so this port needs no
-  :class:`~neomd.tools.port.ToolRunner`; ligand *parameterization* (GAFF,
-  antechamber) is the other tools module
-  (:mod:`neomd.tools.antechamber`), not this one.
+  The CLI shells out to NOTHING — every step is in-process RDKit, so this
+  module needs no :class:`~neomd.tools.port.ToolRunner`; ligand
+  *parameterization* (GAFF, antechamber) is
+  :mod:`neomd.tools.antechamber`, not this one.
 
 Fidelity notes (deviations, all deliberate):
 
-* ``main(argv=None)`` takes the argv (v1's ``main()`` read ``sys.argv``
-  implicitly); the argparse surface — flags, defaults, subcommand names —
-  is v1's verbatim, as is every user-facing message (including the Chinese
-  ones) and the ValueError text
-  ``"current smiles:{} \\t target smiles: {}"``.
-* one v1 BUG is fixed in the port: ``reorder_sdf``'s function reads
-  ``args.input`` but v1's parser never registered an ``-i/--input`` flag,
-  so the subcommand crashed with ``AttributeError`` as shipped — the flag
-  is added here (same spelling as every other subcommand).
+* ``main(argv=None)`` takes the argv; the argparse surface — flags,
+  defaults, subcommand names — and every user-facing message (including
+  the Chinese ones) and the ValueError text
+  ``"current smiles:{} \\t target smiles: {}"`` are kept verbatim.
+* fixed BUG: ``reorder_sdf``'s function reads ``args.input`` but its parser
+  did not register an ``-i/--input`` flag, so the subcommand crashed with
+  ``AttributeError`` — the flag is added here (same spelling as every
+  other subcommand).
 * one rdkit-version adaptation in ``reorder_sdf``: the rebuilt molecule is
   sanitized BEFORE ``EmbedMolecule`` because current rdkit enforces the
-  ``calcImplicitValence`` precondition there (v1's rdkit computed it
-  lazily); the final molecule state and output are unchanged.
-* :func:`Ligand.assign_partial_charges` keeps v1's exact unit semantics
+  ``calcImplicitValence`` precondition there; the final molecule state and
+  output are unchanged.
+* :func:`Ligand.assign_partial_charges` keeps the exact unit semantics
   (values wrapped in an ``openmm`` elementary-charge ``Quantity`` before
   landing on the openff Molecule, then openff's private
   ``Molecule._normalize_partial_charges()`` makes the sum integral).
@@ -82,17 +75,17 @@ __all__ = [
 
 
 # ---------------------------------------------------------------------------
-# Ligand knowledge (v1 src/neomd/builder/ligand.py)
+# Ligand knowledge
 # ---------------------------------------------------------------------------
 
 
 def load_rdmol(ligand_path):
-    """Load a molecule from a file using RDKit (v1 ``load_rdmol`` verbatim).
+    """Load a molecule from a file using RDKit.
 
     Supports PDB, SDF, Mol2 and Mol inputs; an unrecognized suffix raises
-    ``NotImplementedError("rdkit mol loading method not defined")`` — the v1
-    message, kept verbatim (this is the builder/ligand.py loader, not
-    system.py's ConfigValueError-flavored port of it).
+    ``NotImplementedError("rdkit mol loading method not defined")`` (fixed
+    message; this is the builder/ligand loader, not system.py's
+    ConfigValueError-flavored variant).
     """
     if ligand_path.endswith(".pdb"):
         mol = Chem.MolFromPDBFile(ligand_path, removeHs=False)
@@ -109,7 +102,7 @@ def load_rdmol(ligand_path):
 
 
 def topology_from_rdkit(rdkit_molecule):
-    """The molecule's graph (atoms as nodes, bonds as edges) — v1 verbatim."""
+    """The molecule's graph (atoms as nodes, bonds as edges)."""
     topology = nx.Graph()
     for atom in rdkit_molecule.GetAtoms():
         # Add the atoms as nodes
@@ -125,10 +118,8 @@ def topology_from_rdkit(rdkit_molecule):
 class Ligand:
     """One ligand: an openff ``Molecule`` plus a template-path handle.
 
-    v1 ``neomd/builder/ligand.py::Ligand`` verbatim (same attributes, same
-    method names — consumers like v1 ``make_system`` called
-    ``generate_unique_atom_names()`` on the wrapper and reached the openff
-    molecule through ``.molecule``).
+    Consumers reach the openff molecule through ``.molecule`` and may call
+    ``generate_unique_atom_names()`` on the wrapper.
     """
 
     def __init__(self, molecule):
@@ -145,8 +136,8 @@ class Ligand:
     def assign_partial_charges(self, value, normalize=True):
         """Attach ``value`` (array-like floats, elementary charge) as the
         molecule's partial charges; when ``normalize``, openff's
-        ``_normalize_partial_charges`` then makes the total integral — the
-        v1 semantics verbatim, openmm ``Quantity`` wrapping included."""
+        ``_normalize_partial_charges`` then makes the total integral
+        (openmm ``Quantity`` wrapping included)."""
         charges = unit.Quantity(value, unit.elementary_charge)
         self.molecule.partial_charges = charges
         if normalize:
@@ -155,8 +146,7 @@ class Ligand:
     @classmethod
     def from_path(cls, ligand_path):
         """Load via :func:`load_rdmol` (Hs kept) into an openff Molecule;
-        PDB inputs additionally get ``AssignAtomChiralTagsFromStructure``
-        (v1 verbatim)."""
+        PDB inputs additionally get ``AssignAtomChiralTagsFromStructure``."""
         rdkitmolh = load_rdmol(ligand_path)
         if os.path.splitext(ligand_path)[1] in [".pdb"]:
             Chem.AssignAtomChiralTagsFromStructure(rdkitmolh)
@@ -169,18 +159,17 @@ class Ligand:
 
 
 def ligands_from_config(config):
-    """Build the :class:`Ligand` list from the v1 ``ligands`` config section.
+    """Build the :class:`Ligand` list from a ``ligands`` config section.
 
     ``config`` maps ligand name -> ``{"path": ..., "resname"?: ...,
-    "template_ffxml"?: ..., "smiles": ..., "partial_charges"?: path}``.
-    v1 verbatim, including:
+    "template_ffxml"?: ..., "smiles": ..., "partial_charges"?: path}``:
 
     * ``resname`` override, falling back to ``"LIG"`` when the loaded
       molecule's name is empty;
     * the SMILES graph check — the loaded molecule's networkx topology must
       be isomorphic to ``Chem.AddHs(MolFromSmiles(smiles))``'s, else
       ``ValueError("current smiles:{} \\t target smiles: {}")`` with the
-      loaded molecule's canonical isomeric SMILES (message byte-identical);
+      loaded molecule's canonical isomeric SMILES;
     * ``partial_charges`` files parse as the LAST whitespace-separated float
       of each non-empty line, then go through
       :meth:`Ligand.assign_partial_charges`.
@@ -216,12 +205,12 @@ def ligands_from_config(config):
 
 
 # ---------------------------------------------------------------------------
-# ligand_processor (v1 bin/ligand_processor.py) — pure RDKit, no ToolRunner
+# ligand_processor — pure RDKit, no ToolRunner
 # ---------------------------------------------------------------------------
 
 
 def convert_format(args):
-    """转换分子文件格式 (v1 ``convert_format`` verbatim)."""
+    """转换分子文件格式."""
     # 读取输入文件
     if args.input.endswith('.sdf'):
         mol = Chem.MolFromMolFile(args.input, removeHs=False)
@@ -299,7 +288,7 @@ def get_chirals(mol, match_ls):
 
 def optimize_with_constraints(mol, constraints_ids, chirals=None):
     """MMFF-minimize with position constraints on ``constraints_ids`` (and
-    optional chiral dihedral constraints) — v1 179ae35 helper the iterative
+    optional chiral dihedral constraints) — the helper the iterative
     pos_smiles2sdf loop runs per round."""
     mp = AllChem.MMFFGetMoleculeProperties(mol)
     ff = AllChem.MMFFGetMoleculeForceField(mol, mp)
@@ -318,7 +307,7 @@ def mol_smiles_to_pos_mol(mol_pos, smiles,
                           bond_compare=rdFMCS.BondCompare.CompareAny,
                           ):
     """Embed the SMILES topology and pull it onto ``mol_pos`` coordinates via
-    MCS matching, then ITERATIVELY (v1 179ae35): align (Kabsch) -> pin the
+    MCS matching, then ITERATIVELY: align (Kabsch) -> pin the
     matched atoms -> constrained MMFF -> fix_CH_angle -> heavy-atom-only
     constrained MMFF, until the full-molecule pose stops moving (RMS <
     0.001 A, max 100 rounds).  ``ignore_pos_ids`` / ``ignore_top_ids``
@@ -413,9 +402,7 @@ def calculate_angle(pos_h, pos_c, pos_a):
 
 def fix_CH_angle(mol):
     """Mirror any saturated-carbon hydrogen whose smallest H-C-A angle is
-    under 90 degrees through the carbon (v1 179ae35 dropped the trailing
-    UFF relax — the pos_smiles2sdf loop's own constrained MMFF rounds
-    replaced it)."""
+    under 90 degrees through the carbon."""
     conf = mol.GetConformer()
 
     # 遍历所有原子
@@ -452,8 +439,8 @@ def fix_CH_angle(mol):
 
 
 def pdb_to_mol_custom_threshold(pdb_file, max_bond_length=1.8, sanitize=True):
-    """基于自定义距离阈值从PDB生成分子 (v1 verbatim: proximity-bonded PDB
-    read, then every bond longer than ``max_bond_length`` removed)."""
+    """基于自定义距离阈值从PDB生成分子: proximity-bonded PDB
+    read, then every bond longer than ``max_bond_length`` removed."""
     # 1. 禁用自动距离成键
     mol = Chem.MolFromPDBFile(
         pdb_file,
@@ -486,12 +473,11 @@ def pdb_to_mol_custom_threshold(pdb_file, max_bond_length=1.8, sanitize=True):
 
 
 def pos_smiles2sdf(args):
-    """将SMILES结构匹配到坐标文件并生成SDF (v1 ``pos_smiles2sdf``
-    verbatim: input .pdb (``--sanitize default``) / .pdb via distance
-    bonding (``--sanitize distance --max_bond``) / .sdf, MCS-matched onto
-    ``--smiles`` via the iterative align+constrained-MMFF loop,
-    ``--ignore_pos_ids`` excludes pose atoms from the match, output
-    .sdf/.pdb/.xyz)."""
+    """将SMILES结构匹配到坐标文件并生成SDF: input .pdb (``--sanitize
+    default``) / .pdb via distance bonding (``--sanitize distance
+    --max_bond``) / .sdf, MCS-matched onto ``--smiles`` via the iterative
+    align+constrained-MMFF loop, ``--ignore_pos_ids`` excludes pose atoms
+    from the match, output .sdf/.pdb/.xyz."""
     if args.input.endswith('.pdb'):
         if args.sanitize == 'default':
             struct = Chem.MolFromPDBFile(args.input)
@@ -525,7 +511,7 @@ def pos_smiles2sdf(args):
 
 def conformer_generation(mol, N_CONF=100):
     """ETKDGv2 conformer embedding + per-conformer MMFF minimization to
-    convergence (v1 verbatim; returns cids sorted by energy)."""
+    convergence (returns cids sorted by energy)."""
     # Generate conformers
     p = AllChem.ETKDGv2()
     p.verbose = True
@@ -567,9 +553,9 @@ def conformer_generation(mol, N_CONF=100):
 
 
 def smiles2sdf(args):
-    """SMILES -> single low-energy SDF conformer (v1 ``smiles2sdf``
-    verbatim: 300 ETKDGv2 conformers, MMFF to convergence, Butina
-    clustering at threshold 1, writes the first cluster's center)."""
+    """SMILES -> single low-energy SDF conformer: 300 ETKDGv2 conformers,
+    MMFF to convergence, Butina clustering at threshold 1, writes the first
+    cluster's center."""
 
     from rdkit.ML.Cluster import Butina
 
@@ -593,8 +579,7 @@ def smiles2sdf(args):
 
 
 def reorder_sdf(args):
-    """Reorder an SDF's atoms by a 1-based comma-separated index list
-    (v1 ``reorder_sdf`` verbatim)."""
+    """Reorder an SDF's atoms by a 1-based comma-separated index list."""
     input_f = args.input
     order_str = args.order
     order = [int(x) - 1 for x in order_str.split(',')]
@@ -623,8 +608,8 @@ def reorder_sdf(args):
     new_mol = emol.GetMol()
     # sanitize before embedding: rdkit >= 2024 enforces the
     # calcImplicitValence precondition inside EmbedMolecule, which the
-    # atoms copied through the EditableMol have not had run (v1's older
-    # rdkit computed it lazily); the final state is identical
+    # atoms copied through the EditableMol have not had run; the final
+    # state is identical
     Chem.SanitizeMol(new_mol)
     AllChem.EmbedMolecule(new_mol)
     conf = new_mol.GetConformer(0)
@@ -636,8 +621,7 @@ def reorder_sdf(args):
 
 
 def main(argv=None):
-    """The v1 ligand_processor CLI (argparse surface verbatim); ``argv``
-    defaults to ``sys.argv[1:]``."""
+    """The ligand_processor CLI; ``argv`` defaults to ``sys.argv[1:]``."""
     parser = argparse.ArgumentParser(description='RDKit分子处理工具集')
     subparsers = parser.add_subparsers(dest='command', required=True)
 
@@ -655,8 +639,7 @@ def main(argv=None):
                                help='PDB处理方式')
     parser_smiles.add_argument('--max_bond', type=float, default=2,
                                help='距离成键阈值(Å)')
-    # v1 179ae35: --fix_CH dropped (fix_CH_angle now runs inside the
-    # mol_smiles_to_pos_mol loop); --ignore_pos_ids added
+    # fix_CH_angle runs inside the mol_smiles_to_pos_mol loop
     parser_smiles.add_argument('--ignore_pos_ids', default='',
                                help='pos文件中不用于匹配的atom id列表, '
                                     '逗号分隔, 从1开始计数')

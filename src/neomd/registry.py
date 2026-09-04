@@ -1,4 +1,4 @@
-"""The extension rack of neomd (v2 migration plan §2, B skeleton).
+"""The extension rack of neomd.
 
 Everything pluggable — restraint knowledge triples, collective variables,
 methods (metadynamics, GAMD, ...), probe presets — enters the system through

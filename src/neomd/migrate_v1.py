@@ -1,50 +1,40 @@
-"""One-shot v1 YAML -> v2 plan translator (migration plan §5 item 2.8, §1 Q5).
+"""One-shot v1 YAML -> v2 plan translator.
 
-ONE-SHOT DISCIPLINE (§7 risk "Translator becomes a permanent compatibility
-layer"): this module is a migration TOOL, not a compatibility layer, and is
-NEVER part of the v2 runtime.  No runtime module may import it and it never
-sits on the runtime import path; the only allowed importers are its own test
-(tests/v2/test_migrate.py) and ``python -m neomd.migrate_v1``.  When the
-strangler window closes (Phase 4, flip day) this file is deleted together
-with ``src/neomd/`` — it must not survive the migration it exists for.
+ONE-SHOT DISCIPLINE: this module is a migration TOOL.  It is not a compatibility layer and it is never part of the v2 runtime: no runtime
+module may import it and it never sits on the runtime import path; the only
+allowed importers are its own test (tests/v2/test_migrate.py) and
+``python -m neomd.migrate_v1``.  When the migration window closes this file
+is deleted — it must not outlive the migration it exists for.
 
 What it does
 ------------
 
 ``translate(config)`` turns a v1 run-config dict (the YAML spelling consumed
 by ``bin/run_generic_md.py`` through ``neomd.utils.check_config``) into a v2
-plan dict (the ``Plan.from_dict`` schema).  The two schemas are intentionally
-v1-shaped, so the translation is close to identity; the differences it
-bridges, explicitly:
+plan dict (the ``Plan.from_dict`` schema).  The differences it bridges:
 
 1. **dead keys** — keys v1's whitelist *rejected* that a YAML nevertheless
-   carries are reported as warnings (one line per key, with the v1 context).
-   Known case from the migration plan: ``forcefield`` was never let through
-   by ``check_config``, so the read at ``neosystem.py:52`` was an unreachable
-   dead branch — in v2 ``forcefield`` is a real key, hence "review before
-   use".  The opposite case is ``qmmm``: accepted by v1's whitelist but
-   explicitly excluded from v2 (§1 R4-Q1, broken in v1, returning as a 2.x
-   plugin) — that one is a hard error, not a warning.
+   carries are reported as warnings (one line per key, with the v1
+   context); the opposite case ``qmmm`` (accepted by v1's whitelist but
+   explicitly excluded from v2) is a hard error, not a warning.
 2. **method synonyms** — v1's runner accepted ``minimization``/``min`` and
    ``equilibration``/``md``/``eq``; v2's driver accepts ``min``, ``eq``,
    ``md``, ``prod`` plus registry methods (``metadynamics``, ...).  Only the
    spellings v2 rejects are remapped; everything else passes through as-is.
-3. **no runtime derivation** — v1 loaded the YAML as a mutable Box and
-   rewired it at runtime (``BasePipeline.modify_config``: comma-splitting
-   templates, defaulting intervals, resolving the resume checkpoint/state).
-   The translator emits the RAW user dict — clean copy, zero derivation —
-   because ``Plan`` owns all of that in v2.
-4. **relative paths** — v1 YAMLs resolved their input/output paths against
-   whatever the CWD happened to be.  With ``base_dir`` (CLI default: the
-   YAML's own directory) every ``input_files`` / ``output.output_dir`` path
-   is made absolute so the translated plan runs from anywhere.
-5. **validation** — the result must survive ``Plan.from_dict``; when it does
-   not, the error is re-raised with the file:line provenance of the ORIGINAL
-   v1 key in the source YAML.
-6. **smd spelling** — v1 SMD configs (origin/main commit 179ae35) carried
-   ``ref_x_nm``/``ref_y_nm``/``ref_z_nm`` parallel ramp lists inside ``smd:``
-   entries; the plan spells the reference position as ``ref_position_nm``
-   (one ``[x, y, z]`` triple or a list of triples to ramp).
+3. **no runtime derivation** — v1 rewired the YAML at runtime
+   (comma-splitting templates, defaulting intervals, resolving the resume
+   checkpoint/state).  The translator emits the RAW user dict — clean copy,
+   zero derivation — because ``Plan`` owns all of that in v2.
+4. **relative paths** — with ``base_dir`` (CLI default: the YAML's own
+   directory) every ``input_files`` / ``output.output_dir`` path is made
+   absolute so the translated plan runs from anywhere.
+5. **validation** — the result must survive ``Plan.from_dict``; when it
+   does not, the error is re-raised with the file:line provenance of the
+   ORIGINAL v1 key in the source YAML.
+6. **smd spelling** — v1 SMD configs carried ``ref_x_nm``/``ref_y_nm``/
+   ``ref_z_nm`` parallel ramp lists inside ``smd:`` entries; the plan spells
+   the reference position as ``ref_position_nm`` (one ``[x, y, z]`` triple
+   or a list of triples to ramp).
 
 It also refuses, with a clear error, v1 *system-preparation* configs (the
 ``protein``/``ligands``/``ff_setting``/``system_params`` schema of
@@ -104,7 +94,7 @@ V1_ALLOW_SET = frozenset(
         "min_params",
         "debug",
         "system_modification",
-        "smd",  # added by the v1 SMD commit (origin/main 179ae35)
+        "smd",
     }
 )
 
@@ -121,8 +111,8 @@ METHOD_SYNONYMS = {
     "equilibration": "eq",
 }
 
-#: migration plan §1 R4-Q1 — qmmm is broken in v1, excluded from v2 parity,
-#: and will come back as a plugin in 2.x
+#: qmmm is broken in v1, excluded from v2 parity, and will come back as a
+#: plugin in 2.x
 QMMM_MESSAGE = (
     "config key 'qmmm' has no v2 counterpart: qmmm was already broken in v1 "
     "and is explicitly excluded from v2 parity (migration plan §1 R4-Q1); "
@@ -407,7 +397,7 @@ def translate(
         message = f"{message} [{where}]" if where else message
         warnings.warn(message, V1MigrationWarning, stacklevel=2)
 
-    # -- the explicit exclusion (§1 R4-Q1): qmmm never crosses the migration
+    # -- the explicit exclusion: qmmm never crosses the migration
     if "qmmm" in config:
         raise ConfigKeyError(
             QMMM_MESSAGE,
