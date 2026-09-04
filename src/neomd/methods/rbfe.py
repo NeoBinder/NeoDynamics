@@ -1,35 +1,8 @@
-"""RBFE λ window — a method knowledge triple (ADR-0003/0007).
-
-ONE alchemical window: dynamics at a fixed λ plus the du tape (``du.tsv``,
-:class:`neomd.probes.DuProbe`) that records, at every report interval, the
-potential energy at EVERY ladder λ through the port's ParamEnergy
-capability — the BAR/MBAR input artifact.  The λ LADDER (N such windows run
-as sequential legs, each its own run dir) is owned by :mod:`neomd.rbfe`,
-the runner-level orchestrator; this triple is what one window's plan
-(``method: "rbfe"``) dispatches to through drive().
-
-How a window's λ reaches the kernel (ADR-0003's two paths):
-
-* **openmm** — the alchemical system (one per experiment, built at the
-  prepare boundary by :mod:`neomd.alchemical` from openmmtools) exposes λ
-  as Context global parameters; the window's values ride
-  ``KernelSpec.global_parameters`` (plan ``alchemical.lambda_values`` →
-  :func:`neomd.run.build_kernel_spec`) and are applied at Context
-  creation.  Nothing is installed here.
-* **fake** — the kernel has no nonbonded physics to alchemify, so the
-  window plan carries ``alchemical.mock_bias`` (two atom groups, a force
-  constant, an equilibrium distance): prepare() installs a λ-scaled
-  distance bias ``lambda_alchemical*(k/2)(d - r0)^2`` whose parameter
-  value is the window's λ.  The mock gives the du tape well-defined
-  λ-dependent energies on the fake kernel (ADR-0003's "mock λ-偏置"
-  decision) — orchestration/resume mechanics are what the fake tier
-  proves, never the softcore physics (settled decision #9).
-
-The boresch anchor (restraints.py) is wired by the WINDOW PLAN's ordinary
-``restraint:`` section — drive() installs it like any restraint and the
-restraint tape reports it; this method never touches restraint wiring.
-Its energy is identical across λ, so it cancels exactly in every du
-difference and in the BAR/MBAR estimators (per-sample constants).
+"""RBFE λ window — a method knowledge triple: dynamics at one fixed λ plus
+the du tape (``du.tsv``) of potential energies at every ladder λ (the
+BAR/MBAR input).  See ADR-0003 (docs/adr/0003-rbfe-technology-selection.md),
+ADR-0007 (docs/adr/0007-rbfe-lambda-window-orchestration.md) and
+docs/methods/rbfe.md.  Registers method: ``rbfe``.
 """
 
 from __future__ import annotations
@@ -119,7 +92,17 @@ def _indices(value) -> list[int]:
 
 
 def _prepare(kernel, plan, sink=None, logger=None):
-    """Registry entry point — drive() calls this for method 'rbfe'."""
+    """Registry entry point — drive() calls this for method 'rbfe'.
+
+    A window's λ reaches the kernel by one of ADR-0003's two paths:
+    openmm — the λ values ride ``KernelSpec.global_parameters`` and are
+    applied at Context creation (nothing installed here); fake — the
+    ``alchemical.mock_bias`` λ-scaled distance bias below is installed
+    (the fake has no nonbonded physics to alchemify; the mock proves
+    orchestration/resume mechanics, never softcore physics — settled
+    decision #9).  The du tape is the driver-run probe's; the λ LADDER
+    itself is owned by :mod:`neomd.rbfe`.
+    """
     from neomd.driver import PreparedMethod
 
     log = LOG if logger is None else logger

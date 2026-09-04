@@ -1,40 +1,21 @@
-# 增强采样分析与收敛诊断工具链（neomd.analysis）
+# 增强采样分析工具链（neomd.analysis）
 
-> 状态：issue #16 · 已实现（`src/neomd/analysis/` + `neomd analysis` CLI）· 相关 ADR：
-> [docs/adr/0001-neomd2-strangler-migration.md](../adr/0001-neomd2-strangler-migration.md)
+> 需求：[issue #16](https://github.com/NeoBinder/NeoDynamics/issues/16) ·
+> 迁移决策：[ADR-0001](../adr/0001-neomd2-strangler-migration.md)
 
-## 背景与动机
+## 原理简述
 
-v1 的分析面只有 `bin/gethill.py` 与 `bin/hills_ana.py` 两个基础脚本（hills 求和 / 投影
-FES）。issue #16 指出生产使用还缺五类能力：
-
-1. **收敛判据** —— FES 随模拟时间的差值曲线（"FES 是否还在变"是停止采样的客观依据）；
-2. **误差估计** —— block averaging 的统计误差条；
-3. **rewighting** —— WT-MetaD 的 Tiwary–Parrinello reweight，从偏置轨迹恢复无偏期望值；
-4. **多 walker 合并** —— 多副本共享 bias 目录时的合并分析；
-5. **动力学** —— flooding / infrequent MetaD 的过渡时间统计。
-
-更重要的是新 artifact 格式的有意破坏：`colvar.tsv` / `hills.npz` /
-`smd.tsv` **有意**打破了 v1 `gethill` / `hills_ana` 的读者。分析工具链必须读
-新格式，且是 GaMD reweight（#10）、OPES（#11）、RBFE BAR/MBAR（#8）与
-ML-CV 收敛诊断（#9）的共享基座。
-
-## 与 issue 方案的差异
-
-- 落点为 **`neomd.analysis` 子包 + `neomd analysis` CLI 子命令**，不再新增 `bin/fes_ana.py`
-  之类的 bin/ 脚本 —— 与 "facade + CLI 子命令" 的入口纪律一致。
-- 读取对象是新 artifact（`colvar.tsv` / `hills.npz` / `smd.tsv` + `manifest.json`
-  的 grid 元数据），**不做 v1 兼容**（无永久兼容层）。
-- **不做绘图**：输出 tsv/json 到 stdout 或 `--out` 文件，numpy-only、确定性、openmm-free。
-- flooding / infrequent-MetaD 动力学分析为**有记录的后续项**：新格式尚未定义该观测量，
-  issue 中该项不在本次落地范围。
-- 同一面可 `from neomd.analysis import fes_from_hills, block_average,
-  reweight_expectation, ...` 供程序消费 —— 它是其它 method track 的基座。
+对新 artifact 格式（`colvar.tsv` / `hills.npz` / `smd.tsv` + manifest
+grid 元数据）的 openmm-free 后处理工具链：WT FES 重建（估计器即
+生产者自身的 well-tempered 关系 `FES = -((T+dT)/dT) * bias`，ledger
+回放与运行中 bias 逐位一致）、FES 收敛窗口、block averaging 误差条、
+Tiwary–Parrinello reweight（`c(t)` 由每条 colvar 行之前存入的 hills
+重建——探针先于 deposition 触发，即该行实际采样所受的 bias）、
+多 walker 合并。numpy-only、确定性、无图形输出；也是 GaMD reweight、
+OPES、RBFE BAR/MBAR 等方法 track 的共享基座，可 import
+（`from neomd.analysis import fes_from_hills, block_average, ...`）。
 
 ## 使用
-
-README 的
-["Analyzing runs"](https://github.com/NeoBinder/NeoDynamics#analyzing-runs) 一节给出命令组摘要，命令组：
 
 ```bash
 neomd analysis fes run_dir --out fes.tsv          # WT FES（与运行自身的 fes.tsv
@@ -48,27 +29,19 @@ neomd analysis merge walker_a walker_b --out merged
                                                   # 多 walker hills 合并成一个 run 目录
 ```
 
-约定要点：
+`hills.npz` 位置用 kernel 单位（角 CV 为弧度），`colvar.tsv` 用自然
+单位（度）——分析通过运行所用的同一 port 表换算。不做 v1 兼容
+（`colvar.tsv`/`hills.npz`/`smd.tsv` 有意打破 gethill/hills_ana 读者）。
 
-- FES 估计器即生产者自身的 well-tempered 关系 `FES = -((T+dT)/dT) * bias`，
-  `dT = T*(biasFactor-1)`；ledger 回放与运行中 bias **逐位一致**（测试钉死）。
-- `hills.npz` 位置用 kernel 单位（角 CV 为弧度），`colvar.tsv` 用自然单位（度）——
-  分析通过运行所用的同一 port 表换算。
-- reweight 不需要 tape 里的 bias 列：`c(t)` 由每条 colvar 行**之前**存入的 hills
-  重建（探针先于 deposition 触发，即该行实际采样所受的 bias）。
+## 产物
 
-## 架构与产物
+tsv/json 到 stdout 或 `--out` 文件。flooding / infrequent-MetaD
+动力学分析为有记录的后续项。
 
-- 模块：`src/neomd/analysis/`，openmm-free，直接消费 sink 产物与 manifest 元数据。
-- 产物：tsv/json（`--out`），无图形输出。
-- 测试（`tests/v2/test_analysis.py` + `test_analysis_cli.py`）：**合成双势阱解析解**
-  —— 手工布点的 hills 携带闭式 bias/FES，钉死网格回放、逐点求值、周期回绕、自定义
-  bins；block averaging / reweight / 多 walker 合并各有公共接口测试（只跨公共接口，
-  不探测内部）。
+## 参考文献
 
-## 参考文献与 ADR
-
-- Tiwary & Parrinello, *JPCL* 2015（c(t) reweighting）；Bussi group sum_hills /
-  PLUMED 分析文档。
-- ADR-0001（strangler 迁移）；[issue #16](https://github.com/NeoBinder/NeoDynamics/issues/16)
-  （分析工具链需求）。
+- Tiwary & Parrinello, *J. Phys. Chem. Lett.* 6, 506（2015）——
+  [c(t) reweighting](https://doi.org/10.1021/jz5013266)。
+- [PLUMED / sum_hills 分析文档](https://www.plumed.org/doc)。
+- [issue #16](https://github.com/NeoBinder/NeoDynamics/issues/16) ——
+  需求；[ADR-0001](../adr/0001-neomd2-strangler-migration.md) —— 迁移。

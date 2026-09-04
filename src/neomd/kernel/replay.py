@@ -1,93 +1,12 @@
-"""ReplayKernel — golden-tape playback on the KernelPort seam.
+"""ReplayKernel — golden-tape playback on the KernelPort seam: replays the
+recorded v1 reference behavior (``tests/golden/v1/*.json``) so parity
+assertions can drive neomd plans over the driver/probe plumbing in an
+openmm-free CI.
 
-PURPOSE
--------
-The golden tapes (``tests/golden/v1/*.json``) are the recorded reference
-behavior, and this adapter plays them back: parity assertions drive neomd
-plans over a :class:`ReplayKernel` and check that the driver/probe plumbing
-reproduces the recorded energy sequence.  It keeps driver, probe and method
-logic testable in a CI world with no openmm.
-
-It is NOT a physics kernel: energies come from the tape, positions are
-SYNTHETIC (see below), biases are bookkeeping.  Where the fake kernel is a
-stand-in *physics engine* (textbook Langevin), the replay kernel is a
-*recording* — it answers "did the pipeline observe what the recording
-observed", never "is the physics right" (golden samples catch behavior
-changes, they do not prove absolute correctness).
-
-Tape format (tests/golden/trim.py, schema 1)
---------------------------------------------
-    {"scenario": str, "energies": ["%.6f", ...], "coord_hashes": [sha, ...],
-     "colvar_stats": ..., "restraint_stats": ...}
-
-* ``energies`` — potential energy sampled every ``sample_interval`` steps
-  (the trimming rule's fixed 10; a tape may carry ``sample_interval``
-  explicitly).  Sample k was recorded at step ``sample_interval * (k+1)``.
-* ``coord_hashes`` — per-frame sha256 digests of coordinate frames.  They
-  are VERIFICATION artifacts, not playback input: the recorded coordinates
-  themselves were trimmed away (only their hashes are committed), so the
-  replay kernel cannot and does not reproduce them.  A tape that wants
-  positional playback must carry ``coord_frames_data`` — raw (N, 3) float
-  arrays sampled every ``coord_interval`` (default 100) steps.
-* ``num_particles`` — optional particle count; otherwise the count comes
-  from ``spec.system_data`` (positions shape), falling back to 1.
-
-Construction / registration
----------------------------
-``KernelSpec.system_xml`` is documented in port.py as "the serialized system
-or its path" — for replay the serialized system IS the tape, so a tape JSON
-path fits the field's pattern::
-
-    ReplayKernel(spec, tape={"energies": [...]})      # dict, or a tape path
-    ReplayKernel(spec)          # reads the tape from spec.system_xml
-    KernelFactory.create(KernelSpec(kind="replay", system_xml=tape_json))
-
-Registration: ``openmm.py`` and ``fake.py`` self-register at module import
-AND are re-registered by ``kernel/_bootstrap.ensure_adapters`` (which run.py
-calls before every factory create).  ``_bootstrap`` deliberately does NOT
-know replay, so this module self-registers at import (bottom of the file)
-and anything that creates replay kernels imports it first (the CLI's
-``run --kernel replay`` does exactly that; the parity tests import it
-in-test).  Until the import happens, ``KernelFactory`` treats
-``kind="replay"`` as unknown — which is exactly what
-tests/v2/test_kernel.py's factory test still asserts.
-
-Semantics of the core operations
------------------------------
-* ``positions()`` — SYNTHETIC unless the tape carries ``coord_frames_data``:
-  a pure function of (spec.seed, current step, N) drawn from a seeded
-  ``numpy.random.RandomState`` — hash-stable (same seed + step ⇒ bit-identical
-  array across kernels and processes) and step-dependent, so trajectory/
-  positions_sha256 plumbing has real data to move around.  With frames, the
-  frame at ``step // coord_interval`` (clamped to the last) is returned.
-* ``energy_forces()`` — the tape energy of the current step: sample index
-  ``step // sample_interval - 1``, clamped to ``[0, len(energies)-1]`` (the
-  sample recorded at step 10 is ``energies[0]``; steps 11..20 hold it; steps
-  before the first sample and past the last sample hold the end values).
-  Forces are zeros (N, 3); kinetic/volume/temperature are None — the report
-  degrades gracefully exactly like the fake's.
-* ``minimize()`` — jump to the step-0 state (current_step = 0): the tape's
-  world "before the run".  ``step(n)`` — advance current_step by n.  No
-  dynamics exist; both are pure counter moves.
-* ``install_bias`` / ``clear_bias`` — records biases and hands out
-  group ids through the shared port policy (max free id first, like every
-  adapter — see port.py's invariant); clearing frees them all.
-* ``snapshot`` / ``restore`` — pickle of (step, biases, group counter).
-  There is no RNG state to carry: everything observable is a deterministic
-  function of the step, so restoring reproduces subsequent energies
-  trivially.  Restoring into a kernel built from a different spec follows
-  THAT kernel's tape/seed from the restored step (the step is the state).
-* ``bias_ops()`` — always ``None`` (documented: replay carries no live bias
-  semantics — metadynamics-style mid-run table interaction is openmm/fake
-  territory; methods must degrade as port.py prescribes).  The other
-  negotiated capabilities are refused the same way (by absence): no
-  ``group_energy`` (the tape has one potential, not per-group energies —
-  the restraint reporter writes ``nan``) and no ``write_structure`` (no
-  topology to write).
-* ``masses`` — unit masses (documented default; the tape carries none).
-  ``box_vectors()`` — always None (tapes carry no box).
-* ``spec.resume`` is accepted and ignored: resume parity uses
-  snapshot/restore of this kernel directly.
+Whole-module contracts: NOT a physics kernel (energies come from the tape,
+positions synthetic, biases bookkeeping).  Self-registers at import and is
+NOT covered by ``kernel/_bootstrap.ensure_adapters`` — import
+``neomd.kernel.replay`` BEFORE factory use.  Semantics: :class:`ReplayKernel`.
 """
 
 from __future__ import annotations
@@ -186,7 +105,19 @@ def _validate_tape(tape: dict, path) -> None:
 
 
 class ReplayKernel:
-    """Golden-tape playback KernelPort implementation (see module docstring)."""
+    """Golden-tape playback KernelPort implementation.
+
+    Construction: ``ReplayKernel(spec, tape=<dict or tape.json path>)`` or
+    ``ReplayKernel(spec)`` (reads the tape from ``spec.system_xml`` — for
+    replay the serialized system IS the tape).  Tape: ``energies`` sampled
+    every ``sample_interval`` steps (sample k recorded at step
+    ``sample_interval*(k+1)``), optional ``coord_frames_data`` raw (N, 3)
+    frames every ``coord_interval`` steps, optional ``num_particles``
+    (else ``spec.system_data``, else 1).  ``coord_hashes`` are VERIFICATION
+    artifacts only — the recorded coordinates were trimmed away and are not
+    reproduced.  ``spec.resume`` is accepted and ignored: resume parity
+    uses snapshot/restore directly (the step is the state).
+    """
 
     name = "replay"
 
@@ -260,6 +191,13 @@ class ReplayKernel:
         return str(self.tape.get("scenario") or "")
 
     def positions(self) -> np.ndarray:
+        """SYNTHETIC unless the tape carries ``coord_frames_data``: a pure
+        function of (spec.seed, current step, N) drawn from a seeded
+        ``numpy.random.RandomState`` — hash-stable (same seed + step ⇒
+        bit-identical array across kernels and processes) and
+        step-dependent, so trajectory/positions_sha256 plumbing has real
+        data to move around.  With frames, the frame at
+        ``step // coord_interval`` (clamped to the last) is returned."""
         if self._frames is not None:
             index = min(self._step // self.coord_interval,
                         len(self._frames) - 1)
@@ -271,6 +209,9 @@ class ReplayKernel:
         return rng.uniform(-1.0, 1.0, size=(self._num_particles, 3))
 
     def energy_forces(self) -> EnergyReport:
+        """The tape energy of the current step (see :meth:`_energy_index`);
+        forces are zeros (N, 3); kinetic/volume/temperature are None — the
+        report degrades gracefully exactly like the fake's."""
         return EnergyReport(
             potential=self.energies[self._energy_index(self._step)],
             forces=np.zeros((self._num_particles, 3), dtype=np.float64),
@@ -326,6 +267,11 @@ class ReplayKernel:
     # ------------------------------------------------------------------
 
     def snapshot(self) -> bytes:
+        """Pickle of (step, biases, group counter).  No RNG state exists to
+        carry: everything observable is a deterministic function of the
+        step, so restoring reproduces subsequent energies trivially.
+        Restoring into a kernel built from a different spec follows THAT
+        kernel's tape/seed from the restored step."""
         payload = {
             "format": _SNAPSHOT_FORMAT,
             "step": self._step,

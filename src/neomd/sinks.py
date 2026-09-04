@@ -1,35 +1,13 @@
-"""Artifact sinks + a minimal CHARMM-compatible DCD writer.
+"""
+Artifact sinks + a minimal CHARMM-compatible DCD writer.
 
-A *sink* is where run artifacts (``output.state`` / ``output.dcd`` /
-``output.ckpt`` / ``colvar.tsv``) land.  Probes (probes.py) only ever touch a
-sink through this module's small interface, so the same probe presets work for
-a real run (``LocalDirSink`` under the output directory) and for tests /
-in-memory runs (``MemorySink``).
-
-Artifact names are RELATIVE (``"output.state"``, never absolute); the sink
-maps them to storage.  Files are opened append-or-create
-(``open(path, "a")`` semantics for state/restraint files).
-
-This module never imports openmm: the DCD writer below is a verbatim re-pack
-of openmm's ``app/dcdfile.py`` byte layout using only struct/numpy, so
-``output.dcd`` files are byte-compatible with openmm's DCDReporter output.
-
-DCD layout (little-endian, CHARMM flavour, exactly openmm's):
-
-    block 1   [84]["CORD"][nframes][istart][nsavc][6 x int0][dt_akma(float)]
-              [boxflag][8 x int0][24][84]            <- trailing marker 84
-    title     [164][ntitle=2][80-byte title][80-byte title][164]
-    natoms    [4][natoms][4]
-    frame     optional box record: [48][a, cos(gamma), b, cos(beta),
-                                     cos(alpha), c][48]   (Angstrom, radians->cos)
-              3 coordinate records: [4N][float32 x N][4N] (Angstrom)
-
-Header total = 276 bytes (:data:`DCD_HEADER_SIZE`); per-frame size =
-:func:`dcd_frame_size`.  The angle slots carry COSINES (the modern
-NAMD/VMD/openmm convention; sin(pi/2 - angle) in openmm's wording), in the
-slot order ``a, gamma, b, beta, alpha, c`` — this is what MDAnalysis and
-mdtraj expect and round-trips unambiguously (degrees could be mistaken for
-cosines when an angle happens to lie in [-1, 1]).
+A sink is where run artifacts (``output.state`` / ``output.dcd`` /
+``output.ckpt`` / ``colvar.tsv``) land, addressed by RELATIVE names; probes
+touch artifacts only through this module's small interface, so the same
+presets serve real runs (:class:`LocalDirSink`) and tests/in-memory runs
+(:class:`MemorySink`).  Never imports openmm: the DCD writer re-packs
+openmm's ``app/dcdfile.py`` byte layout with struct/numpy only (layout
+contract on :func:`init_dcd` / :func:`write_dcd_frame`).
 """
 
 from __future__ import annotations
@@ -296,13 +274,22 @@ def init_dcd(
     periodic: bool = False,
     titles: tuple[bytes, bytes] | None = None,
 ) -> None:
-    """Write a fresh DCD header at the current position (truncating callers
+    """
+    Write a fresh DCD header at the current position (truncating callers
     pass a truncate-mode stream; CHARMM layout, little-endian).
 
     ``periodic`` sets the box flag: when True every frame MUST carry a box
     record (see :func:`write_dcd_frame`).  ``n_fixed`` is accepted for API
     completeness but nonzero values are rejected (openmm never emits fixed-
     atom records either).
+
+    Layout (little-endian, CHARMM flavour, exactly openmm's): block 1
+    [84]["CORD"][nframes][istart][nsavc][6 x int0][dt_akma float][boxflag]
+    [8 x int0][24][84]; title [164][ntitle=2][2 x 80-byte title][164]; natoms
+    [4][natoms][4] — header total :data:`DCD_HEADER_SIZE` (276 bytes).  Per
+    frame: optional box record [48][a, cos(gamma), b, cos(beta), cos(alpha),
+    c][48] (Angstrom) then 3 coordinate records [4N][float32 x N][4N]
+    (Angstrom); per-frame size :func:`dcd_frame_size`.
     """
     if n_atoms <= 0:
         raise ValueError(f"n_atoms must be positive, got {n_atoms}")

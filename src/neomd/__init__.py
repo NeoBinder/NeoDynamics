@@ -1,14 +1,10 @@
-"""neomd — the v2 spine of NeoDynamics.
+"""
+neomd — the v2 spine of NeoDynamics.
 
-Public surface (progressive disclosure, see run.py):
-
-    L0  md_run(dir)                     zero-config start
-    L1  md_run(dir, steps=..., ...)     kwargs deepen the plan
-    L2  Plan.from_dict(full_spec)       everything is a plan
-
-This package __init__ deliberately keeps NO eager cross-module imports so the
-sub-modules (plan, kernel, restraints, ...) can be developed and imported
-independently; facade symbols resolve lazily.
+Public surface by progressive disclosure (see ``run.py``): L0
+``md_run(dir)`` -> L1 scalar kwargs -> L2 full plan.  This ``__init__``
+deliberately keeps no eager cross-module imports — facade symbols resolve
+lazily so sub-modules develop and import independently.
 """
 
 try:  # distribution version (versioningit derives it from git tags)

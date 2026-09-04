@@ -1,33 +1,17 @@
-"""Resume — the single owner of continue_md semantics.
+"""
+Resume — the single owner of continue_md semantics.
 
-The contract:
-
-* :func:`plan_resume` is the ONLY place that restores a kernel for resume
-  and the ONLY place that decides append-vs-fresh per artifact.  It runs
-  AFTER bias installation (forcing the openmm Context early would flip
-  later installs onto the ``reinitialize(preserveState=True)`` path, which
-  perturbs constrained-DOF velocities — see kernel/openmm.py).
-* Every appendable tape found in the sink is trimmed to the checkpoint step
-  BEFORE the run continues, so appending is always correct: rows/frames
-  beyond the restore point are dropped (they describe a future the resumed
-  run is about to re-live), torn tails from the crash are healed, and the
-  trajectory/state/colvar/restraint/hills tapes in one directory agree.
-* Probes never decide append/truncate themselves — they are constructed
-  with ``append`` instructions derived from the returned
-  :class:`ResumePlan` (``name in plan.trims``).
-
-What is trimmed where (artifact -> format, all step-addressed):
-
-    output.state / colvar.tsv / restraint.tsv / smd.tsv / gamd.tsv  tsv rows
-    output.dcd                                   DCD frames (header-carried)
-    hills.npz                                    the hills ledger
-    kernels.npz                                  the OPES kernel ledger
-
-``output.ckpt`` is not trimmed: it is the restore source itself and is
-wholesale-overwritten by the checkpoint probe.  The manifest's
-``artifacts`` record (driver-maintained) is a cross-check for post-mortems,
-not trim input — after a crash it may lag the tapes, and trimming is driven
-by the authoritative checkpoint step instead.
+:func:`plan_resume` is the ONLY place that restores a kernel for resume and
+the ONLY place that decides append-vs-fresh per artifact (probes never
+decide append/truncate themselves): every appendable tape found in the sink
+is trimmed to the checkpoint step BEFORE the run continues — post-restore
+rows describe a future the run is about to re-live, torn tails are healed,
+and all tapes in one directory agree.  Trimmed, step-addressed:
+``output.state`` / ``colvar.tsv`` / ``restraint.tsv`` / ``smd.tsv`` /
+``gamd.tsv`` (tsv rows), ``output.dcd`` (DCD frames, header-carried),
+``hills.npz`` / ``kernels.npz`` (ledgers).  ``output.ckpt`` is never
+trimmed (it is the restore source, wholesale-overwritten); the manifest's
+``artifacts`` record is a post-mortem cross-check, never trim input.
 """
 
 from __future__ import annotations

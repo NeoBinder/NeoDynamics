@@ -1,37 +1,9 @@
 """spec — the openmm-free core of the ML/MM coupling module (ADR-0004).
 
-``ml_region`` arrives as a raw mapping (the plan section, verbatim, carried by
-:class:`~neomd.kernel.port.KernelSpec` exactly like ``barostat``).  This module
-normalizes it into an immutable :class:`MLRegion` with NO engine imports, so
-plan validation and any kernel can inspect the region without openmm/torch.
-
-The plan-level validation (collect-all, yaml key path + did-you-mean) lives in
-:mod:`neomd.plan`; :func:`parse_ml_region` re-checks the same shape at the
-assembly boundary as a defensive second gate (a hand-built ``KernelSpec``
-bypasses the Plan validator — the adapter must not trust its input).
-
-Shape (ADR-0004 + the W3-c addendum)::
-
-    ml_region:
-      indices: [i, j, ...]        # form 1: 0-based particle indices
-      residues: ["A:29", "A:JZ4"] # form 2: residue selectors (W3-c; active-
-                                 # site regions) — resolved against the
-                                 # system topology at check-files/assembly
-                                 # time (grammar: ml.selection)
-      model:                      # EXACTLY ONE of indices/residues
-        type: torchscript | mock
-        path: model.pt            # torchscript only; the model file IS the
-                                  # interface (no per-model registry)
-        long_range_electrostatics: false   # torchscript only (see embedding)
-        periodic: true            # optional; defaults to the system's
-        tether_k: 500.0           # mock only (kJ/mol/nm^2)
-        repulsion_k: 1.0          # mock only (kJ/mol)
-        repulsion_sigma: 0.15     # mock only (nm)
-
-The two region forms are MUTUALLY EXCLUSIVE (an explicit W3-c decision — see
-the ADR-0004 addendum): a region defined two ways invites the stale-index-list
-silently surviving a switch to selectors.  ``residues`` accepts the same
-comma-string spelling as ``indices`` (``"A:JZ4,A:29"`` == the two-item list).
+Raw ``ml_region`` mapping -> frozen MLRegion: ``indices`` and ``residues``
+are MUTUALLY EXCLUSIVE forms; model keys/defaults in parse_ml_region, which
+re-checks the plan-validated shape as a defensive second gate.  Reference:
+docs/methods/mlmm.md.
 """
 
 from __future__ import annotations

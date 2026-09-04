@@ -1,37 +1,9 @@
-"""Readers (and writers) for the artifact formats.
+"""Readers (and writers) for the run artifact formats — reads back exactly what the producers write.
 
-This module reads back EXACTLY what the producers write.  Producers, for
-reference:
-
-* ``colvar.tsv`` / ``restraint.tsv`` / ``smd.tsv`` (:mod:`neomd.probes`) —
-  one ``#``-prefixed tab-separated header line (first column ``step``), then
-  full-precision ``str(float)`` rows.  A run directory's tape holds the WHOLE
-  history: probes append and :mod:`neomd.resume` trims every tape to the
-  checkpoint step on resume, so a finished dir's tape is one uninterrupted
-  step-ascending record.
-* ``hills.npz`` (:mod:`neomd.methods.metadynamics`) — the hill ledger
-  ``{steps (n,), positions (n, ncv), heights (n,)}`` in KERNEL CV units
-  (nanometres for distances, RADIANS for angular CVs — the standardized grid
-  space; the colvar tape, in contrast, carries natural units, degrees for
-  angular CVs).
-* ``manifest.json`` (:mod:`neomd.manifest`) — carries ``plan_raw``, the frozen
-  plan dict, which is where the metadynamics grid metadata (colvar grids,
-  ``meta_set.biasFactor``, temperature) lives on disk.
-
-The unit bookkeeping that makes the two tape families line up:
-
-* :class:`MetaAxis` describes one CV's deposition grid in kernel units and
-  knows whether its natural unit is degrees (:meth:`from_natural` /
-  :meth:`to_natural` convert, through the port's canonical degree->radian
-  factor — the same one :class:`~neomd.methods.metadynamics.MetadynamicsRun`
-  standardizes grids with).
-* :func:`meta_from_plan` builds the axes by going through the PUBLIC cv
-  registry (``registry.get("cv", type).make_cv``), mirroring
-  ``MetadynamicsRun.__init__`` — the grid interpretation is never re-invented
-  here; :func:`read_run_meta` pulls the plan out of a run directory's
-  manifest and hands it to that one builder.
-
-numpy-only, openmm-free, deterministic.
+tsv tapes (colvar/restraint/smd): one ``# step`` header + full-precision rows,
+NATURAL units; hills.npz: the ledger {steps, positions, heights} in KERNEL
+units (nm/radian — MetaAxis converts); grid metadata via the manifest's plan
+through the PUBLIC cv registry.  Reference: docs/methods/analysis.md.
 """
 
 from __future__ import annotations

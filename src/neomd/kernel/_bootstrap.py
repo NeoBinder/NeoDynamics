@@ -1,14 +1,10 @@
-"""Adapter bootstrap: register the built-in kernels into KernelFactory.
+"""Adapter bootstrap — registers the built-in "openmm" and "fake" kernels
+into KernelFactory.
 
-``neomd/kernel/__init__.py`` re-exports the port types but deliberately does
-NOT import the adapters (``openmm.py`` pulls in the whole openmm package).
-Anything that creates kernels — ``run.py`` first and foremost — calls::
-
-    from neomd.kernel._bootstrap import ensure_adapters
-    ensure_adapters()          # idempotent; registers "openmm" and "fake"
-
-before ``KernelFactory.create(spec)``.  Importing this module alone does not
-import openmm; only ``ensure_adapters()`` does (lazily, once).
+Call ``ensure_adapters()`` (idempotent) before ``KernelFactory.create``.
+``neomd/kernel/__init__.py`` deliberately does not import the adapters, and
+importing THIS module alone does not import openmm — only
+``ensure_adapters()`` does (lazily, once).
 """
 
 from __future__ import annotations

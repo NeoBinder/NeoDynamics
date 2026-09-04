@@ -82,6 +82,13 @@ own-state 能量平移稳定化）。解析基准（1-D 谐振子阱闭式
 `ΔF = ½ ln(k₁/k₀)`）钉住两者。pymbar 装了才跑的对拍测试留在
 openmmtools 门控层，永不进默认依赖。
 
+### 6. Boresch 锚定约束走普通 `restraint:`，与 du 无关
+
+Boresch 取向约束（`restraints.py`）由窗口 plan 的普通 `restraint:` 段
+声明，drive() 照常安装并随 restraint 带报告；rbfe 方法三元组自身不碰
+restraint 接线。它的能量与 λ 无关，在每个 du 差值与 BAR/MBAR 估计量中
+作为逐样本常数精确抵消——因此不需要进入 du 带，也不需要 λ 参数化。
+
 ## 否决的替代方案
 
 - **du 经 BiasParamOps 在 probe 侧推拉**：save/restore 配对被拆到调用方，

@@ -1,51 +1,7 @@
-"""Well-tempered metadynamics — a method knowledge triple.
-
-The physics is the verbatim v1 port (the numbers, not just the shape) onto
-the v2 seams: the bias is a ``BiasIR(kind="CustomCVTableForce")`` installed
-through ``kernel.install_bias``, the deposition cycle rides the driver's
-``on_step`` hook (``on_step_interval = meta_set.frequency``), and live bias
-access goes through ``kernel.bias_ops()``
-(cv_values / bias_energy / update_table).
-
-Physics:
-
-* hill height: ``height * exp(-E_bias / (R * deltaT))`` with
-  ``deltaT = T*(biasFactor-1)`` and ``E_bias`` the force-group energy of the
-  metadynamics force alone.  The tempering argument reproduces v1's openmm
-  Quantity arithmetic BIT-EXACTLY in pure floats (:func:`_tempered_height`
-  below; openmm is never imported here, methods stay kernel-agnostic).
-* ``_add_gaussian``: per-axis Gaussians on the ``linspace(0, 1, bins)`` grid
-  (INCLUSIVE of 1.0, so grid point ``i`` sits at
-  ``minimum + i*(maximum-minimum)/(bins-1)``), the periodic distance
-  handling including the ``dist[-1] = dist[0]`` seam, the reversed-axis
-  outer product ``reduce(np.multiply.outer, reversed(axisGaussians))``, and
-  the height-accumulation in kJ/mol.
-* ``_scaled_variance`` — openmm ``BiasVariable``'s
-  ``(biasWidth/(maxValue-minValue))**2``: the width normalized by the grid
-  RANGE (dimensionless, so the unit cancels).  ``BiasVariable.__init__``
-  also *standardizes* min/max/width via ``value_in_unit_system
-  (md_unit_system)``; openmm's md unit system is radian-based
-  (``(1*degree).value_in_unit_system(md_unit_system)`` == pi/180), so
-  angular CV grids declared in degrees become radians before they reach the
-  kernel — matching what openmm's own ``getCollectiveVariableValues``
-  returns for torsion CVs (radians).  Distance grids are nanometers on both
-  kernels already.
-* ``update_context_check``: ``update_context_frequency is None`` -> push the
-  table every hill; otherwise push only when more than
-  ``update_context_frequency`` steps elapsed since the last push.  The bias
-  matrix always accumulates; only the kernel/context push is throttled.
-
-Artifacts and resume:
-
-* artifacts: ``colvar.tsv`` (ColvarProbe, natural CV units — degrees for
-  dihedrals) and ``hills.npz`` — the hill LEDGER ``{steps, positions
-  (n, ncv), heights (n,)}`` in kernel CV units.
-* resume: instead of persisting the whole bias matrix, the ledger is
-  REPLAYED through the deposition math (deterministic — same hills in, same
-  matrix out), then pushed to the kernel once.  A resumed run's hills are
-  bit-identical to a straight run's (asserted in tests/v2 on the fake tier).
-* the driver contract stops exactly at ``plan.steps``, so hills land on
-  ``floor(steps/frequency)`` multiples.
+"""Well-tempered metadynamics — a method knowledge triple (schema +
+prepare + the deposition run).  See docs/methods/metadynamics.md.
+Registers method: ``metadynamics``.  Never imports openmm (methods stay
+kernel-agnostic; the bias rides ``kernel.install_bias`` / ``bias_ops()``).
 """
 
 from __future__ import annotations
@@ -227,6 +183,11 @@ def _tempered_height(height: float, energy: float, delta_t: float) -> float:
 
 class MetadynamicsRun:
     """One well-tempered metadynamics execution over a kernel.
+
+    The driver's loop stops exactly at ``plan.steps``, so hills land on
+    ``floor(steps/frequency)`` multiples; a resumed run's bias matrix is
+    bit-identical to a straight run's (asserted in tests/v2 on the fake
+    tier).
 
     Construct directly for artifact access (``get_free_energy`` /
     ``write_fes`` survive the run).  ``prepare()`` is the registry entry
@@ -464,7 +425,16 @@ class MetadynamicsRun:
             self._ops.update_table(LABEL, self._total_bias.flatten())
 
     def _add_gaussian(self, position, height) -> None:
-        """v1 ``_addGaussian`` (== openmm app/metadynamics.py), verbatim math."""
+        """v1 ``_addGaussian`` (== openmm app/metadynamics.py), verbatim math.
+
+        Per-axis Gaussians on the ``linspace(0, 1, bins)`` grid (INCLUSIVE
+        of 1.0, so grid point ``i`` sits at
+        ``minimum + i*(maximum-minimum)/(bins-1)``); the periodic distance
+        handling including the ``dist[-1] = dist[0]`` seam; the
+        reversed-axis outer product
+        ``reduce(np.multiply.outer, reversed(axisGaussians))``; heights
+        accumulate in kJ/mol.
+        """
         axis_gaussians = []
         for i, grid in enumerate(self.grids):
             x = (position[i] - grid.minimum) / (grid.maximum - grid.minimum)
@@ -483,7 +453,13 @@ class MetadynamicsRun:
         self._total_bias += height * gaussian
 
     def _update_context_check(self, step: int) -> bool:
-        """Whether to push the bias table to the kernel at ``step``."""
+        """Whether to push the bias table to the kernel at ``step``.
+
+        ``update_context_frequency is None`` -> push every hill; otherwise
+        push only when more than ``update_context_frequency`` steps have
+        elapsed since the last push.  The bias matrix always accumulates;
+        only the kernel/context push is throttled.
+        """
         if self.update_context_frequency is None:
             return True
         if step - self._last_update_context_step > self.update_context_frequency:
@@ -494,7 +470,15 @@ class MetadynamicsRun:
     # -- artifacts -----------------------------------------------------------------
 
     def _save_hills(self) -> None:
-        """hills.npz — the deposit ledger: steps, positions, heights."""
+        """hills.npz — the deposit ledger ``{steps, positions (n, ncv),
+        heights (n,)}`` in kernel CV units (nm / radian).
+
+        Method STATE, written by the deposit hook itself (NOT a
+        switch-gated tape: a probe fires BEFORE ``on_step`` at a shared
+        boundary, so a probe-written ledger would lag one deposit and
+        break bit-exact resume).  Resume replays it through the
+        deposition math (see ``_replay_ledger``).
+        """
         if self.sink is None:
             return
         steps = np.asarray(self._hills_steps, dtype=np.int64)

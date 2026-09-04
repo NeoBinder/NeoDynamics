@@ -1,24 +1,12 @@
-"""The extension rack of neomd.
+"""
+The extension rack of neomd.
 
-Everything pluggable — restraint knowledge triples, collective variables,
-methods (metadynamics, GAMD, ...), probe presets — enters the system through
-``register()`` under one of five kinds:
-
-    "restraint"  knowledge triples (schema + make_bias + observables)
-    "cv"         collective-variable vocabulary (schema + make_cv + evaluate)
-    "method"     sampling methods (metadynamics, ...)
-    "probe"      output presets (trajectory / state / checkpoint / colvar)
-    "plugin"     plan-schema sections (PluginSection: the keys the plugin
-                 owns under ``plugins.<name>.*`` in a plan; ADR-0002)
-
-The registry is the *only* global mutable state in neomd and it is append
-only in normal operation: core vocabularies self-register at import time and
-third-party plugins self-register when loaded via ``scan_entry_points()``.
-
-Duplicated registration of the same (kind, name) with the *same entry object*
-is a no-op (importing a module twice must be safe); registering a *different*
-object under an existing name is an error — that is almost certainly two
-plugins colliding, and the error says where the incumbent came from.
+Everything pluggable enters through :func:`register` under one of five
+kinds: restraint (knowledge triples), cv, method, probe, and plugin
+(plan-schema sections, ADR-0002).  The registry is the only global mutable
+state, append-only in normal operation; re-registering the same
+(kind, name) with the same entry object is a no-op, a different object is
+an error naming the incumbent (see :func:`register`).
 """
 
 from __future__ import annotations

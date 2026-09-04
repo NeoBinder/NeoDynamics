@@ -1,53 +1,17 @@
-"""run — the C facade of neomd.
+"""
+run — the C facade of neomd.
 
-One entry point, three levels of disclosure:
-
-    L0  md_run("some/dir")                 zero-config: find the plan file
-    L1  md_run("some/dir", steps=5000)     the same plan + top-level overrides
-    L2  md_run(plan_dict_or_Plan)          the full spec object
-
-Round-trip law
---------------
-L0(dir), L1(dir, no overrides) and L2(the same dict) produce Plans with
-IDENTICAL fingerprints.  This holds structurally: every level funnels into
-the same ``Plan`` construction (``load_plan`` for L0/L1, ``Plan.from_dict``
-for L2, ``plan.with_`` for the overrides), and the fingerprint is a pure
-function of the raw config dict.  The law is asserted in tests/v2/test_run.py
-and in CI.
-
-:func:`compile` is the L2 companion: it builds the :class:`KernelSpec`
-(system_xml / topology_file from ``plan.input_files``, the raw integrator
-dict, temperature, seed, platform, resume from the derived checkpoint/state,
-the raw barostat dict **augmented with the plan seed**, and per-particle
-mass overrides from ``system_modification``),
-registers the kernel adapters, creates the kernel through
-:class:`~neomd.kernel.port.KernelFactory`, and wraps everything in a
-:class:`~neomd.sinks.LocalDirSink` on ``plan.output_dir`` plus
-:func:`neomd.driver.drive`.  A :class:`CompiledRun` is a handle, not a
-runner: ``.run()`` delegates to the driver and returns its
-:class:`~neomd.driver.RunOutcome`.
-
-This module never imports openmm: kernel construction happens behind
-``kernel/_bootstrap.ensure_adapters`` (lazy) and dynamics behind the driver.
-
-Scope notes (documented boundaries, not defects):
-
-* ``compile(kernel="fake")`` raises :class:`NotImplementedError`: the fake
-  kernel is built from an in-memory ``SystemData``, not from plan input
-  files.  For fake-kernel runs build the kernel yourself and call
-  ``neomd.driver.drive(plan, kernel_factory=...)`` — the driver tests do
-  exactly that.
-* L1 ``**overrides`` are TOP-LEVEL plan keys only; they exist to deepen
-  scalar knobs (``steps``, ``temperature``, ``seed``, ``method``, ...).
-  Passing a whole section (``integrator={...}``, ``output={...}``) REPLACES
-  that section verbatim — there is deliberately no deep merge.  Surgical
-  section edits are what L2 (the full dict) is for.
-* ``md_run`` writes nothing itself: manifest/probes/checkpoints are the
-  driver's job through the sink.
-* plugin distributions under the ``neomd`` entry-point group are scanned
-  (registered) before the Plan is built, so ``plugins:`` sections validate
-  and plugin methods dispatch (ADR-0002; a no-op metadata read when none
-  is installed).
+One entry point, three levels of disclosure: L0 ``md_run(dir)`` (zero-config
+plan discovery), L1 ``md_run(dir, **top-level-overrides)`` (scalar knobs via
+``plan.with_``; a whole section passed REPLACES it verbatim — no deep
+merge), L2 ``md_run(plan_dict_or_Plan)``.  Round-trip law: all spellings
+compile to an IDENTICAL Plan (identical fingerprints), because every level
+funnels into the same ``Plan`` construction and the fingerprint is a pure
+function of the raw config — pinned by tests/v2/test_run.py.  :func:`compile`
+is the L2 companion; the ONE kernel-spec builder is
+:func:`build_kernel_spec`.  This module never imports openmm (lazy adapter
+bootstrap); plugins under the ``neomd`` entry-point group are scanned
+before the Plan is built (ADR-0002).
 """
 
 from __future__ import annotations
@@ -371,15 +335,18 @@ class CompiledRun:
 
 def compile(plan_or_dict, *, kernel: str = "openmm", platform: str = "cpu",
             logger=None) -> CompiledRun:
-    """Plan -> kernel + sink + driver wiring (the L2 companion of md_run).
+    """
+    Plan -> kernel + sink + driver wiring (the L2 companion of md_run).
 
     ``plan_or_dict``: a :class:`~neomd.plan.Plan` or the plan dict (validated
     and frozen; a dict triggers the plugin entry-point scan first — see
     ADR-0002 — so installed plugin sections validate and dispatch).
     ``platform`` passes through to the KernelSpec (default ``"cpu"``,
     matching the CI parity environment).  Raises
-    :class:`NotImplementedError` for ``kernel="fake"`` — see the module
-    docstring for the documented fake-kernel route.
+    :class:`NotImplementedError` for ``kernel="fake"``: the fake kernel is
+    built from an in-memory ``SystemData``, not from plan input files — for
+    fake-kernel runs build the kernel yourself and call
+    ``neomd.driver.drive(plan, kernel_factory=...)``.
     """
     if isinstance(plan_or_dict, Plan):
         plan = plan_or_dict

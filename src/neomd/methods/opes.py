@@ -1,85 +1,9 @@
-"""OPES — on-the-fly probability enhanced sampling, a method knowledge triple.
-
-Structural mirror of :mod:`neomd.methods.metadynamics`: the bias is a
-``BiasIR(kind="CustomCVTableForce")`` installed through
-``kernel.install_bias``, the update cycle rides the driver's ``on_step``
-hook (``on_step_interval = opes_set.pace`` — OPES updates its averaged
-quantities on a cadence of PACE steps, far slower than the MD step), and
-live bias access goes through ``kernel.bias_ops()``
-(cv_values / bias_energy / update_table).  The fake kernel runs the whole
-OPES math deterministically (no RNG anywhere — the compression below is
-nearest-kernel, not random).
-
-Physics — Invernizzi & Parrinello, JCTC 16, 7113 (2020) and Invernizzi,
-Piaggi & Parrinello, JCTC 18, 3988 (2022), cross-checked against the PLUMED
-reference implementation (``src/opes/OPESmetad.cpp``, LGPL, consulted as
-documentation only — no code copied):
-
-* weighted KDE of the unbiased marginal
-  ``P_n(s) = Σ_k w_k G(s, s_k) / Σ_k w_k``, ``w_k = exp(β V_{k-1}(s_k))``;
-  OPES-explore instead estimates the SAMPLED (biased) distribution with
-  ``w_k = 1`` (plain KDE).
-* ``V_n(s) = (1 - 1/γ) (1/β) log( P_n(s)/Z_n + ε )`` (standard) and
-  ``V_n(s) = (γ - 1) (1/β) log( p^WT_n(s)/Z_n + ε )`` (explore).
-* ``Z_n = (1/|Ω_n|) ∫_{Ω_n} P_n ds`` — the KDE averaged over the EXPLORED
-  CV region (the exit-time fix).
-* ``ε = exp( -ΔE / (k_B T (1 - 1/γ)) )``, ``γ = ΔE / (k_B T)`` — BARRIER
-  derives both; no biasFactor/height keys exist in the schema.
-* adaptive bandwidth
-  ``σ_i(n) = σ_i(0) [N_eff (d+2)/4]^{-1/(d+4)}``,
-  ``N_eff = (Σ w_k)^2 / Σ w_k^2`` (Silverman shrinking; default ON).
-* kernel compression: append a kernel only when a NEW CV region is
-  sampled, otherwise merge it into the existing set.
-* input parameters: initial kernel width, PACE, BARRIER — here the width
-  is each colvar's ``biasWidth`` (the same key metadynamics uses) and
-  PACE/BARRIER live in ``opes_set``.
-* explore-mode FES estimator ``F_n(s) = -γ (1/β) log p^WT_n(s)``; the
-  standard-mode estimator is ``F_n(s) = -(1/β) log P_n(s)`` (the two are
-  equivalent in standard mode, bias-converted vs KDE).
-
-Implementation details from the papers / PLUMED:
-
-* compression is NEAREST-KERNEL within a Mahalanobis threshold
-  ``COMPRESSION_THRESHOLD`` (default 1) in units of the EXISTING kernel's
-  sigma: merge if ``Σ_i (Δs_i / σ_i)^2 < threshold^2`` (σ of the old
-  kernel), else append; merging sums heights, takes the weighted-average
-  center and the weighted second moment of sigma, and then RETRIES
-  recursively (the merged kernel may now be mergeable with another).
-* kernels are truncated at ``KERNEL_CUTOFF`` sigmas:
-  ``G → (exp(-||Δ||²/2) - exp(-cutoff²/2))`` beyond which they are 0 —
-  the sum stays finite and compactly supported.
-* ``Z_n`` is evaluated by substituting the integral with a sum over the
-  COMPRESSED kernel positions (paper §"Making the Bias"):
-  ``Z = (1/N_ker) Σ_k [ Σ_j G_j(s_k) ] / KDEnorm``.
-* γ = ΔE/(k_BT) is derived from BARRIER (PLUMED's default), ``Σw`` is
-  seeded with ``w_0 = ε^{prefactor}`` at ``counter = 1`` (a virtual
-  unbiased kernel that keeps N_eff finite at the start), and each kernel's
-  height is multiplied by ``∏_i σ_i(0)/σ_i(n)`` — the ``1/(√2π σ)``
-  Gaussian normalization up to a constant that Z absorbs.
-* deposit cadence PACE fires ONE kernel deposit + Z refresh + table push
-  per event; nothing is updated per-MD-step.
-
-Deliberate deviations (none contradicts the physics):
-
-* the ledger: ``kernels.npz`` carries every PRE-compression deposit
-  ``{steps, positions (n,ncv), sigmas (n,ncv), heights (n,),
-  logweights (n,)}`` in kernel CV units (nm / radian — the same space
-  metadynamics' hills live in).  Like ``hills.npz`` it is method STATE, not
-  reporting: it is written by the deposit hook itself (a probe fires
-  BEFORE ``on_step`` at a shared boundary, so a probe-written ledger would
-  lag one deposit behind and break bit-exact resume), which is also why it
-  is NOT switch-gated through ``driver._TAPE_SWITCHES`` — the resume ledger
-  is physics, exactly like ``hills.npz``.
-* the deposit weight reads the bias through the TABLE the simulated system
-  feels (``bias_ops().bias_energy``), not a parallel continuous evaluation —
-  one definition of the bias on this seam.
-* PLUMED widens a user-provided SIGMA by √γ in explore mode; we keep the
-  declared ``biasWidth`` verbatim as σ(0) in both modes — it is the initial
-  kernel width.
-* resume replays the (trimmed) ledger through the SAME deposit math and
-  recomputes Z ONCE from the final compressed set (PLUMED's restart rule) —
-  deterministic, so a resumed run's kernels and table are bit-identical to
-  an uninterrupted run's.
+"""OPES (on-the-fly probability enhanced sampling) — a method knowledge triple
+mirroring metadynamics; one KDE update per ``opes_set.pace`` steps.  Physics:
+Invernizzi & Parrinello, JCTC 16, 7113 (2020); Invernizzi, Piaggi & Parrinello,
+JCTC 18, 3988 (2022), cross-checked against PLUMED's OPESmetad (LGPL, consulted
+as documentation only — no code copied).  Design record: GitHub issue #11.
+Registers method: ``opes``.
 """
 
 from __future__ import annotations
@@ -333,6 +257,11 @@ class OPESRun:
     def prepare(self):
         """Install the table bias, plan the resume, build the colvar tape.
 
+        Each colvar's declared ``biasWidth`` is the initial kernel width
+        σ(0), kept VERBATIM in both modes (PLUMED widens a user SIGMA by
+        √γ in explore — deliberately not done here).  No RNG anywhere;
+        compression is nearest-kernel, not random.
+
         The driver runs the loop (driver.run_prepared_method) and owns
         reporting — the restraint tape is attached there, not here.
         """
@@ -483,7 +412,20 @@ class OPESRun:
     # -- the deposit cycle (one kernel + one Z refresh + one table push) -----
 
     def _deposit(self, step: int, view) -> None:
-        """One OPES update, every ``pace`` steps (the PACE cadence)."""
+        """One OPES update, every ``pace`` steps (the PACE cadence): one
+        kernel deposit + Z refresh + one table push; nothing is updated
+        per-MD-step.
+
+        The weight is ``w = exp(V(s)/kT)`` — the bias read through the
+        TABLE the simulated system feels (``bias_ops().bias_energy``), not
+        a parallel continuous evaluation, so there is one definition of
+        the bias on this seam (explore mode: ``w = 1``, plain KDE of the
+        sampled distribution).  Running averages: counter, Σw, Σw²,
+        ``N_eff = (Σw)²/Σw²``; adaptive bandwidth (Silverman, default on)
+        ``σ(n) = σ(0)·[N_eff(d+2)/4]^{-1/(d+4)}``; the height is the
+        weight times ``∏_i σ_i(0)/σ_i(n)`` — the 1/(√2π σ) Gaussian
+        normalization up to the constant Z absorbs.
+        """
         position = self._ops.cv_values(LABEL)
         energy = self._ops.bias_energy(LABEL)  # kJ/mol — the tabulated bias
         log_weight = energy / self.kt
@@ -647,8 +589,10 @@ class OPESRun:
         return np.transpose(result, axes=tuple(range(self.ncv - 1, -1, -1)))
 
     def _kde_at(self, points: np.ndarray) -> np.ndarray:
-        """Σ_k h_k·G(s_k, points) — the raw (unnormalized) kernel sum with
-        the cutoff truncation, evaluated at every point; (m,) kJ/mol-scale."""
+        """Σ_k h_k·G(s_k, points) — the raw (unnormalized) kernel sum,
+        (m,) kJ/mol-scale.  Kernels are truncated at ``KERNEL_CUTOFF``
+        sigmas: ``G → exp(-||Δ||²/2) - exp(-cutoff²/2)``, 0 beyond — the
+        sum stays finite and compactly supported."""
         points = np.atleast_2d(np.asarray(points, dtype=np.float64))
         prob = np.zeros(points.shape[0], dtype=np.float64)
         if not self.kernels:
@@ -677,7 +621,12 @@ class OPESRun:
         return prob
 
     def _log_argument(self, points: np.ndarray) -> np.ndarray:
-        """P̃(points)/Z + ε (standard) / p^WT(points)/Z + ε (explore)."""
+        """P̃(points)/Z + ε (standard) / p^WT(points)/Z + ε (explore).
+
+        ``γ = ΔE/(k_B T)`` is derived from BARRIER (PLUMED's default
+        mapping); ``ε = exp(−ΔE/(k_B T·(1−1/γ)))`` (explore prefactor
+        γ−1) — no biasFactor/height keys exist in the schema.
+        """
         return self._kde_at(points) / self.kdenorm / self.zed + self.epsilon
 
     def _update_zed(self) -> None:
@@ -711,7 +660,17 @@ class OPESRun:
     # -- artifacts -----------------------------------------------------------------
 
     def _save_kernels(self) -> None:
-        """kernels.npz — the deposit ledger (pre-compression rows)."""
+        """kernels.npz — the deposit ledger of every PRE-compression row
+        ``{steps, positions (n,ncv), sigmas (n,ncv), heights (n,),
+        logweights (n,)}`` in kernel CV units (nm / radian — the same space
+        metadynamics' hills live in).
+
+        Method STATE, written by the deposit hook itself (NOT a
+        switch-gated tape: a probe fires BEFORE ``on_step`` at a shared
+        boundary, so a probe-written ledger would lag one deposit behind
+        and break bit-exact resume) — the resume ledger is physics,
+        exactly like ``hills.npz``.
+        """
         if self.sink is None:
             return
         steps = np.asarray(self._steps, dtype=np.int64)

@@ -1,22 +1,9 @@
-"""assemble — the adapter-side ML/MM assembly entry (ADR-0004).
+"""assemble — the openmm adapter's ML/MM assembly entry: mechanical embedding + the NNP force (ADR-0004).
 
-Called by the openmm adapter INSIDE ``OpenMMKernel.__init__``, after the System
-is deserialized and the v1-style modifications are applied, BEFORE the lazy
-``simulation`` property ever creates a Context (the same pre-Context window
-``install_bias`` rides).  The NNP Force is not XML-serializable, which is
-exactly why this lives adapter-side: the prepare layer must NEVER write
-ml_region into system.xml, and nothing here re-serializes the System after the
-ML force is added (the embedding's own XML round-trip happens while the System
-is still pure MM).
-
-Openmm-free at import (engine calls are lazy, mirroring prepare.py).
-
-W3-c: the region may be spelled with ``residues`` selectors (active-site
-regions) — resolved HERE against the topology the adapter passes, so the
-embedding always consumes a resolved atom list no matter which spelling the
-plan used.  Boundary-bond policy (a) — cross-boundary MM bonded terms are
-RETAINED — is the embedding's own by-construction behavior; see its module
-docstring and the ADR-0004 W3-c addendum.
+Contract: called inside ``OpenMMKernel.__init__`` after System deserialization
+and BEFORE any Context exists; the NNP Force is not XML-serializable, so
+ml_region never reaches system.xml.  Cross-boundary bonded terms stay MM.
+Reference: docs/methods/mlmm.md, docs/adr/0004-mlmm-in-tree-coupling.md.
 """
 
 from __future__ import annotations

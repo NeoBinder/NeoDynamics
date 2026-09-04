@@ -1,42 +1,8 @@
-"""Restraint knowledge triples.
-
-Every restraint is a registry entry of kind ``"restraint"`` — a knowledge
-triple:
-
-    schema       required/optional spec keys
-    make_bias    (name, spec) -> list[BiasIR]
-                 emits kernel-agnostic BiasIR objects whose ``energy`` is the
-                 verbatim v1 force expression with the {0}/{_name}
-                 substitution already applied — that string is the physics;
-                 never "improve" it
-    observables  (name, spec) -> ObservableSpec (a plain dict, see below)
-
-v1 unit/semantics conventions kept deliberately:
-
-* ``restr_k`` is used directly as kJ/mol per nm^order (per deg^order) — v1
-  attaches it as a bare ``kilojoules_per_mole`` global parameter, so a
-  quadratic distance restraint's k is numerically kJ/mol/nm^2.
-* bound emission uses the truthiness check ``if spec.get("min_nm")`` — a
-  bound of 0.0 means "absent" (except ``distances``, see below).
-* the dihedral max_degree is normalized by ``_fix_max_angle`` (max becomes
-  ``min + 360*ceil((min-max)/360)``), applied to the emitted Param, never to
-  the caller's spec dict.
-* ``order`` defaults to 2 and ``is_periodic`` to True via ``spec.get(...)``
-  (``dist_ref_position``/``xyz_box`` default ``is_periodic`` to False).
-
-ObservableSpec (plain dict, consumed by probes):
-    {"quantity": "distance" | "dihedral" | ...,   # what colvars.evaluate computes
-     "groups":   [[atom indices], ...]}           # the COM groups to feed it
-
-Shape extensions used by multi-quantity types:
-
-    "ref": [float, float, float]                  # dist_ref_position: the
-                                                 # reference point (nm);
-                                                 # vec_restraint: the reference
-                                                 # VECTOR ref1 - ref2 (nm)
-    funnel returns {"dist": <spec>, "angle": <spec>}; rmsd returns {} (no
-    geometric quantity exists for an RMSD over a subset of particles — its
-    energy is reported only).
+"""Restraint knowledge triples — schema + force expression + observables,
+one registry entry per restraint type (kind ``"restraint"``).  The triple
+contract and its v1 unit/semantics conventions live on :class:`Restraint`.
+Registers restraint types: distance, angle, dihedral, distances,
+dist_ref_position, xyz_box, vec_restraint, funnel, rmsd, boresch.
 """
 
 from __future__ import annotations
@@ -59,7 +25,29 @@ ObservableSpec = dict
 
 @dataclass(frozen=True)
 class Restraint:
-    """One restraint knowledge triple: schema + make_bias + observables."""
+    """One restraint knowledge triple: schema + make_bias + observables.
+
+    ``make_bias`` (name, spec) -> list[BiasIR] emits kernel-agnostic
+    BiasIR objects whose ``energy`` is the verbatim v1 force expression
+    with the {0}/{_name} substitution already applied — that string is
+    the physics; never "improve" it.  ``observables`` (name, spec) ->
+    ObservableSpec: a plain dict ``{"quantity": str, "groups":
+    [[atom indices], ...]}`` consumed by probes (combined with
+    colvars.evaluate).  Shape extensions used by multi-quantity types:
+    ``"ref": [float, float, float]`` (dist_ref_position: the reference
+    point, nm; vec_restraint: the reference VECTOR ref1 - ref2, nm);
+    funnel returns ``{"dist": <spec>, "angle": <spec>}``; rmsd returns
+    ``{}`` (no geometric quantity exists for an RMSD over a subset of
+    particles — its energy is reported only).
+
+    v1 unit/semantics conventions kept deliberately across the
+    ``make_bias`` implementations below: ``restr_k`` is used directly as
+    kJ/mol per nm^order (per deg^order) — v1 attaches it as a bare
+    ``kilojoules_per_mole`` global parameter, so a quadratic distance
+    restraint's k is numerically kJ/mol/nm^2; ``order`` defaults to 2 and
+    ``is_periodic`` to True via ``spec.get(...)`` (``dist_ref_position``/
+    ``xyz_box`` default ``is_periodic`` to False).
+    """
 
     schema: dict
     make_bias: Callable[[str, dict], list[BiasIR]]
@@ -89,6 +77,10 @@ def _float_list(value, key: str) -> list[float]:
 
 
 def _fix_max_angle(min_angle: float, max_angle: float) -> float:
+    """Normalize max_angle into [min_angle, min_angle + 360) via
+    ``min + 360*ceil((min-max)/360)`` (verbatim from v1
+    constructor.generate_restraint_dihedral); applied to the emitted
+    Param, never to the caller's spec dict."""
     # make max_angle always in the range of [min_angle, min_angle + 360)
     # (verbatim from v1 constructor.generate_restraint_dihedral)
     max_angle += 360 * math.ceil((min_angle - max_angle) / 360)
@@ -104,6 +96,11 @@ _DISTANCE_MAX_FUNC = "(k{0}/2)*(max(distance(g1,g2) - dis2{0}, 0)^order{0})"
 
 
 def _make_bias_distance(name: str, spec: dict) -> list[BiasIR]:
+    """One-sided walls from the v1 expressions: a min/max bound emits one
+    CustomCentroidBondForce each.  v1 quirk kept verbatim: the bound check
+    is the truthiness check ``if spec.get("min_nm")`` — a bound of 0.0
+    means "absent" (the ``distances`` type below uses ``is not None``
+    instead, where a 0.0 bound is a real bound)."""
     grp1 = _index_list(spec["grp1"], "grp1")
     grp2 = _index_list(spec["grp2"], "grp2")
     grps = [grp1, grp2]
@@ -157,6 +154,8 @@ def _observables_distance(name: str, spec: dict) -> ObservableSpec:
 # --------------------------------------------------------------------------
 
 def _make_bias_dihedral(name: str, spec: dict) -> list[BiasIR]:
+    """v1 dihedral wall via the tan/atan wrap; max_degree is normalized by
+    ``_fix_max_angle`` before the Param emission."""
     min_degree = spec["min_degree"]
     max_degree = _fix_max_angle(min_degree, spec["max_degree"])
     grps = [_index_list(spec[f"grp{i}"], f"grp{i}") for i in range(1, 5)]
@@ -639,6 +638,8 @@ def _read_reference_positions(path: str) -> np.ndarray:
 
 
 def _make_bias_rmsd(name: str, spec: dict) -> list[BiasIR]:
+    """RMSD-to-reference restraint (openmm RMSDForce kind; the reference
+    file read accepts v1's .pdb/.pdbx spellings)."""
     return [BiasIR(
         kind="CustomCVForce",
         energy=_RMSD_FUNC.format(name),
@@ -817,6 +818,12 @@ _DISTANCES_MAX_FUNC = "(k/2)*(max(distance(g1,g2) - dis2, 0)^order)"
 
 
 def _make_bias_distances(name: str, spec: dict) -> list[BiasIR]:
+    """N one-sided pair walls packed into ONE CustomCentroidBondForce per
+    side via the port's multi-bond ``BiasIR.bonds``/``BondIR`` (one force
+    group per side, not per pair — 32 force groups is a hard openmm
+    budget).  Per-bond values are NOT live-settable.  v1 quirk kept
+    verbatim: the bound check here is ``is not None`` (a 0.0 bound is a
+    real bound), unlike the single ``distance`` type's truthiness check."""
     min_bonds: list[BondIR] = []
     max_bonds: list[BondIR] = []
     for entry in spec["params"]:
@@ -949,6 +956,11 @@ def _boresch_anchors(spec: dict) -> dict:
 
 
 def _make_bias_boresch(name: str, spec: dict) -> list[BiasIR]:
+    """Boresch orientation restraint over 3+3 anchor atoms (rec a1/a2/a3,
+    lig b1/b2/b3): 1 distance + 2 angles + 3 dihedrals packed one force
+    per expression kind via the multi-bond ``BondIR`` path (same packing
+    as ``distances`` — one force group per expression kind).  Angular
+    equilibrium values are converted degree -> radian here."""
     anchors = _boresch_anchors(spec)
     is_periodic = spec.get("is_periodic", True)
 

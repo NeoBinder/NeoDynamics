@@ -1,18 +1,14 @@
-"""RunManifest — run provenance: plan fingerprint + epoch chain.
+"""
+RunManifest — run provenance: plan fingerprint + epoch chain.
 
-A manifest answers, for any run directory, "what exactly produced these
-artifacts?": the frozen plan (fingerprint + raw config), the kernel adapter,
-the interpreter/package versions, and the **epoch chain** — the fingerprinted
-lineage of every mid-run plan change (e.g. bias adjustments).
-
-Epoch chain law (deterministic, no wall-clock input):
-
-    epoch_0.fingerprint     = sha256("epoch:" | GENESIS | index | reason)
-    epoch_n.fingerprint     = sha256("epoch:" | epoch_{n-1}.fingerprint | index | reason)
-
-with ``GENESIS = ""`` and ``index`` the 0-based epoch number.  Two identical
-(reason) histories therefore produce identical chains on any machine, while
-``started_at`` (ISO timestamp) stays outside the fingerprints.
+Answers "what exactly produced these artifacts?": frozen plan (fingerprint +
+raw config), kernel adapter, package versions, and the epoch chain — the
+fingerprinted lineage of mid-run plan changes.  Epoch chain law
+(deterministic, no wall-clock input): ``epoch_0 = sha256("epoch:"|GENESIS|index|reason)``,
+``epoch_n = sha256("epoch:"|epoch_{n-1}.fingerprint|index|reason)``, with
+``GENESIS = ""`` and 0-based ``index`` — identical reason histories give
+identical chains on any machine; ``started_at`` stays outside the
+fingerprints.
 """
 
 from __future__ import annotations

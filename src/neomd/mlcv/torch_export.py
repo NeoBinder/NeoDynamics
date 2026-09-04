@@ -1,22 +1,9 @@
 """TorchScript export of a trained linear ML-CV model (ADR-0006).
 
-The export is the phase-2 HANDOFF artifact: what
-``docs/adr/0006-mlcv-injection-torchcv.md`` designs the simulation core to
-consume.  Phase 1 stays honest about its shape:
-
-* only the LINEAR phase-1 families export (TICA projection, logistic
-  sigmoid) — the scripted module is ``act((x - mean) @ W^T + b)`` with the
-  mean folded into the bias, numerically pinned bit-tightly to
-  :func:`neomd.mlcv.apply_model`;
-* the module's ``forward`` takes the FEATURE vector, not positions — the
-  phase-2 wiring (feature computation inside the CV, the ADR's TorchCV
-  wrapper) is where positions-to-features enters, and the ADR pins the
-  interface contract shared with the ML/MM track's TorchForce usage
-  (positions nm float32 full-system at the kernel boundary, energies
-  kJ/mol; a CV-value spelling returns the model's natural units).
-
-torch is imported INSIDE :func:`convert` — the package (and the CLI, and
-CI) runs torch-free; a missing torch is a clean user error, exit 2.
+The ``.pt`` is the phase-2 handoff artifact (docs/adr/0006-mlcv-injection-torchcv.md):
+``act((x - mean) @ W^T + b)`` over the FEATURE vector, pinned bit-tightly to
+:func:`neomd.mlcv.apply_model` (:func:`convert`).  torch is imported lazily —
+a missing torch is a clean user error, exit 2.
 """
 
 from __future__ import annotations

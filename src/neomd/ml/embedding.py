@@ -4,61 +4,17 @@ Source: openmm-ml 1.7, commit 501c3a04062db52c76a7bd0b67e6bc62a2e48ae3
 (2026-08-29), files ``openmmml/embeddings/mechanicalembedding.py`` and
 ``openmmml/embeddings/utilities.py`` — MIT license, copyright (c) 2026
 Stanford University; authors Peter Eastman, Evan Pretti.  The MIT permission
-notice below applies to the ported code (settlement decision #2: physics is
-ported verbatim, with attribution, never "cleaned up").
+notice below applies to the ported code (physics is ported verbatim, with
+attribution, never "cleaned up").
 
-What mechanical embedding does (unchanged from the source): the conventional
-force field keeps computing the ML↔MM interactions (the ML atoms' MM point
-charges are NOT zeroed — they still carry the ML↔MM electrostatics), while
-every MM term BETWEEN ML atoms is removed so the ML potential owns the ML
-region's internal energy:
-
-* bonded terms whose atoms are ALL in the ML region are dropped
-  (:func:`removeBonds`, XML round-trip, bonds/angles/torsions);
-* NonbondedForce gets zero-valued exceptions (charge product 0, sigma 1 nm,
-  epsilon 0) for every ML-ML pair — unless the ML model itself computes
-  long-range electrostatics (``ml_long_range``), in which case the true
-  charge products are KEPT and the ML-ML PME contribution is subtracted
-  through a separate PME NonbondedForce holding only the ML charges
-  (wrapped in ``-excludeForce`` CustomCVForce);
-* CustomNonbondedForce objects get ML-ML exclusions.
-
-THE BOUNDARY-BOND POLICY (W3-c, active-site residue regions; decided in the
-ADR-0004 W3-c addendum — literature-standard, and this port's own by
-construction): bonded terms that STRADDLE the ML/MM boundary — bonds, angles
-or torsions with ANY atom in MM — are RETAINED as MM terms.  Consequences,
-stated honestly:
-
-* boundary ML atoms still carry their MM bonded terms toward MM partners
-  (e.g. the peptide bond joining an ML residue to the protein backbone),
-  while their ML-internal terms are NNP-computed — the junction's own
-  chemistry is described by neither side's electronic structure (mechanical
-  embedding: no link atoms, no charge redistribution; the ML atoms' MM
-  charges are untouched).  This is the openmm-ml behavior verbatim (its
-  ``removeBonds`` likewise removes only all-ML terms) and the GROMACS
-  QM/MM convention for covalent boundaries;
-* Constraints are NOT removed by ``removeBonds`` (also the source verbatim):
-  with ``constraints: HBonds`` an ML region containing protein keeps its
-  X-H constraints — no energy double-count (constraints are workless), but
-  those internal DOFs stay rigid rather than NNP-flexible.
-
-Documented deviations from the source (each is a seam, not physics):
-
-1. the source's two ``MLPotentialImpl`` seams become plain parameters:
-   ``potential.getMLLongRange()`` -> the ``ml_long_range`` argument (our
-   TorchScript models cannot be probed, so the plan declares it),
-   ``potential.addForces(...)`` -> the ``add_ml_forces`` callback (the
-   caller installs its NNP force — mock or TorchForce — into the returned
-   system);
-2. the interpolation path (``InterpolationHelper``) is not ported — neomd
-   has no interpolation use case; only the ``interpolate=False`` branch is;
-3. the source calls ``utilities.makeCustomNonbondedExclusions`` while
-   utilities.py defines ``addCustomNonbondedExclusions`` — a latent upstream
-   naming bug (AttributeError on any system carrying a CustomNonbondedForce);
-   this port calls the DEFINED name.
-
-Everything else — the periodicity logic, the exception parameters, the PME
-exclusion-force construction, the error messages — is the source verbatim.
+Documented deviations from the source (seams, not physics): the two
+``MLPotentialImpl`` seams become the ``ml_long_range`` argument and the
+``add_ml_forces`` callback (:func:`create_mixed_system`); the interpolation
+path is not ported; the source's latent ``makeCustomNonbondedExclusions``
+naming bug is fixed (the DEFINED name is called).  Everything else —
+including the boundary-bond policy (cross-boundary bonded terms stay MM) and
+the kept ML-atom MM charges — is the source verbatim; see
+docs/adr/0004-mlmm-in-tree-coupling.md (W3-c addendum) and docs/methods/mlmm.md.
 
 MIT license of the ported code:
 
@@ -195,6 +151,18 @@ def addCustomNonbondedExclusions(force, atoms: list[int]) -> None:
 def create_mixed_system(system, atoms: list[int], ml_long_range,
                         add_ml_forces: Callable[[object], None]):
     """Mechanical embedding (openmm-ml ``MechanicalEmbedding`` port).
+
+    What it does (source behavior, verbatim): the conventional force field
+    keeps computing the ML↔MM interactions (the ML atoms' MM point charges
+    are NOT zeroed — they still carry the ML↔MM electrostatics; with
+    ``ml_long_range`` the ML-ML PME contribution is subtracted through a
+    separate PME NonbondedForce wrapped in ``-excludeForce`` CustomCVForce),
+    while every MM term BETWEEN ML atoms is removed so the ML potential owns
+    the ML region's internal energy (all-ML bonded terms via
+    :func:`removeBonds`; zero-valued NonbondedForce exceptions for ML-ML
+    pairs; CustomNonbondedForce ML-ML exclusions).  Constraints are NOT
+    removed.  Boundary policy (cross-boundary bonded terms stay MM):
+    docs/adr/0004-mlmm-in-tree-coupling.md, W3-c addendum.
 
     Parameters
     ----------

@@ -1,85 +1,12 @@
-"""driver — the deep module for minimize/MD loops, progress statistics, and
-periodic scheduling.
+"""
+driver — minimize/MD loops, progress statistics, periodic scheduling.
 
-All stepping/run logic lives here once, kernel-agnostic on the
-:class:`~neomd.kernel.port.KernelPort` seam (works unchanged with the fake,
-openmm, and replay kernels):
-
-* :func:`run_minimization` — ``kernel.minimize`` with ``plan.min_params``
-  (``tolerance`` / ``maxiter``, defaults 10 / 10000), a final
-  ``output.ckpt`` write when a sink is given plus the
-  per-leg ``last.ckpt`` / ``last.pdbx`` pair, and a
-  :class:`MinResult` (final energy + positions hash).
-* :func:`run_md` — the stepping loop: resume arithmetic (``remaining =
-  steps - current_step``, the ``current steps:X remaining steps:Y`` first
-  log line), chunked stepping with progress/rate/ETA logging every
-  ``log_interval``
-  steps, probe scheduling, the
-  ``on_step`` method hook, and the per-leg ``save_last`` pair when a
-  sink is given.
-* :func:`drive` — the one-call orchestration: Plan → KernelSpec → kernel →
-  restraint installation (through the registry knowledge triples) → method
-  dispatch ("min" / "eq" / "md" / "prod") → default probes from the plan's
-  derived intervals → RunManifest with the epoch chain.
-
-Loop architecture (chunking + lazy views)
------------------------------------------
-The loop is **boundary-driven**: the next kernel call always steps to the
-nearest upcoming event — a multiple of some probe interval, of the
-``on_step`` interval, or of ``log_interval`` — capped at the target step.
-With no probes this degenerates to plain fixed-size turns; with
-probes the kernel still takes maximally long strides between their firing
-points (never step-by-step unless something genuinely fires every step).
-``ProbeScheduler.tick(step, view)`` runs at every event boundary (O(#probes)
-modulo checks) but the :class:`~neomd.probes.RunView` is constructed only
-when at least one probe or the ``on_step`` hook actually fires, and the view
-itself is lazy — positions/energy hit the kernel at most once per view — so
-scheduling cost is invisible between observations.
-
-The method seam
----------------
-``on_step(step, view)`` (+ ``on_step_interval``) is where a sampling method
-hooks the loop: metadynamics passes ``on_step_interval=meta.frequency``
-and deposits a Gaussian hill inside the callback.  The boundary arithmetic
-guarantees the callback lands on
-exact multiples of the interval regardless of what the probes are doing, and
-the view hands the method the live kernel (for CV queries) at that point.
-Probes tick *before* ``on_step`` at a shared boundary (reporters fired at
-step completion, the hill deposited after).
-
-The method-run contract (prepare → run_prepared_method → finish)
----------------------------------------------------------------
-Registry methods don't run their own loops.  ``entry.prepare(kernel, plan,
-sink, logger)`` installs the method's biases and returns a
-:class:`PreparedMethod` — the ``on_step`` hook + interval, the method's own
-tape probes, its resume plan, and a ``finish`` writing the end-of-run
-artifacts.  :func:`run_prepared_method` (the ONE definition of method-run
-reporting, shared by drive()'s rack branch and the Run classes' direct
-``run()``) then assembles the probe list — the plan defaults + the restraint
-tape (same wiring the MD branch gets) + the method's tapes, each included
-only while its output switch allows (``_TAPE_SWITCHES``) — and runs the
-loop.  Reporting POLICY (which artifacts run) is the driver's; artifact
-CONTENT (column vocabulary, append decisions) stays with the method/probe
-that owns the tape.  Methods therefore never see restraint wiring — no
-dispatch kwarg for it.
-
-Box vectors
------------
-``KernelPort.box_vectors()`` is the port operation carrying the live
-periodic box (None for non-periodic systems); ``run_md(view=...)`` accepts
-a view factory from anyone who knows periodicity better, and the default
-factory simply hands the view the kernel's own ``box_vectors`` callable
-(fresh per observation — NPT boxes change between calls).
-
-Optional capabilities (negotiated, never assumed): the per-leg
-``last.pdbx`` artifact is written only when the kernel provides the
-:class:`~neomd.kernel.port.StructureWriter` capability; the restraint
-probe's energy column only when it provides
-:class:`~neomd.kernel.port.GroupEnergy` (see port.py).
-
-Progress logging goes to ``logging.getLogger("neomd.driver")``; the
-``logger`` parameter only swaps the destination object — no handler is ever
-attached by this module (tests capture through their own handler).
+Kernel-agnostic on the :class:`~neomd.kernel.port.KernelPort` seam.  The
+code-internal contracts live with their owners: the boundary-driven loop and
+box-vector handling on :func:`run_md`, the method-run contract (prepare ->
+run_prepared_method -> finish) on :class:`PreparedMethod` /
+:func:`run_prepared_method`, the orchestration on :func:`drive`.
+Architecture: docs/principles/architecture.md; design rationale in the ADRs.
 """
 
 from __future__ import annotations
@@ -361,8 +288,20 @@ def run_md(
     sink=None,
     on_progress: Callable[[int, Mapping[str, int]], None] | None = None,
 ) -> RunResult:
-    """Run ``plan.steps`` of dynamics on ``kernel`` (resume-aware) with probe
+    """
+    Run ``plan.steps`` of dynamics on ``kernel`` (resume-aware) with probe
     scheduling, progress statistics, and an optional method hook.
+
+    The loop is boundary-driven: the next kernel call always steps to the
+    nearest upcoming event — a multiple of some probe interval, of
+    ``on_step_interval``, or of ``log_interval`` — capped at the target step.
+    With no probes this degenerates to plain fixed-size turns; with probes the
+    kernel still takes maximally long strides (never step-by-step unless
+    something genuinely fires every step).  The scheduler ticks at every event
+    boundary, but the :class:`~neomd.probes.RunView` is constructed only when a
+    probe or the ``on_step`` hook actually fires.  Probes tick *before*
+    ``on_step`` at a shared boundary (reporters fired at step completion, the
+    hill deposited after).
 
     Parameters
     ----------
@@ -375,11 +314,15 @@ def run_md(
     scheduler:   caller-built scheduler override.
     view:        factory ``(kernel, step) -> RunView``; the default wraps the
                  kernel in a :class:`~neomd.probes.KernelView` whose box
-                 accessor is the kernel's own ``box_vectors()`` port call
-                 (see "Box vectors" in the module docstring).
+                 accessor is the kernel's own ``box_vectors()`` port call —
+                 fresh per observation (NPT boxes change between calls);
+                 supply your own factory when you know periodicity better
+                 (``None`` for non-periodic systems).
     on_step:     method hook, called as ``on_step(step, view)`` on
                  every multiple of ``on_step_interval`` (default 1 = every
-                 step).  Metadynamics deposits hills here.
+                 step).  Metadynamics deposits hills here; the boundary
+                 arithmetic guarantees exact multiples regardless of what the
+                 probes are doing.
     log_interval: progress-log cadence in steps (``PROGRESS_INTERVAL``);
                  lines fire on absolute multiples of it (and at the final
                  step) — matching the legacy output format for fresh runs,

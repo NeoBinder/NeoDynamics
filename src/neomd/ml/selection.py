@@ -1,38 +1,9 @@
 """selection — the ml_region residue-selector grammar (ADR-0004).
 
-Active-site ML regions are spelled as RESIDUE SELECTORS instead of raw
-particle indices, so a plan can say "the ligand plus residue 29 of chain A"
-without a topology-derived index list that rots on every re-preparation::
-
-    ml_region:
-      residues: ["A:JZ4", "A:29", "A:31"]   # ligand + two pocket residues
-      model: {...}
-
-THE GRAMMAR (deliberately minimal — one spelling per intent):
-
-* ``"CHAIN:RESID"``  — the tail is NUMERIC: every atom of every residue whose
-  ``id`` equals the tail in that chain (e.g. ``"A:29"``).  Residue ids are
-  the topology's own (PDB author numbering, kept by ``keepIds=True``).
-* ``"CHAIN:NAME"``   — the tail is NON-numeric: every atom of every residue
-  NAMED tail in that chain (e.g. ``"A:JZ4"``, the ligand-by-resname
-  spelling; ``"A:HOH"`` would take every water of the chain — the
-  per-residue id spelling is the surgical one).
-* chain id, residue id and residue name compare CASE-INSENSITIVELY (PDB
-  resnames are upper-case; ``"a:jz4"`` == ``"A:JZ4"``).
-
-Selection is resolved against the system's TOPOLOGY (the plan's
-``input_files.complex`` — the same file the openmm adapter loads): at the
-``neomd validate --check-files`` tier for early collect-all feedback, and at
-adapter assembly time as the definitive resolution (a hand-built
-``KernelSpec`` gets the same treatment — the defensive-second-gate rule of
-``ml.spec``).  A selector matching NOTHING is an error with a did-you-mean
-over the topology's chains / that chain's residue names.
-
-This module is openmm-free: it ducks-types the topology
-(``topology.atoms()`` with ``atom.index`` / ``atom.residue.name`` /
-``atom.residue.id`` / ``atom.residue.chain.id`` — exactly the
-``openmm.app.Topology`` surface), so validation, adapters and tests all
-consume one definition.
+``"CHAIN:RESID"`` (numeric tail -> residue id) / ``"CHAIN:NAME"`` (non-numeric
+tail -> residue name), case-insensitive, resolved duck-typed against the
+topology; unmatched selectors error with did-you-mean.  Reference:
+docs/methods/mlmm.md, docs/adr/0004-mlmm-in-tree-coupling.md.
 """
 
 from __future__ import annotations

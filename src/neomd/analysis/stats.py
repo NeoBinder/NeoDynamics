@@ -1,18 +1,7 @@
-"""Block averaging — mean + statistical error of a correlated series.
+"""Block averaging — mean + statistical error of a correlated series via the variance-of-block-means plateau.
 
-The standard blocking analysis (variance-of-block-means plateau): for a
-ladder of block sizes ``b`` (powers of two), split the series into
-``n // b`` blocks, average each, and take the standard error of the block
-means, ``sem(b) = std(block_means, ddof=1) / sqrt(n_blocks)``.  For
-uncorrelated data ``sem`` is flat at ``sigma / sqrt(n)``; for correlated
-data it grows with ``b`` until the blocks exceed the correlation time and
-then plateaus at the true error of the mean.  :func:`block_average` walks
-the ladder while at least ``min_blocks`` blocks remain and reports the
-plateau value at the LARGEST admissible block size (the conservative
-choice — with few blocks the estimate itself is noisy; the full table is
-returned so callers can inspect the plateau).
-
-numpy-only, deterministic (no RNG here — feed it a series).
+Method and the largest-admissible-block convention: :func:`block_average`.
+Reference: docs/methods/analysis.md.  numpy-only, deterministic.
 """
 
 from __future__ import annotations
@@ -50,6 +39,14 @@ class BlockAverageResult:
 
 def block_average(values, min_blocks: int = 8) -> BlockAverageResult:
     """Mean + block-averaged statistical error of one series.
+
+    Blocking: for a ladder of block sizes ``b`` (powers of two) the series is
+    split into ``n // b`` blocks and ``sem(b) = std(block_means, ddof=1) /
+    sqrt(n_blocks)`` is reported — flat at ``sigma / sqrt(n)`` for
+    uncorrelated data, growing with ``b`` and plateauing at the true error
+    once blocks exceed the correlation time.  The plateau value at the
+    LARGEST admissible block size is the reported error (the conservative
+    choice; the full table comes back in the result for inspection).
 
     ``values``: 1-D sequence (one colvar column over time, ...).  ``min_blocks``:
     stop growing blocks once fewer than this many whole blocks would remain

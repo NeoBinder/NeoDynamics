@@ -1,38 +1,22 @@
-# CV 库：path / coordination / rmsd（colvars.py 扩展）
+# CV 库：rmsd / coordination / path_s / path_z（colvars.py）
 
-> 状态：issue #14（残留部分）· 已实现（`src/neomd/colvars.py` 新增 4 个
-> kind-driven CV）
+> 需求：[issue #14](https://github.com/NeoBinder/NeoDynamics/issues/14)
+> （残留部分——funnel 已存在，rmsd 已是 restraint 形态）
 
-## 背景与动机
+## 原理简述
 
-issue #14 面向蛋白-配体**结合/解离**采样，要求把既有的 5 种 CV
-（`distance` / `distance_ref` / `min_distances` / `dihedral` / `angle`）扩展为
-CV 库 + funnel restraint。但对 #14 的再评估已判定现状：
-
-- **funnel 已存在**（`funnel` restraint triple，物理 verbatim，参数齐全）；
-- **rmsd 已是 restraint 形态**。
-
-因此剩余工作即本档记录的 **path（s, z）/ coordination CV triples + rmsd 转为 CV
-形态**。这些是结合口袋水合描述（coordination）、路径采样（path）与构象对齐
-（rmsd-CV）的高频刚需，无先例 —— 属于"来自一手文献的新物理"，
-不适用物理 verbatim 移植纪律。
-
-## 与 issue 方案的差异
-
-- **知识三元组**：每个 CV 是 `colvars.py` 里的一个模块级条目（schema + kernel 表达式
-  + numpy `evaluate` 观测量），经 `registry.register("cv", name, entry)` 注入。
-- **双轨实现（决策 #5）**：openmm adapter 编译真实力（RMSDForce、
-  CustomNonbondedForce 对求和、逐参考帧 RMSDForce 的 log-sum-exp CustomCVForce）；
-  fake kernel 携带镜像的 numpy 特殊路径，与 `colvars.evaluate` 逐位对拍钉死。这是
-  fake/replay 无 OpenMM CV 求值所强制的。
-- path CV 采用 Branduardi–Gervasio–Parrinello 定义并拆为 `path_s` / `path_z` 两个
-  独立注册的 CV，共享同一 spec 块语法；`CVIR.kind` 驱动编译分发。
-- funnel 不在本工作项（已存在，物理 verbatim）。
+在 5 种表达式 CV（`distance` / `distance_ref` / `min_distances` /
+`dihedral` / `angle`）之外新增 4 个 kind-driven CV：`rmsd`（Kabsch
+最优旋转 RMSD）、`coordination`（两原子团配位数，有理切换函数）、
+`path_s` / `path_z`（路径进度/偏离，Branduardi–Gervasio–Parrinello
+定义，共享同一 spec 块语法）。每个 CV 是 `colvars.py` 里的一个知识
+三元组（schema + kernel 表达式 + numpy `evaluate` 观测量），
+`CVIR.kind` 驱动编译分发；kernel 字符串与表示约定记在
+`colvars.py` 模块 docstring。
 
 ## 使用
 
-README "Knowledge triples and the registry" 一节是摘要；各新 CV 的 YAML 拼写
-（`colvars:` 列表项）：
+各 CV 的 YAML 拼写（`colvars:` 列表项）：
 
 ```yaml
 method: metadynamics
@@ -67,26 +51,21 @@ colvars:
   # path_z 同 ref_path_file/restr_grp/lambda，但为 nm 网格（min_cv_nm/...）
 ```
 
-**numpy evaluate 对拍**：`neomd.colvars` 暴露 `evaluate` 观测量（Kabsch RMSD、
-有理切换函数对求和、path 帧权重），fake kernel 的特殊路径与其逐位一致，由
-`tests/v2/test_colvars_w1b.py` 用**手写几何值**对拍钉死（公共接口测试，不探测内部）。
+grid 约定：`rmsd`、`path_z` 用 nm 后缀键（`min_cv_nm`/`biasWidth_nm`），
+`coordination`、`path_s` 无量纲（`min_cv`/`biasWidth`）。
+`neomd.colvars` 暴露 numpy `evaluate` 观测量（报告几何用），与内核
+编译路径双轨并存、逐位对拍钉死（`tests/v2/test_colvars_w1b.py`）。
 
-## 架构与产物
+## 产物
 
-- 注册表：`register("cv", "rmsd"/"coordination"/"path_s"/"path_z", ...)`，与 5 个
-  表达式 CV 并列，共 9 个 CV。
-- kind-driven 编译：openmm 侧按 `CVIR.kind` 分发到 RMSDForce / pair-sum /
-  log-sum-exp CustomCVForce；grid 约定 —— `rmsd`、`path_z` 用 nm 后缀
-  （`min_cv_nm`/`biasWidth_nm`），`coordination`、`path_s` 无量纲（`min_cv`/`biasWidth`），
-  沿用 BiasVariable 的 gridWidth→bins 映射。
-- 引用与 kernel 字符串记在 `colvars.py` 模块 docstring（一手文献、每个 CV 的
-  kernel/表示约定）。
+CV 值进 `colvar.tsv`（自然单位），与其它 CV 无差别；bias/分析按所配
+method 的产物语义。
 
-## 参考文献与 ADR
+## 参考文献
 
-- Branduardi, Gervasio & Parrinello, *JCTC* 2007（path CV s,z）；PLUMED
-  PATH / COORDINATION 文档；Limongelli et al., *PNAS* 2013（funnel metadynamics，
-  背景）。
-- ADR-0001（strangler 迁移）；[issue #14](https://github.com/NeoBinder/NeoDynamics/issues/14)
-  （"funnel 已存在，剩余为 path/coordination/rmsd-CV"）。新 CV 属新物理，
-  不适用物理 verbatim 移植纪律。
+- Branduardi, Gervasio & Parrinello, *J. Chem. Phys.* 126, 054103
+  （2007）—— [path CV（s, z）](https://doi.org/10.1063/1.2432340)。
+- [PLUMED 文档](https://www.plumed.org/doc)：PATH / COORDINATION。
+- Limongelli, Bonomi & Parrinello, *PNAS* 110, 6358（2013）——
+  [funnel metadynamics](https://doi.org/10.1073/pnas.1308648110)
+  （背景；`funnel` restraint triple 已独立存在）。

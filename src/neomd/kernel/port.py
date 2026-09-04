@@ -1,61 +1,9 @@
-"""KernelPort — the physics-kernel seam of neomd.
+"""KernelPort — the physics-kernel seam: the closed operation surface every
+driver, probe and method calls, plus the optional capability protocols
+(BiasOps, BiasParamOps, GroupEnergy, StructureWriter, BoostOps) negotiated
+via :func:`provides` — never assumed.
 
-The core operations (the closed surface — everything driver/probes/methods
-may call, do not widen casually):
-
-    name / num_particles / current_step / masses          state description
-    positions / energy_forces / box_vectors               observation
-    minimize / step                                        dynamics
-    install_bias / clear_bias                              bias lifecycle
-    snapshot / restore                                     state round-trip
-
-Optional capabilities are NEGOTIATED, never assumed — callers ask
-``provides(kernel, <Capability>)`` (isinstance plus a proxy-safe fallback;
-see :func:`provides`) and must degrade when a kernel does not provide them:
-
-    BiasOps          via ``kernel.bias_ops()`` — live table-bias manipulation
-                     (well-tempered metadynamics); None when unsupported
-    BiasParamOps     ``set_bias_param(name, value)`` — live updates of one
-                     installed bias's GLOBAL parameter (steered MD's ramp
-                     push); absent when the
-                     kernel cannot update parameters mid-run
-    GroupEnergy      ``group_energy(groups)`` — per-force-group energy reads
-                     (the restraint reporter's bias-energy column)
-    StructureWriter  ``write_structure(path)`` — final positions as a
-                     structure file
-    BoostOps         ``install_boost / set_boost_param / boost_potentials`` —
-                     GaMD-style energy-dependent force scaling (ADR-0005):
-                     boost channels over force-group energies whose biased
-                     force is a SCALED system force, not an additive bias
-
-Adapter notes:
-
-* ``openmm.py`` — production adapter (the only core module that imports
-  openmm).  Its public ``simulation``/``system`` attributes are adapter
-  internals: NOTHING outside ``kernel/`` may reach through them.
-* ``fake.py`` — deterministic textbook-Langevin kernel (CI workhorse).
-* ``replay.py`` — golden-tape playback (parity carrier).  It deliberately
-  self-registers at import and is NOT covered by
-  ``kernel/_bootstrap.ensure_adapters``: import ``neomd.kernel.replay``
-  before creating replay kernels through the factory (the CLI's
-  ``run --kernel replay`` and the parity tests do exactly that).
-
-Documented invariants:
-
-* force-group ids returned by ``install_bias`` are OPAQUE ints, never
-  compared across kernels or assumed to follow an allocation order; each
-  adapter's own allocation policy is pinned by its tests.
-* ``box_vectors()`` returns None for non-periodic systems; a periodic
-  system's box may change between calls (NPT).
-
-Unit conventions inside neomd (all adapters convert at the boundary):
-    positions  nm, float64, shape (N, 3)
-    velocities nm/ps
-    energy     kJ/mol
-    forces     kJ/mol/nm
-    masses     dalton
-    temperature K
-    time/step  steps (driver converts with integrator dt)
+See ``docs/architecture.md`` and ``docs/adr/0005-gamd-boost-seam.md``.
 """
 
 from __future__ import annotations
@@ -110,9 +58,9 @@ def pick_free_force_group(used, holders: dict) -> int:
     ``used``: iterable of already-taken group ids.  ``holders``: ``{group id:
     description}`` of who owns each taken group — the exhaustion error lists
     them, so a 32-group collision is diagnosable instead of mysterious.
-    Returns are OPAQUE ints to callers (see the module docstring invariant);
-    the allocation ORDER is pinned here so fake/replay runs exercise the
-    same ids production would.
+    Returns are OPAQUE ints to callers — never compared across kernels or
+    assumed to follow an allocation order — while the allocation ORDER is
+    pinned here so fake/replay runs exercise the same ids production would.
     """
     taken = {int(g) for g in used}
     free = set(range(MAX_FORCE_GROUPS)) - taken
@@ -608,8 +556,12 @@ class BoostOps(Protocol):
 
 @runtime_checkable
 class KernelPort(Protocol):
-    """The physics-kernel protocol (see the module docstring for the closed
-    surface and the capability list)."""
+    """The physics-kernel protocol (see the module docstring for the
+    capability list).  Unit conventions inside neomd (every adapter
+    converts at its boundary): positions nm float64 (N, 3), velocities
+    nm/ps, energy kJ/mol, forces kJ/mol/nm, masses dalton, temperature K,
+    time in steps (the driver converts with the integrator dt).
+    """
 
     name: str
 
@@ -652,7 +604,7 @@ class KernelPort(Protocol):
 
     def install_bias(self, bias: BiasIR) -> int:
         """Install one biasing force; returns the assigned force-group id
-        (opaque — see the module docstring's invariant)."""
+        (an opaque int — never compared across kernels)."""
         ...
 
     def clear_bias(self) -> None:

@@ -1,35 +1,9 @@
-"""FES reconstruction from the hills ledger — the WT estimator, conventions
-ported verbatim from :mod:`neomd.methods.metadynamics`.
+"""FES reconstruction from the hills ledger — the well-tempered estimator with the producer's conventions.
 
-The bias is the sum of deposited Gaussians; the free-energy surface in the
-well-tempered limit is the producer's own estimator (``get_free_energy``)::
-
-    FES = -((T + deltaT) / deltaT) * bias,   deltaT = T * (biasFactor - 1)
-
-(the standard ``-gamma/(gamma-1) * V`` WTMetaD relation; see
-:func:`wt_fes_factor`).
-
-Two evaluation paths, one math:
-
-* :func:`reconstruct_bias` — the DEPOSITION-GRID replay: ``_addGaussian``
-  ported verbatim (inclusive ``linspace(0, 1, bins)`` grid, scaled variance
-  ``(width/range)**2``, the periodic ``dist[-1] = dist[0]`` seam, the
-  reversed-axis outer product, hill-by-hill accumulation in ledger order)
-  so the result is BIT-IDENTICAL to the running method's ``_total_bias``
-  (pinned by the tests against a real run's ``fes.tsv``).
-* :func:`bias_at_points` — the same Gaussians evaluated at arbitrary points
-  (minimal-image wrap for periodic axes).  Algebraically identical to the
-  grid path at grid points (pinned to ~1e-12); it exists for reweighting and
-  for custom-resolution grids (:func:`bias_on_grid`).
-
-The producer keeps its bias array in REVERSED-axis order (last configured CV
-varies fastest); the arrays returned here are CONFIG-ordered (first CV
-varies fastest) — a pure transpose, values untouched.  :func:`write_fes`
-emits the producer's ``fes.tsv`` layout byte-for-byte (same header, same row
-order, same ``str(float)`` precision), so analysis output and run output are
-one format.
-
-numpy-only, openmm-free, deterministic.
+``FES = -((T + deltaT) / deltaT) * bias`` (see :func:`wt_fes_factor`); the
+deposition-grid replay is bit-identical to the running method's
+``_total_bias`` (:func:`reconstruct_bias`) and :func:`write_fes` emits the
+producer's ``fes.tsv`` layout byte-for-byte.  Reference: docs/methods/analysis.md.
 """
 
 from __future__ import annotations

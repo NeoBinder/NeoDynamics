@@ -1,63 +1,8 @@
-"""Gaussian-accelerated MD (GaMD) — a method knowledge triple.
-
-Physics (Miao/Feher/McCammon, JCTC 2015; Miao 2016 dual boost; Miao/
-Bhattarai/Wang JCTC 2020 LiGaMD; Copeland/Miao et al. JPCB 2022
-gamd-openmm), implemented per ADR-0005:
-
-* the boost potential ΔV(P) = ½·k·(E−P)² (applied while P < E) depends on
-  the boosted region's OWN potential energy, so the biased force is a
-  SCALED system force — installed through the kernel's ``BoostOps``
-  capability (``install_boost`` / ``set_boost_param`` / ``boost_potentials``),
-  not an additive ``BiasIR`` (mathematically impossible; ADR-0005);
-* channels are installed at ZERO strength in ``prepare()`` — the same
-  pre-Context discipline as ``install_bias`` — and the calibrated
-  (threshold E, harmonic k) values are pushed live afterwards, the
-  ``BiasParamOps`` pattern applied to channels.  ``mode: total`` installs
-  one ``total`` channel (``groups == ()``, the system energy); ``mode:
-  dual`` adds a ``dihedral`` channel over the system's torsion force
-  groups (discovered through the kernel's duck-typed
-  ``torsion_force_groups()``; the openmm adapter isolates torsion forces
-  into a fresh group pre-Context via ``pick_free_force_group``, the fake
-  reports installed torsion biases — group ids stay opaque ints);
-  ``channels: [{label, groups}]`` defines explicit channels (LiGaMD: point
-  them at the ligand dihedral / ligand-nonbonded groups of a system whose
-  XML already separates those interactions into their own force groups);
-* the calibration pre-run is METHOD-side pure logic, not a kernel seam
-  (ADR-0005 rejected integrator-side Welford windows): zero-strength MD in
-  ``calibration_interval`` chunks, each chunk's per-channel target energy
-  read from ``boost_potentials()`` — the integrator's own P globals, so
-  calibration samples the exact quantity production boosts — then the
-  literature (E, k) selection:
-
-  - lower bound:  E = Vmax, k0 = min(1, (σ0/σV)·(Vmax−Vmin)/(Vmax−Vavg))
-  - upper bound:  k0 = (1−σ0/σV)·(Vmax−Vmin)/(Vavg−Vmin), E = Vmin +
-    (Vmax−Vmin)/k0  (used when its k0 lands in (0, 1], else the lower
-    bound; a degenerate sample range — σV = 0 — keeps the channel at zero
-    strength, loudly logged);
-
-  with the effective harmonic constant k = k0/(Vmax−Vmin) ∈ (0, 1/(Vmax−Vmin)],
-  which bounds the force scaling s = 1 − k(E−P) to [0, 1] (forces never
-  flip).  Parameters land in ``gamd_calibration.json`` — the ONE parameter
-  source for fresh and resumed runs alike (resume pushes from it; pushing
-  over a checkpoint is idempotent);
-* ``gamd.tsv`` — the boost trace: per channel ΔV (the reweighting
-  observable), the target energy P and the force scale, read through
-  ``boost_potentials()`` by :class:`neomd.probes.GamdProbe` (switch-gated
-  by ``output.report_gamd``, default on, trimmed on resume like every
-  other tape);
-* reweighting: unbiased expectations follow the Tiwary–Parrinello weight
-  w = exp(+β·ΔV) — exactly :func:`neomd.analysis.reweight.tp_weights` /
-  :func:`neomd.analysis.reweight.reweight_expectation` fed the
-  ``<label>__boost`` column (helpers below parse ``gamd.tsv`` so the
-  analysis subpackage stays the single reweighting definition point).
-
-Step accounting (documented): the calibration pre-run advances the kernel's
-step counter — ``plan.steps`` is the FINAL step of the whole run
-(calibration + boosted production), the same absolute-step convention
-``resume`` uses.
-
-This module never imports openmm (methods stay kernel-agnostic; units are
-the port's kJ/mol conventions throughout).
+"""Gaussian-accelerated MD (GaMD) — a method knowledge triple (schema +
+prepare + the calibration/boost run).  See ADR-0005
+(docs/adr/0005-gamd-boost-seam.md) and docs/methods/gamd.md.
+Registers method: ``gamd``.  Never imports openmm (methods stay
+kernel-agnostic; the port's kJ/mol unit conventions throughout).
 """
 
 from __future__ import annotations
@@ -136,6 +81,13 @@ class MethodResult:
 def _channel_params(samples: np.ndarray, sigma0: float) -> dict:
     """Literature (E, k) selection from calibration samples (kJ/mol).
 
+    Lower bound:  ``E = Vmax``, ``k0 = min(1, (σ0/σV)·(Vmax−Vmin)/(Vmax−Vavg))``.
+    Upper bound:  ``k0 = (1−σ0/σV)·(Vmax−Vmin)/(Vavg−Vmin)``,
+    ``E = Vmin + (Vmax−Vmin)/k0`` — used when its k0 lands in (0, 1],
+    else the lower bound.  The effective harmonic constant is
+    ``k = k0/(Vmax−Vmin) ∈ (0, 1/(Vmax−Vmin)]``, which bounds the kernel's
+    force scaling ``s = 1 − k(E−P)`` to [0, 1] (forces never flip).
+
     Returns ``{"threshold": E, "k": k, "vmax": ..., "vmin": ...,
     "vavg": ..., "sigma": ...}``; a degenerate sample range (σV = 0, the
     system's energy does not vary — e.g. a frozen fixture) keeps the
@@ -176,6 +128,10 @@ def _channel_params(samples: np.ndarray, sigma0: float) -> dict:
 
 class GamdRun:
     """One GaMD execution over a kernel (install → calibrate → boost).
+
+    The calibration pre-run advances the kernel's step counter:
+    ``plan.steps`` is the FINAL step of the whole run (calibration +
+    boosted production), the same absolute-step convention ``resume`` uses.
 
     Construct directly for artifact access (``channels`` /
     ``read_gamd_trace``); ``prepare()`` is the registry entry drive()
@@ -246,6 +202,16 @@ class GamdRun:
 
     def prepare(self):
         """Install zero-strength channels, plan the resume, calibrate.
+
+        Channels are installed at ZERO strength — the same pre-Context
+        discipline as ``install_bias`` — and the calibrated (threshold E,
+        harmonic k) values are pushed live afterwards (the BiasParamOps
+        pattern applied to channels, via ``set_boost_param``).  ``mode:
+        total`` installs one ``total`` channel (``groups == ()``, the
+        system energy); ``mode: dual`` adds a ``dihedral`` channel over
+        the system's torsion force groups (discovered through the kernel's
+        duck-typed ``torsion_force_groups()``; group ids stay opaque
+        ints); ``channels: [{label, groups}]`` defines explicit channels.
 
         The driver runs the production loop (driver.run_prepared_method)
         with the gamd.tsv probe this method builds; nothing physics-side
@@ -337,7 +303,11 @@ class GamdRun:
     # -- calibration (the cMD pre-run + parameter selection) ----------------
 
     def _calibrate(self) -> None:
-        """Zero-strength MD in chunks, sampling each channel's P."""
+        """Zero-strength MD in ``calibration_interval`` chunks, sampling
+        each channel's target energy from ``boost_potentials()`` — the
+        integrator's own P globals, so calibration samples the exact
+        quantity production boosts (method-side pure logic, not a kernel
+        seam; ADR-0005 rejected integrator-side Welford windows)."""
         samples: dict[str, list[float]] = {label: []
                                            for label in self.channels}
         n_chunks = max(1, self.calibration_steps // self.calibration_interval)
@@ -373,6 +343,9 @@ class GamdRun:
         self._push_calibration()
 
     def _load_calibration(self) -> None:
+        """Resume path: load parameters from gamd_calibration.json — the
+        ONE parameter source for fresh and resumed runs alike — instead
+        of re-calibrating."""
         if self.sink is None:
             raise ValueError(
                 f"continue_md gamd needs a sink to load "
@@ -389,6 +362,9 @@ class GamdRun:
         self.calibration = {label: channels[label] for label in self.channels}
 
     def _push_calibration(self) -> None:
+        """Push (threshold, k) per channel via ``set_boost_param``; pushing
+        over a restored checkpoint is idempotent (resume re-pushes, it
+        does not re-calibrate)."""
         for label, params in self.calibration.items():
             self.kernel.set_boost_param(label, "threshold", params["threshold"])
             self.kernel.set_boost_param(label, "k", params["k"])

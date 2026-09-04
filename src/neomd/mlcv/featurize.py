@@ -1,51 +1,9 @@
 """The mlcv featurizer: run-dir data -> named feature columns (ADR-0006).
 
-A numpy-only, out-of-tree-style tool: zero changes to the simulation core
-(the phase-2 injection is designed in
-``docs/adr/0006-mlcv-injection-torchcv.md``).  Features reuse the PUBLIC cv
-registry (``registry.get("cv", type).make_cv / evaluate``) — the featurizer
-never re-implements CV geometry, it re-uses the registry's dual-track
-evaluate implementations (distance / angle / dihedral / min_distances /
-distance_ref / rmsd / coordination / path_s / path_z) plus two local,
-mass-based feature kinds with no registry entry:
-
-* ``contact`` — a smoothed contact indicator between two atom groups: the
-  same rational switching function the coordination CV sums over pairs,
-  applied once to the group-COM distance
-  (``s(d) = (1-(d/r0)^nn)/(1-(d/r0)^mm)``, nn=6/mm=12 default, i.e.
-  ``1/(1+(d/r0)^6)``) — the MSM-standard smooth contact, dimensionless.
-* ``tape`` — a passthrough column lifted from a run-dir step-tsv artifact
-  (``colvar.tsv`` / ``restraint.tsv``), aligned to frames BY STEP (frames
-  without a matching tape row carry ``nan``; documented).
-
-Config grammar (YAML for the CLI, a dict for the library call)::
-
-    run_dirs: [dir1, dir2]     # OR trajectory: path.dcd (+ system_xml)
-    system_xml: path.xml       # masses source (default: each run's manifest)
-    uniform_masses: false      # escape hatch: mass 1.0 -> centroid geometry
-    stride: 1                  # keep every stride-th DCD frame
-    output: features.npz
-    features:
-      d_lig:  {type: distance, grp1_idx: "0,1", grp2_idx: "5"}
-      cn:     {type: coordination, grp1_idx: "0,1", grp2_idx: "5,6", r0: 0.4}
-      ct:     {type: contact, grp1_idx: "0", grp2_idx: "5", r0: 0.4}
-      dihe:   {type: dihedral, grp1_idx: "0", grp2_idx: "1",
-               grp3_idx: "2", grp4_idx: "3"}
-      ps:     {type: path_s, ref_path_file: path.pdb,
-               restr_grp: "0,1,2", lambda: 0.1}
-      cv_passthrough: {type: tape, tape: colvar.tsv, column: cv1}
-
-The output npz cache (``FEATURE_FORMAT_VERSION``) carries ``values``
-(n_frames, n_features) float64, ``steps`` / ``run_index`` (n_frames,) int64
-and json-string metadata (feature names / types / units), so ``train``
-never touches the run dirs again.  Contents are deterministic: the same
-config over the same artifacts reproduces every array bit-exactly.
-
-Mass bookkeeping (honest limitation): COM-based features (distance / angle
-/ dihedral / min_distances / distance_ref / contact) need dalton masses —
-taken from the run's ``system.xml`` (via its manifest) or the explicit
-``system_xml`` key; with ``uniform_masses: true`` they degenerate to
-centroid geometry (documented semantics, flagged in the output metadata).
+Registry kinds reuse the PUBLIC cv registry's evaluate implementations; local
+kinds ``contact`` (switching function on the group-COM distance) and ``tape``
+(passthrough column aligned by step, nan where missing) — see featurize.
+Config reference: docs/methods/mlcv.md.  Deterministic, numpy-only.
 """
 
 from __future__ import annotations

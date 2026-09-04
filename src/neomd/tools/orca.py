@@ -1,62 +1,8 @@
-"""ORCA + Multiwfn RESP2 charge fitting.
+"""
+ORCA + Multiwfn RESP2 charge fitting.
 
-Phase map (:class:`Resp2Backend`), per phase (``gas`` then ``solv``):
-
-ORCA side
-    1. ``create_orca_input`` — ``<name>.inp``: the keyword line
-       (default ``! B3LYP/G D3 def2-TZVP def2/J RIJCOSX``), ``%maxcore`` /
-       ``%pal nprocs <n> end``, an optional ``%cpcm`` block with ``smd true``
-       and ``SMDsolvent "<name>"`` for the solvent phase, then
-       ``* xyz <charge> <multiplicity>`` + the coordinate lines of the input
-       xyz (first two lines skipped) + ``*``.
-    2. ``run_orca`` — ``[orca, <name>.inp]``; the child's stdout becomes
-       ``ToolResult.stdout`` and is written to ``<name>.out`` when a
-       ``work_dir`` is given.  Success requires the sentinel
-       ``ORCA TERMINATED NORMALLY`` (exit code 0 alone is not enough).
-    3. ``convert_to_molden`` — ``[orca_2mkl, <name>, -molden]`` turns
-       ``<name>.gbw`` into ``<name>.molden.input``; the backend prepends
-       the ECP valence-electron table ``Nval.txt`` (Multiwfn needs it for
-       elements beyond Xe) to build ``<name>.molden``.
-
-Multiwfn side
-    4. ``run_multiwfn_resp`` — ``[Multiwfn, <name>.molden, -ispecial, 1]``
-       fed a numbered menu script on stdin (population analysis ``7`` ->
-       RESP charge ``18`` -> export ``1`` -> confirm ``y`` -> exit).
-       Multiwfn writes ``<name>.chg`` next to the molden file.
-    5. ``calculate_resp2_charges`` — ``q_resp2 = (1 - delta) * q_gas +
-       delta * q_solv`` (delta = the liquid-phase weighting, default 0.5),
-       written in the column format
-       ``{element:<3s} {x:12.6f} {y:12.6f} {z:12.6f} {q:15.10f}``.
-
-Seam notes:
-
-* every external invocation goes through the injected
-  :class:`~neomd.tools.port.ToolRunner` — the interpreter's working
-  directory is never switched and no child process is spawned directly.
-  Files travel as runner ``inputs``/``outputs``; with ``work_dir`` given,
-  the runner's per-call ``cwd`` *is* the work directory, so all workflow
-  file names materialize there; without it each call runs in a
-  runner-managed temp directory and the artifacts come back in
-  :attr:`Resp2Result.files`.
-* **stdin menu fidelity.**  The ``ToolRunner`` contract has no stdin
-  parameter, so the byte-identical menu is written to
-  ``multiwfn_commands.txt`` in the isolated directory and attached to the
-  process stdin by a shell redirect — the executed command is
-  ``sh -c 'Multiwfn <name>.molden -ispecial 1 < multiwfn_commands.txt'``:
-  same executable, same argv order, same stdin bytes.  (A missing Multiwfn
-  therefore surfaces as the shell's exit 127 inside a ``ToolError``
-  diagnostic rather than a pre-flight ``which`` check; orca/orca_2mkl *are*
-  pre-flight checked like :func:`neomd.tools.antechamber.build` does.)
-
-Untested-with-fakes parts: nothing here exercises a real ORCA convergence,
-a real ``orca_2mkl`` molden file, or a real Multiwfn RESP fit — the
-numerical quality of the charges is entirely the tools' business.
-``.gbw`` files travel through memory as bytes (fine for typical ligands;
-a very large basis could make that heavy).  The ``.chg`` parser assumes
-the 5-field layout ``Element X Y Z Charge`` — a Multiwfn version that
-prepends an atomic index is *detected and rejected* with a pointed message
-instead of silently mis-reading columns.
-
+Phase map, seam contracts and the stdin-menu trick on
+:class:`Resp2Backend`; the workflow config on :func:`Resp2Backend.run`.
 Charges are plain floats in elementary charge (the neomd convention).
 """
 
@@ -106,7 +52,7 @@ ORCA_SUCCESS_SENTINEL = "ORCA TERMINATED NORMALLY"
 NVAL_FILE = "Nval.txt"
 EQVCONS_FILE = "eqvcons.txt"
 EQVCONS_H_FILE = "eqvcons_H.txt"
-#: carries the stdin menu bytes (see module docstring)
+#: carries the stdin menu bytes (see Resp2Backend)
 MENU_FILE = "multiwfn_commands.txt"
 SHELL = "sh"
 
@@ -378,12 +324,44 @@ class Resp2Result:
 
 
 class Resp2Backend:
-    """The ORCA + Multiwfn adapter for the resp2_orca workflow.
+    """
+    The ORCA + Multiwfn adapter for the resp2_orca workflow.
 
-    Every external command runs through ``runner`` with directory isolation
-    (see the module docstring for the phase map and the stdin-menu trick).
-    ``work_dir`` on the phase methods is the work directory: the runner's
-    ``cwd`` for the calls, so all file names appear there.
+    Every external command runs through ``runner`` with directory isolation;
+    ``work_dir`` on the phase methods is the work directory (the runner's
+    ``cwd`` for the calls, so all file names materialize there); without it
+    each call runs in a runner-managed temp directory and the artifacts come
+    back in :attr:`Resp2Result.files`.  The interpreter's working directory is
+    never switched and no child process is spawned directly.
+
+    Phase map, per phase (``gas`` then ``solv``): ``create_orca_input`` writes
+    ``<name>.inp`` (keyword line — default
+    ``! B3LYP/G D3 def2-TZVP def2/J RIJCOSX`` — ``%maxcore`` / ``%pal nprocs``,
+    an optional ``%cpcm`` SMD block for the solvent phase, then
+    ``* xyz <charge> <multiplicity>`` + coordinates); ``run_orca`` executes
+    ``[orca, <name>.inp]`` — success requires the sentinel ``ORCA TERMINATED
+    NORMALLY`` (exit code 0 alone is not enough); ``convert_to_molden`` runs
+    ``[orca_2mkl, <name>, -molden]`` and prepends the ECP valence-electron
+    table ``Nval.txt`` (Multiwfn needs it for elements beyond Xe) to build
+    ``<name>.molden``; ``run_multiwfn_resp`` feeds the numbered menu script
+    (population 7 -> RESP 18 -> export 1 -> confirm y -> exit).  **Stdin menu
+    fidelity**: ``ToolRunner`` has no stdin parameter, so the byte-identical
+    menu is written to ``multiwfn_commands.txt`` in the isolated directory and
+    attached via ``sh -c 'Multiwfn <name>.molden -ispecial 1 <
+    multiwfn_commands.txt'`` — same executable, same argv order, same stdin
+    bytes (a missing Multiwfn therefore surfaces as the shell's exit 127
+    inside a ToolError, not a pre-flight check; orca/orca_2mkl ARE pre-flight
+    checked); ``calculate_resp2_charges`` combines
+    ``q_resp2 = (1 - delta) * q_gas + delta * q_solv`` into the
+    ``{element:<3s} {x:12.6f} {y:12.6f} {z:12.6f} {q:15.10f}`` column format.
+    ``parse_chg`` detects and rejects a Multiwfn version that prepends an
+    atomic index, instead of silently mis-reading columns.
+
+    Not exercised with fakes: a real ORCA convergence, a real ``orca_2mkl``
+    molden file, a real Multiwfn RESP fit — the numerical quality of the
+    charges is entirely the tools' business.  ``.gbw`` files travel through
+    memory as bytes (fine for typical ligands; a very large basis could make
+    that heavy).
 
     Parameters
     ----------

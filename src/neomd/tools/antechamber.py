@@ -1,21 +1,15 @@
-"""GAFF/antechamber knowledge.
+"""
+GAFF/antechamber knowledge.
 
-* :class:`AntechamberBackend` — a plain class implementing the
-  :class:`~neomd.tools.port.ChargeBackend` / ``ParamBackend`` protocols,
-  executing antechamber/parmchk2 through a
-  :class:`~neomd.tools.port.ToolRunner` with per-call directory isolation
-  (the interpreter working directory is never mutated).
-* :class:`GAFFTemplateGenerator` — a THIN subclass of the public
-  openmmforcefields generator; no openmmforcefields internals are copied.
-* :func:`rename_atoms_by_template` — rename topology atoms to their matched
-  template's atom names, re-derived per residue through openmm's own matcher.
-* :func:`build` — the ``ForceFieldBuilder`` seam entry consumed by
-  ``neomd.system``.
-
-Unit convention (deliberate simplification, documented): partial charges are
-plain floats in *elementary charge* everywhere inside neomd ("elementary
-charge as float"); the only place a unit appears is the assignment boundary
-into an openff ``Molecule``/an openmm System.
+:class:`AntechamberBackend` (Charge/Param backends executing
+antechamber/parmchk2 through a :class:`~neomd.tools.port.ToolRunner` with
+per-call directory isolation), the THIN openmmforcefields
+``GAFFTemplateGenerator`` subclass (no internals copied),
+:func:`rename_atoms_by_template`, and :func:`build` — the
+``ForceFieldBuilder`` seam entry consumed by ``neomd.system``.  Unit
+convention: partial charges are plain floats in elementary charge everywhere
+inside neomd; the only place a unit appears is the assignment boundary into
+an openff ``Molecule`` / an openmm System.
 """
 
 from __future__ import annotations

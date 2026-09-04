@@ -1,30 +1,8 @@
-"""NeoUserError family — user-facing errors with provenance and did-you-mean.
+"""
+NeoUserError family — user-facing errors with provenance and did-you-mean.
 
-Every error a *user* of neomd can trigger by writing a bad config renders as a
-multi-line message answering four questions:
-
-    what key is wrong, where did it come from (file:line when known),
-    what value was found, and what did you probably mean.
-
-Design constraints:
-
-* dependency-free (stdlib ``difflib`` only) — imported everywhere;
-* provenance is optional: a Plan built from a bare dict has no ``file:line``,
-  one built via :func:`neomd.plan.load_plan` carries the YAML key lines;
-* suggestions come from ``difflib.get_close_matches`` over the known-key set
-  the validator was looking at when the error was raised.
-
-Subclasses:
-
-    ConfigKeyError        unknown/misspelled/missing key
-    ConfigValueError      bad value or range for a known key
-    PlanFrozenError       attempted mutation of a frozen Plan
-    PlanValidationError   structural garbage (e.g. config root is not a mapping)
-    PlanValidationErrors  the collect-all aggregate (>= 2 problems in one pass)
-    UpstreamVersionError  an upstream private-API pin refuses this version
-    StructureQualityError strict-mode QC verdict "fail" (neomd.qc; the report
-                          is written before this raises, so every finding is
-                          already on disk when the run stops)
+Dependency-free (stdlib ``difflib`` only), so every module can raise them.
+The rendered-message contract lives on :class:`NeoUserError`.
 """
 
 from __future__ import annotations
@@ -58,7 +36,17 @@ def suggest(word, options, n: int = 3, cutoff: float = 0.6) -> list[str]:
 
 
 class NeoUserError(Exception):
-    """Base class for errors aimed at the human writing the config.
+    """
+    Base class for errors aimed at the human writing the config.
+
+    Rendered-message contract: every user-triggerable error renders as a
+    multi-line message answering four questions — what key is wrong, where it
+    came from (``file:line`` when known), what value was found, and what you
+    probably mean.  Provenance is optional: a Plan built from a bare dict has
+    no ``file:line``; one built via :func:`neomd.plan.load_plan` carries the
+    YAML key lines.  Suggestions come from ``difflib.get_close_matches`` over
+    the known-key set the validator was looking at.  The ``neomd`` CLI renders
+    these to stderr with NO traceback and exits 2.
 
     Parameters
     ----------

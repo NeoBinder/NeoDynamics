@@ -1,36 +1,8 @@
-"""The ``neomd analysis`` sub-subcommands — spellings, not behavior.
+"""The ``neomd analysis`` CLI — thin argument mapping onto the neomd.analysis public calls, spellings not behavior.
 
-Each subcommand is a thin argument mapping onto one :mod:`neomd.analysis`
-public call, mirroring :mod:`neomd.cli`'s conventions: payloads (tsv/json)
-to stdout or an ``--out`` file, a one-line summary on stdout when the
-payload went to a file, exit 0 on success and 2 for rendered user errors
-(:class:`~neomd.analysis.AnalysisError` family; argparse usage errors also
-exit 2).  No plotting — numbers only.
-
-    analysis fes RUN_DIR [RUN_DIR ...] [--out PATH] [--temperature T]
-             [--bias-factor G] [--upto-step N] [--bins N]
-                  -> wt FES on the deposition grid (or --bins resolution),
-                     producer fes.tsv layout; multi-walker hills merged
-    analysis convergence RUN_DIR [RUN_DIR ...] [--blocks N] [--out PATH]
-             [--temperature T] [--bias-factor G]
-                  -> window-split max/mean |dFES| table ("收敛差值")
-    analysis block-average RUN_DIR | TAPE.tsv --column NAME
-             [--min-blocks N] [--out PATH]
-                  -> mean + statistical error of one tape column (blocking)
-    analysis reweight RUN_DIR [RUN_DIR ...] --observable COLUMN
-             [--cv COLUMN] [--bins N] [--fes-out PATH] [--out PATH]
-             [--temperature T]
-                  -> Tiwary-Parrinello: reweighted expectation (json) +
-                     optional reweighted FES profile along --cv
-    analysis merge RUN_DIR [RUN_DIR ...] --out DIR
-                  -> materialize a merged multi-walker run dir (hills.npz +
-                     colvar.tsv + the first walker's manifest.json)
-    analysis bar RUN_DIR_A RUN_DIR_B [--temperature T] [--out PATH]
-                  -> Bennett acceptance ratio over one adjacent RBFE λ
-                     window pair (their du.tsv tapes, both directions)
-    analysis mbar RUN_DIR [RUN_DIR ...] [--temperature T] [--out PATH]
-                  -> MBAR over a whole RBFE λ ladder (every window's
-                     du.tsv; one window per ladder state)
+Contract: payload to stdout or ``--out`` (one-line summary when written to a
+file), exit 0 on success, exit 2 for the AnalysisError family and argparse
+usage errors, no plotting.  Subcommand reference: docs/methods/analysis.md.
 """
 
 from __future__ import annotations

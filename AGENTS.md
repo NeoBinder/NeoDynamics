@@ -111,7 +111,7 @@ release together with the `neomd2` script alias.
   the `prepare.py` tail and the driver's min tail, writing
   `qc_report.json` through sinks (collect-all findings, then
   `StructureQualityError` in strict mode; default soft). Thresholds +
-  rationale live in its module docstring; regression in
+  rationale live at the implementing code (function-level docstrings); regression in
   `tests/v2/test_qc.py`.
 - **Tools** (`tools/`): external-process adapters (antechamber, orca,
   ligand, convert, fix_protein, template_xml). Subprocess-isolated tmpdirs;
@@ -192,6 +192,36 @@ Consequences:
   as-built state. Rewrite in place when something changes — do not layer
   "previously…" notes, stale version history, or completed-migration
   narrative into living docs.
+
+### Method pages (docs/methods/) — content policy (issue #17)
+
+In the AI era most procedural documentation is dead weight: the paper IS
+the documentation. Per-method pages therefore keep exactly four things:
+
+1. **原理简述** — a short (≤1 paragraph) statement of what the method
+   does and when to use it; do NOT restate the paper's derivations,
+   full math, or design history.
+2. **使用** — runnable plan/CLI examples and key options.
+3. **产物** — the artifacts it writes and their resume semantics.
+4. **参考文献** — the papers the implementation is based on, with
+   DOI/arXiv links (the user-interaction-point traceability this issue
+   established). Design decisions and issue-delta narratives live in
+   ADRs and issues — link them, never restate them.
+
+### Code docstrings (src/neomd/) — content policy (issue #17)
+
+Same logic as the docs policy: the paper IS the documentation. Module
+headers are 1–5 lines — one sentence of role + pointers (docs page,
+ADR, issue). Paper restatements, formulas copied from papers, design
+history and issue-delta narratives do NOT live in docstrings; a design
+decision not recorded anywhere else gets merged into the relevant ADR
+instead. Code-internal contracts (bit-exactness seams, unit
+conventions, format/producer conventions, threshold rationale,
+provenance/attribution) are kept — at the docstring of the specific
+function/class implementing them; a genuinely whole-module contract may
+stay in the header as a compressed paragraph (≤6 lines). Tests may pin
+docstring content (e.g. migrate_v1.py's one-shot discipline) — those
+statements are contracts, never delete them.
 
 ## Settled decisions — do not relitigate
 

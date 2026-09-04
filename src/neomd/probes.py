@@ -1,32 +1,13 @@
-"""Probe presets + the driver<->probe RunView contract.
+"""
+Probe presets + the driver<->probe RunView contract.
 
-A *probe* is the driver-facing replacement for openmm reporters: the driver
-periodically
-hands it a :class:`RunView` (an observation of the running kernel) and it
-appends to an artifact through a sink.  Artifacts: ``output.state`` /
-``output.dcd`` / ``output.ckpt`` plus ``colvar.tsv`` and ``restraint.tsv``
-(the new tsv formats, which replace the legacy ``restraint.dat``); the
-state-file format reproduces openmm's StateDataReporter output byte-for-byte
-for the flag set in use.
-
-The RunView contract (this module owns it; the driver codes against it):
-
-    RunView
-        step          int   — current step count (driver's counter)
-        kernel        KernelPort — the live kernel (port.py's closed surface)
-        positions()   (N, 3) nm float64    — cached per observation
-        energy()      EnergyReport         — cached per observation
-        box_vectors() (3, 3) nm or None    — cached per observation
-
-The view's box accessor defaults to the kernel's own
-``KernelPort.box_vectors()`` port call (the driver's default view factory
-hands it in as a callable so NPT boxes are fresh per observation); anyone
-constructing a view directly may supply a static array or their own
-callable instead.  A driver builds one view per observation point; the
-cached accessors hit the kernel at most once per view instance, so a step
-batch with several probes costs one kernel query.
-
-This module never imports openmm (units: nm / kJ/mol / ps per port.py).
+A probe is the driver-facing replacement for openmm reporters: the driver
+periodically hands it a :class:`RunView` (an observation of the running
+kernel) and it appends to an artifact through a sink.  Artifact ownership:
+``output.state`` / ``output.dcd`` / ``output.ckpt`` plus ``colvar.tsv`` and
+``restraint.tsv``; the state file reproduces openmm's StateDataReporter
+output byte-for-byte for the flag set in use.  Never imports openmm (units
+nm / kJ/mol / ps per port.py).
 """
 
 from __future__ import annotations
@@ -96,7 +77,24 @@ _STATE_HEADER = '#"%s"' % '"\t"'.join(_STATE_COLUMNS)
 
 @runtime_checkable
 class RunView(Protocol):
-    """One observation of a running kernel (see module docstring)."""
+    """
+    One observation of a running kernel; the driver codes against this
+    contract and builds one view per observation point.
+
+    Fields / callables (cached per view — accessors hit the kernel at most
+    once, so a step batch with several probes costs one kernel query):
+
+    * ``step``: int — current step count (the driver's counter)
+    * ``kernel``: the live :class:`~neomd.kernel.port.KernelPort` (port.py's
+      closed surface)
+    * ``positions()``: (N, 3) nm float64
+    * ``energy()``: EnergyReport
+    * ``box_vectors()``: (3, 3) nm or None — defaults to the kernel's own
+      ``KernelPort.box_vectors()`` port call, handed in as a callable by the
+      driver's default view factory so NPT boxes are fresh per observation; a
+      direct constructor may supply a static array or its own callable
+      instead.
+    """
 
     step: int
     kernel: KernelPort
