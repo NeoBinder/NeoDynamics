@@ -226,7 +226,7 @@ def _global_parameters(alchemical) -> dict | None:
 
 
 def build_kernel_spec(plan: Plan, *, kind: str = "openmm",
-                      platform: str = "cpu") -> KernelSpec:
+                      platform: str = "cuda") -> KernelSpec:
     """Compile the plan into a :class:`~neomd.kernel.port.KernelSpec`.
 
     THE one spec builder: both ``compile()`` and direct ``drive()`` calls
@@ -333,7 +333,7 @@ class CompiledRun:
                 f"sink={type(self.sink).__name__})")
 
 
-def compile(plan_or_dict, *, kernel: str = "openmm", platform: str = "cpu",
+def compile(plan_or_dict, *, kernel: str = "openmm", platform: str = "cuda",
             logger=None) -> CompiledRun:
     """
     Plan -> kernel + sink + driver wiring (the L2 companion of md_run).
@@ -341,8 +341,9 @@ def compile(plan_or_dict, *, kernel: str = "openmm", platform: str = "cpu",
     ``plan_or_dict``: a :class:`~neomd.plan.Plan` or the plan dict (validated
     and frozen; a dict triggers the plugin entry-point scan first — see
     ADR-0002 — so installed plugin sections validate and dispatch).
-    ``platform`` passes through to the KernelSpec (default ``"cpu"``,
-    matching the CI parity environment).  Raises
+    ``platform`` passes through to the KernelSpec (default ``"cuda"``;
+    CPU-only environments pass ``"cpu"`` explicitly, as the CI parity
+    tests do).  Raises
     :class:`NotImplementedError` for ``kernel="fake"``: the fake kernel is
     built from an in-memory ``SystemData``, not from plan input files — for
     fake-kernel runs build the kernel yourself and call
@@ -372,7 +373,7 @@ def compile(plan_or_dict, *, kernel: str = "openmm", platform: str = "cpu",
     return CompiledRun(plan, created, LocalDirSink(plan.output_dir), logger)
 
 
-def md_run(target, *, platform: str = "cpu", kernel: str = "openmm",
+def md_run(target, *, platform: str = "cuda", kernel: str = "openmm",
            logger=None, **overrides):
     """Run an experiment; the entry point (see module docstring).
 
@@ -382,7 +383,7 @@ def md_run(target, *, platform: str = "cpu", kernel: str = "openmm",
         ``"dir"`` (L0/L1: a plan file is discovered inside) or a plan file
         path, or the plan dict / a :class:`Plan` (L2).
     platform:
-        openmm platform passed through to the kernel (default ``"cpu"``).
+        openmm platform passed through to the kernel (default ``"cuda"``).
     **overrides:
         L1: top-level plan keys replaced via ``plan.with_`` (unknown keys
         raise :class:`~neomd.errors.ConfigKeyError` with a did-you-mean).

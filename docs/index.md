@@ -47,7 +47,7 @@ md_run(plan_dict)                        # L2: the full experiment spec
 ```
 
 ```bash
-neomd run path/to/run_dir --steps 50000 --platform cpu   # --kernel openmm|fake|replay
+neomd run path/to/run_dir --steps 50000                  # default: --platform cuda --kernel openmm (cpu/fake/replay available)
 neomd validate plan.yaml --check-files                    # report every problem, write nothing
 ```
 

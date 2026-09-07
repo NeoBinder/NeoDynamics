@@ -329,8 +329,9 @@ def test_direct_drive_and_compile_share_one_kernel_spec(tmp_path):
         return FakeKernel(spec)
 
     drive(plan, kernel_factory=factory, sink=MemorySink())
-    # the exact same construction as compile()'s (openmm/cpu defaults both)
+    # the exact same construction as compile()'s (openmm/cuda defaults both)
     assert captured["spec"] == build_kernel_spec(plan)
+    assert captured["spec"].platform == "cuda"  # the default platform
     # ...and the rich v1 fields survive the drive() path too
     assert captured["spec"].barostat == compiled.barostat
     assert captured["spec"].particle_masses == compiled.particle_masses

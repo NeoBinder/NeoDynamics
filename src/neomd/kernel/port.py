@@ -316,7 +316,7 @@ class KernelSpec:
         "integrator_name": "LangevinIntegrator", "dt": 0.002, "friction_coeff": 1.0})
     temperature: float = 298.0  # K
     seed: int = 0
-    platform: str = "cpu"  # "cpu" | "cuda"
+    platform: str = "cuda"  # "cuda" (default) | "cpu"
     device_index: str = "0"
     resume: dict | None = None  # {"checkpoint": path} or {"state": path}
     #: system modifications applied before the Context exists (barostat

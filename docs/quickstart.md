@@ -17,7 +17,8 @@ fingerprint.
 ## Shell
 
 ```bash
-neomd run path/to/run_dir --steps 50000 --platform cpu   # --kernel openmm|fake|replay
+neomd run path/to/run_dir --steps 50000                  # default: --platform cuda --kernel openmm
+neomd run path/to/run_dir --steps 50000 --platform cpu   # CPU-only environments opt in (fake/replay kernels too)
 neomd prepare prep_config.yaml                            # system preparation (protein+ligand+solvent)
 neomd migrate old_v1_config.yaml -o plan.yaml             # one-shot v1 YAML -> Plan translation
 neomd validate plan.yaml --check-files                    # report every problem, write nothing

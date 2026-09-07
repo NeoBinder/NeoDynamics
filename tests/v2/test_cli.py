@@ -32,7 +32,7 @@ import pytest
 import yaml
 
 import neomd
-from neomd.cli import main
+from neomd.cli import build_parser, main
 from neomd.plan import Plan, load_plan
 
 DATA = pathlib.Path(__file__).resolve().parents[1] / "data"
@@ -79,12 +79,20 @@ def write_boxed_peptide(tmp_path) -> str:
 # ---------------------------------------------------------------------------
 
 
+def test_run_platform_defaults_to_cuda():
+    # the default is cuda on every surface; cpu is an explicit choice
+    assert build_parser().parse_args(["run"]).platform == "cuda"
+
+
 def test_run_directory_discovery_and_steps_override(tmp_path, capsys):
     out = tmp_path / "out"
     config = ala2_plan(out)
     plan_dir = write_plan_dir(tmp_path, config)
 
-    rc = main(["run", str(plan_dir), "--steps", "30"])
+    # --platform cpu: the CLI default is cuda; the bit-determinism pin
+    # (OPENMM_CPU_THREADS, module header) only holds on the CPU platform,
+    # and CI runners have no GPU
+    rc = main(["run", str(plan_dir), "--steps", "30", "--platform", "cpu"])
 
     assert rc == 0
     captured = capsys.readouterr()

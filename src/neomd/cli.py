@@ -51,8 +51,8 @@ def build_parser() -> argparse.ArgumentParser:
              "plan file path (default: the current directory)")
     run.add_argument("--steps", type=int, default=None, metavar="N",
                      help="L1 override of the plan's top-level 'steps'")
-    run.add_argument("--platform", choices=("cpu", "cuda"), default="cpu",
-                     help="openmm platform (default: cpu)")
+    run.add_argument("--platform", choices=("cuda", "cpu"), default="cuda",
+                     help="openmm platform (default: cuda)")
     run.add_argument("--kernel", choices=("openmm", "fake", "replay"),
                      default="openmm",
                      help="kernel adapter (default: openmm; replay plays a "
