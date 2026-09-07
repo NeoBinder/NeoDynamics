@@ -6,7 +6,7 @@
 # Run locally: uvx pre-commit run --all-files
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v0.9.5
+    rev: v6.0.0
     hooks:
       - id: check-ast
       - id: check-yaml
@@ -22,6 +22,6 @@ repos:
   # extend-exclude (src/neomd_legacy, bin/, examples/, docs/, .worktrees/),
   # not by narrowing what pre-commit passes it. Run locally: uvx ruff check .
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.5
+    rev: v0.16.6
     hooks:
       - id: ruff
