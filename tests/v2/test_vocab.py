@@ -352,10 +352,15 @@ def test_distance_restraint_single_or_zero_bounds():
     assert len(irs_max) == 1
     assert irs_max[0].energy == v1_distance_max_func("b")
 
-    # v1 truthiness quirk: neither key (or a 0.0 bound) emits nothing
+    # presence check: absent bounds emit nothing...
     assert get("restraint", "distance").make_bias("c", dict(base)) == []
-    assert get("restraint", "distance").make_bias(
-        "d", {**base, "min_nm": 0.0, "max_nm": 0.0}) == []
+    # ...but a WRITTEN 0.0 bound is a real bound (pins at 0), not "absent"
+    irs_zero = get("restraint", "distance").make_bias(
+        "d", {**base, "min_nm": 0.0, "max_nm": 0.0})
+    assert [ir.energy for ir in irs_zero] == [
+        v1_distance_min_func("d"), v1_distance_max_func("d")]
+    assert irs_zero[0].params["dis1d"] == Param(0.0, "nm")
+    assert irs_zero[1].params["dis2d"] == Param(0.0, "nm")
 
 
 def test_distance_restraint_overrides_and_list_groups():

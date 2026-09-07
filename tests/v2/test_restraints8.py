@@ -211,10 +211,14 @@ def test_angle_optional_bounds_and_overrides():
     one = get("restraint", "angle").make_bias("b", {**base, "max_degree": 90.0})
     assert len(one) == 1
     assert one[0].energy == v1_angle_max_func("b")
-    # v1 truthiness quirk: absent (or 0.0) bounds emit nothing
+    # presence check: absent bounds emit nothing...
     assert get("restraint", "angle").make_bias("c", dict(base)) == []
-    assert get("restraint", "angle").make_bias(
-        "d", {**base, "min_degree": 0.0, "max_degree": 0.0}) == []
+    # ...but a WRITTEN 0.0 bound is a real bound (pins at 0), not "absent"
+    zero = get("restraint", "angle").make_bias(
+        "d", {**base, "min_degree": 0.0, "max_degree": 0.0})
+    assert len(zero) == 2
+    assert zero[0].params["ang1d"] == Param(0.0, "deg")
+    assert zero[1].params["ang2d"] == Param(0.0, "deg")
 
     ir, = get("restraint", "angle").make_bias("e", {
         **base, "min_degree": 30.0, "order": 4, "is_periodic": False,
@@ -314,7 +318,7 @@ def test_dist_ref_position_k_per_atom_scaling():
     ir, = get("restraint", "dist_ref_position").make_bias("pa", spec)
     # v1: k = restr_k_per_atom * len(restr_grp)
     assert ir.params["kpa"] == Param(10.0, "kJ/mol")
-    # a truthy per-atom constant wins over plain restr_k (v1 rule)...
+    # a written per-atom constant wins over plain restr_k...
     both, = get("restraint", "dist_ref_position").make_bias("pb", {
         **spec, "restr_k": 999.0})
     assert both.params["kpb"] == Param(10.0, "kJ/mol")
@@ -323,6 +327,26 @@ def test_dist_ref_position_k_per_atom_scaling():
         "restr_grp": "0,1,2,3", "ref_position_nm": "0.1,0.2,0.3",
         "restr_k": 7.0, "max_nm": 0.4})
     assert plain.params["kpc"] == Param(7.0, "kJ/mol")
+    # a WRITTEN restr_k_per_atom: 0 selects the per-atom spelling (k = 0),
+    # it does not fall back to restr_k (presence check, user decision)
+    zero_k, = get("restraint", "dist_ref_position").make_bias("pd", {
+        "restr_grp": "0,1", "ref_position_nm": "0,0,0",
+        "restr_k": 999.0, "restr_k_per_atom": 0.0, "max_nm": 0.4})
+    assert zero_k.params["kpd"] == Param(0.0, "kJ/mol")
+
+
+def test_dist_ref_position_zero_bound_is_a_real_bound():
+    # the user's case: max_nm: 0 pins the group COM at the reference point
+    # (v1's truthiness gate silently installed NOTHING for this spelling)
+    lo, hi = get("restraint", "dist_ref_position").make_bias("z0", {
+        "restr_grp": "0,1", "ref_position_nm": [2.5, 2.5, 2.5],
+        "restr_k": 1000.0, "min_nm": 0, "max_nm": 0, "order": 2})
+    # both forces install because both keys were written: the min bound of
+    # 0 can never engage (distance < 0), the max bound of 0 always does
+    assert lo.energy == v1_dist_ref_min_func("z0")
+    assert lo.params["min_disz0"] == Param(0.0, "nm")
+    assert hi.energy == v1_dist_ref_max_func("z0")
+    assert hi.params["max_disz0"] == Param(0.0, "nm")
 
 
 def test_dist_ref_position_optional_bounds_and_periodic_override():
@@ -371,9 +395,11 @@ def test_xyz_box_per_axis_emission():
     assert irs[1].energy == v1_xyz_box_funcs("b2")[5]  # then max_z
     assert get("restraint", "xyz_box").make_bias(
         "b3", {"restr_grp": "0", "restr_k": 1.0}) == []
-    # v1 truthiness quirk: a 0.0 bound counts as absent
-    assert get("restraint", "xyz_box").make_bias("b4", {
-        "restr_grp": "0", "restr_k": 1.0, "max_y_nm": 0.0}) == []
+    # presence check: a WRITTEN 0.0 bound is a real wall at 0, not "absent"
+    wall0, = get("restraint", "xyz_box").make_bias("b4", {
+        "restr_grp": "0", "restr_k": 1.0, "max_y_nm": 0.0})
+    assert wall0.energy == v1_xyz_box_funcs("b4")[3]  # the max_y wall
+    assert wall0.params["max_yb4"] == Param(0.0, "nm")
     ir, = get("restraint", "xyz_box").make_bias("b6", {
         "restr_grp": [1, 2, 3], "restr_k": 2.0, "min_z_nm": -3.0,
         "order": 2, "is_periodic": True})
@@ -682,8 +708,8 @@ def test_distances_packs_pairs_into_one_force_per_side():
 
 
 def test_distances_zero_bound_is_a_real_bound():
-    # v1 179ae35 used `!= None` here — a 0.0 bound emits a bond, unlike the
-    # single `distance` type's truthiness check where 0.0 means "absent"
+    # the bound check is `is not None` — a 0.0 bound emits a bond, the same
+    # presence-check rule every restraint type uses
     spec = {"type": "distances", "params": [
         {"grp1": "0", "grp2": "1", "restr_k": 10.0, "min_nm": 0.0}]}
     irs = get("restraint", "distances").make_bias("z", spec)

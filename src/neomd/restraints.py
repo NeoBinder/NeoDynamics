@@ -46,7 +46,15 @@ class Restraint:
     ``kilojoules_per_mole`` global parameter, so a quadratic distance
     restraint's k is numerically kJ/mol/nm^2; ``order`` defaults to 2 and
     ``is_periodic`` to True via ``spec.get(...)`` (``dist_ref_position``/
-    ``xyz_box`` default ``is_periodic`` to False).
+    ``xyz_box`` default ``is_periodic`` to False).  Bound emission is a
+    PRESENCE check ``spec.get(key) is not None`` — a written bound is a
+    real bound, including 0.0 (which pins at the bound).  Deviation from
+    v1's truthiness check, where 0.0 meant "absent" and "pin at exactly
+    0" was inexpressible (user-decided: ``dist_ref_position`` with
+    ``max_nm: 0`` restrains the COM at the reference point, it does not
+    install nothing; a written ``restr_k_per_atom: 0`` likewise selects
+    the per-atom spelling and yields k = 0 rather than falling back to
+    ``restr_k``).
     """
 
     schema: dict
@@ -110,7 +118,7 @@ def _make_bias_distance(name: str, spec: dict) -> list[BiasIR]:
     label = name
 
     return_ls = []
-    if spec.get("min_nm"):
+    if spec.get("min_nm") is not None:
         return_ls.append(BiasIR(
             kind="CustomCentroidBondForce",
             energy=_DISTANCE_MIN_FUNC.format(name),
@@ -123,7 +131,7 @@ def _make_bias_distance(name: str, spec: dict) -> list[BiasIR]:
             periodic=is_periodic,
             label=label,
         ))
-    if spec.get("max_nm"):
+    if spec.get("max_nm") is not None:
         return_ls.append(BiasIR(
             kind="CustomCentroidBondForce",
             energy=_DISTANCE_MAX_FUNC.format(name),
@@ -256,7 +264,7 @@ def _make_bias_angle(name: str, spec: dict) -> list[BiasIR]:
     is_periodic = spec.get("is_periodic", True)
 
     return_ls = []
-    if spec.get("min_degree"):
+    if spec.get("min_degree") is not None:
         return_ls.append(BiasIR(
             kind="CustomCentroidBondForce",
             energy=_ANGLE_MIN_FUNC.format(name),
@@ -269,7 +277,7 @@ def _make_bias_angle(name: str, spec: dict) -> list[BiasIR]:
             periodic=is_periodic,
             label=name,
         ))
-    if spec.get("max_degree"):
+    if spec.get("max_degree") is not None:
         return_ls.append(BiasIR(
             kind="CustomCentroidBondForce",
             energy=_ANGLE_MAX_FUNC.format(name),
@@ -380,7 +388,8 @@ def _observables_funnel(name: str, spec: dict) -> ObservableSpec:
 # --------------------------------------------------------------------------
 # dist_ref_position
 #
-# k rule: a truthy ``restr_k_per_atom`` wins and scales with the group size
+# k selector: a WRITTEN ``restr_k_per_atom`` wins (presence check, see the
+# Restraint contract) and scales with the group size
 # (k = per_atom * len(grp)); otherwise plain ``restr_k`` is used.
 # --------------------------------------------------------------------------
 
@@ -391,7 +400,7 @@ _DIST_REF_MAX_FUNC = "0.5*k{0}*max(((x1-x0{0})^2+(y1-y0{0})^2+(z1-z0{0})^2)^0.5-
 def _make_bias_dist_ref_position(name: str, spec: dict) -> list[BiasIR]:
     grp = _index_list(spec["restr_grp"], "restr_grp")
     ref_pos = _float_list(spec["ref_position_nm"], "ref_position_nm")
-    if spec.get("restr_k_per_atom"):
+    if spec.get("restr_k_per_atom") is not None:
         k = spec["restr_k_per_atom"] * len(grp)  # per-atom scaling rule
     else:
         k = spec["restr_k"]
@@ -414,7 +423,7 @@ def _make_bias_dist_ref_position(name: str, spec: dict) -> list[BiasIR]:
         return params
 
     return_ls = []
-    if spec.get("min_nm"):
+    if spec.get("min_nm") is not None:
         return_ls.append(BiasIR(
             kind="CustomCentroidBondForce",
             energy=_DIST_REF_MIN_FUNC.format(name),
@@ -423,7 +432,7 @@ def _make_bias_dist_ref_position(name: str, spec: dict) -> list[BiasIR]:
             periodic=is_periodic,
             label=name,
         ))
-    if spec.get("max_nm"):
+    if spec.get("max_nm") is not None:
         return_ls.append(BiasIR(
             kind="CustomCentroidBondForce",
             energy=_DIST_REF_MAX_FUNC.format(name),
@@ -448,7 +457,8 @@ def _observables_dist_ref_position(name: str, spec: dict) -> ObservableSpec:
 # xyz_box
 #
 # Six independent one-sided walls, emitted in the order min_x, max_x, min_y,
-# max_y, min_z, max_z; each axis is optional (truthiness check).
+# max_y, min_z, max_z; each axis is optional (presence check — a written
+# 0.0 is a real wall at 0, see the Restraint contract).
 # --------------------------------------------------------------------------
 
 _XYZ_BOX_FUNCS = [
@@ -469,7 +479,7 @@ def _make_bias_xyz_box(name: str, spec: dict) -> list[BiasIR]:
 
     return_ls = []
     for key, func, param_base in _XYZ_BOX_FUNCS:
-        if spec.get(key):
+        if spec.get(key) is not None:
             return_ls.append(BiasIR(
                 kind="CustomCentroidBondForce",
                 energy=func.format(name),
@@ -717,7 +727,7 @@ _DIST_REF_POSITION_ENTRY = Restraint(
         },
         "optional": {
             "restr_k": ("float, kJ/mol (unused when restr_k_per_atom is "
-                        "set — v1 rule)", None),
+                        "written)", None),
             "restr_k_per_atom": ("float, kJ/mol per restrained atom "
                                  "(k = per_atom * len(restr_grp))", None),
             "min_nm": ("float, lower bound (nm)", None),
@@ -808,9 +818,8 @@ register("restraint", "rmsd", _RMSD_ENTRY)
 # at all); v2's dual-track design reports geometry for every restraint, so
 # each pair yields one distance observable (pair1..pairN sub-columns).
 #
-# v1 quirk kept verbatim: the bound check is ``is not None`` here (a 0.0
-# bound is a real bound), unlike the single ``distance`` type's truthiness
-# check where 0.0 means "absent".
+# The bound check is ``is not None`` (a 0.0 bound is a real bound) — the
+# same presence-check rule every restraint type now uses.
 # ===========================================================================
 
 _DISTANCES_MIN_FUNC = "(k/2)*(max(dis1 - distance(g1,g2), 0)^order)"

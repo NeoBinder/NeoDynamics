@@ -354,7 +354,7 @@ Walls on the distance between a group's COM and a fixed reference position.
 | `max_nm` | no | float, upper bound (nm) | None |
 | `min_nm` | no | float, lower bound (nm) | None |
 | `order` | no | int | 2 |
-| `restr_k` | no | float, kJ/mol (unused when restr_k_per_atom is set — v1 rule) | None |
+| `restr_k` | no | float, kJ/mol (unused when restr_k_per_atom is written) | None |
 | `restr_k_per_atom` | no | float, kJ/mol per restrained atom (k = per_atom * len(restr_grp)) | None |
 
 ### `type: distance`

@@ -175,6 +175,23 @@ def test_ref_position_ramp_expands_to_xyz_columns(tmp_path):
             pytest.approx(value)
 
 
+def test_ramp_starting_at_zero_still_installs_the_force(tmp_path):
+    """Presence-check regression: a ramp whose values[0] is 0 must install
+    its force at prepare — the truthiness gate v1 used would have skipped
+    the install, leaving later boundary pushes with no parameter to set."""
+    config = smd_config(tmp_path)
+    config["smd"] = {"pull": {
+        "type": "distance", "grp1": [0], "grp2": [1],
+        "max_nm": [0.0, 0.6], "restr_k": 100.0, "order": 2,
+    }}
+    outcome = run_smd(tmp_path, config)
+    result = outcome.results[0]
+    assert len(result.fgroups["pull"]) == 1  # the max wall IS installed
+    # the last boundary push (step 10000) carries the interpolated bound
+    assert result.final_params["pull"]["max_nm"] == \
+        pytest.approx(10000 / 12000 * 0.6)
+
+
 # ---------------------------------------------------------------------------
 # the port capability (fake + openmm adapters)
 # ---------------------------------------------------------------------------
