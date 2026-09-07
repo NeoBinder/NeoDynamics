@@ -23,6 +23,11 @@ neomd migrate old_v1_config.yaml -o plan.yaml             # one-shot v1 YAML -> 
 neomd validate plan.yaml --check-files                    # report every problem, write nothing
 ```
 
+Runs print to stderr by default: a start banner (start time, method, input
+files, output path), an in-place progress line with rate and ETA, and an end
+line. `neomd run --silent` suppresses all of it; from Python the output rides
+the `neomd` logger at INFO.
+
 ## A plan file
 
 ```yaml

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import logging
 import os
 import sys
 
@@ -56,6 +57,10 @@ def build_parser() -> argparse.ArgumentParser:
                      default="openmm",
                      help="kernel adapter (default: openmm; replay plays a "
                           "golden tape from input_files.system)")
+    run.add_argument("--silent", action="store_true",
+                     help="print nothing: no console logging, no run "
+                          "summary (default: progress and the start/end "
+                          "banner print to stderr)")
     run.set_defaults(func=_cmd_run)
 
     migrate = sub.add_parser(
@@ -180,19 +185,31 @@ def _cmd_run(args) -> int:
         # only); same pattern as driver.py's knowledge-triple imports
         from .kernel import replay  # noqa: F401
 
+    # --silent pins the neomd logger above CRITICAL for the run's duration
+    # (ensure_console_logging only lifts a NOTSET level, so the pin holds)
+    package_log = logging.getLogger("neomd")
+    previous_level = package_log.level
+    if args.silent:
+        package_log.setLevel(logging.CRITICAL + 1)
+
     overrides = {} if args.steps is None else {"steps": args.steps}
-    outcome = md_run(args.target, platform=args.platform, kernel=args.kernel,
-                     **overrides)
+    try:
+        outcome = md_run(args.target, platform=args.platform,
+                         kernel=args.kernel, **overrides)
+    finally:
+        if args.silent:
+            package_log.setLevel(previous_level)
 
     result = outcome.results[0] if outcome.results else None
     steps = getattr(result, "steps_done", None)  # MinResult has no steps
     output_dir = (os.path.dirname(outcome.manifest_path)
                   if outcome.manifest_path else None)
-    print("run complete:"
-          + f" method={outcome.phases_run[0] if outcome.phases_run else '-'}"
-          + f" steps={steps if steps is not None else '-'}"
-          + f" output={output_dir or '-'}"
-          + f" manifest={outcome.manifest_path or '-'}")
+    if not args.silent:
+        print("run complete:"
+              + f" method={outcome.phases_run[0] if outcome.phases_run else '-'}"
+              + f" steps={steps if steps is not None else '-'}"
+              + f" output={output_dir or '-'}"
+              + f" manifest={outcome.manifest_path or '-'}")
     return 0
 
 

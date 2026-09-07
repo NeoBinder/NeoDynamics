@@ -74,6 +74,13 @@ neomd validate plan.yaml --check-files                    # report every problem
 neomd version
 ```
 
+Every run spelling prints by default to **stderr**: a start banner (start
+time, method, every input file, the output path), the v1 progress line
+(elapsed / percent / rate / ETA) refreshed in place every 5000 steps, and
+an end line with the finish time and elapsed wall time. All of it travels
+the `neomd` logger hierarchy at INFO — `neomd run --silent` prints nothing;
+from Python, `logging.getLogger("neomd").setLevel(...)` tunes it.
+
 ### A plan file
 
 ```yaml

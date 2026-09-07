@@ -6,7 +6,7 @@ and the library calls it wraps (md_run, migrate_v1.main, prepare_system,
 __version__).  Assertions observe exit codes, stdout/stderr, and the
 artifacts/manifests the library writes; no CLI internals are probed.
 
-Runtime budget: one tiny openmm run (ala2, 30 steps) + one protein-only
+Runtime budget: two tiny openmm runs (ala2, 10-30 steps) + one protein-only
 prepare (the tests/v2/test_system.py boxed-peptide trick, add_solv_ions=False
 -> 22 atoms); everything else is argument plumbing.
 
@@ -25,6 +25,7 @@ import os
 os.environ.setdefault("OPENMM_CPU_THREADS", "1")
 
 import json
+import logging
 import pathlib
 
 import pytest
@@ -96,6 +97,15 @@ def test_run_directory_discovery_and_steps_override(tmp_path, capsys):
     assert f"output={out}" in lines[0]
     assert f"manifest={out / 'manifest.json'}" in lines[0]
 
+    # the default console surface: the start/end banner + the v1 ETA
+    # progress line print to STDERR (stdout stays the one-line summary)
+    assert "run start: " in captured.err
+    assert f"input complex: {ALA2_PDB}" in captured.err
+    assert f"input system: {ALA2_SYSTEM}" in captured.err
+    assert f"output: {out}" in captured.err
+    assert "run end: " in captured.err
+    assert "预计结束" in captured.err
+
     # the run went through md_run: artifacts on disk, 3 state rows (10..30)
     assert (out / "output.state").is_file()
     rows = [line for line in (out / "output.state").read_text().splitlines()
@@ -116,6 +126,22 @@ def test_run_kernel_fake_surfaces_the_documented_error(tmp_path):
     with pytest.raises(NotImplementedError,
                        match="compile\\(kernel='fake'\\)"):
         main(["run", str(plan_dir), "--kernel", "fake"])
+
+
+def test_run_silent_prints_nothing(tmp_path, capsys):
+    # --silent: no banner/progress on stderr, no summary on stdout, and the
+    # logging-level pin is undone after the run
+    plan_dir = write_plan_dir(tmp_path, ala2_plan(tmp_path / "out", steps=10))
+    before = logging.getLogger("neomd").level
+
+    rc = main(["run", str(plan_dir), "--silent"])
+
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert captured.out.strip() == ""
+    assert "run start" not in captured.err
+    assert "已运行" not in captured.err
+    assert logging.getLogger("neomd").level == before
 
 
 # ---------------------------------------------------------------------------

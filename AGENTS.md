@@ -86,6 +86,15 @@ release together with the `neomd2` script alias.
   every tape to the checkpoint step; probes never decide append/truncate
   themselves). `manifest.py` records fingerprints and the epoch chain
   (`resume:<step>` epochs). `probes.py`/`sinks.py` own all artifact writing.
+- **Console output** (`console.py`): everything a run prints rides the
+  `neomd` logger hierarchy at INFO; `drive()` brackets the run with a
+  start banner (start time, method, every input file, output path) and an
+  end line (end time + elapsed), and calls `ensure_console_logging()` so
+  every entry spelling prints to stderr by default (idempotent attach;
+  explicit levels win — that's how `neomd run --silent` holds). Periodic
+  progress records carry `inline=True` and render as same-line
+  replacements through `InlineProgressHandler`; the final 100% line is
+  logged without the flag so it stays in the scrollback.
 - **System**: `system.py` holds the openmm-free `SystemBundle`;
   `prepare.py` is the preparation workflow. Every OpenMM private-API touch
   lives in `openmm_privates.py` behind a pinned-version gate

@@ -181,6 +181,7 @@ def _log_progress(
     remaining_steps: int,
     chunk_steps: int,
     dt_ns: float,
+    final: bool = False,
 ) -> None:
     elapsed_sec = now - start_time
     elapsed_str = str(datetime.timedelta(seconds=int(elapsed_sec)))
@@ -199,13 +200,48 @@ def _log_progress(
     end_time_str = datetime.datetime.fromtimestamp(end_time).strftime(
         "%Y-%m-%d %H:%M:%S")
 
+    # intermediate lines carry inline=True: the console handler renders them
+    # as same-line replacements; the final line stays in the scrollback
     log.info(
         f"已运行: {elapsed_str} | "
         + f"已完成: {progress * 100:.2f}% | "
         + f"速率: {steps_per_day * dt_ns:.1f} ns/day "
         + f"({steps_per_hour * dt_ns:.1f} ns/hour) | "
-        + f"预计结束: {end_time_str}"
+        + f"预计结束: {end_time_str}",
+        extra={"inline": not final},
     )
+
+
+# ---------------------------------------------------------------------------
+# run banner (start/end bookkeeping every entry spelling shares)
+# ---------------------------------------------------------------------------
+
+
+def _log_run_banner(log: logging.Logger, plan) -> float:
+    """Log the run-start banner (start time, method, every input file, the
+    output path) and return the epoch start for the matching end line."""
+    started = time.time()
+    stamp = datetime.datetime.fromtimestamp(started).strftime(
+        "%Y-%m-%d %H:%M:%S")
+    method = (getattr(plan, "method", None) or "md")
+    log.info("run start: %s | method=%s", stamp, method)
+    input_files = getattr(plan, "input_files", None) or {}
+    for key in sorted(input_files):
+        value = input_files[key]
+        if value is None:
+            continue
+        if isinstance(value, (list, tuple)):
+            value = ", ".join(str(item) for item in value)
+        log.info("input %s: %s", key, value)
+    log.info("output: %s", getattr(plan, "output_dir", None))
+    return started
+
+
+def _log_run_end(log: logging.Logger, started: float) -> None:
+    ended = time.time()
+    stamp = datetime.datetime.fromtimestamp(ended).strftime("%Y-%m-%d %H:%M:%S")
+    elapsed = str(datetime.timedelta(seconds=int(ended - started)))
+    log.info("run end: %s | elapsed %s", stamp, elapsed)
 
 
 # ---------------------------------------------------------------------------
@@ -412,6 +448,7 @@ def run_md(
                 remaining_steps=remaining,
                 chunk_steps=steps_since_log,
                 dt_ns=dt_ns,
+                final=(step_now == total),
             )
             if now > last_log_time:
                 last_log_time = now
@@ -753,8 +790,18 @@ def drive(
       the method and closes ``done:<method>`` after it, written to the sink
       directory when the sink has a filesystem; per-artifact write progress
       is recorded into it as probes run.
+    * console output: drive() calls
+      :func:`neomd.console.ensure_console_logging`, so every entry spelling
+      prints a start/end banner and the progress lines to stderr by
+      default (the CLI's ``--silent`` opts out); periodic progress records
+      carry ``inline=True`` and render as same-line replacements through
+      :class:`neomd.console.InlineProgressHandler`.
     """
     log = _resolve_logger(logger)
+    from .console import ensure_console_logging
+
+    ensure_console_logging()  # every entry spelling prints by default
+    started = _log_run_banner(log, plan)
     if kernel_factory == KernelFactory.create:
         from .kernel._bootstrap import ensure_adapters
 
@@ -829,6 +876,7 @@ def drive(
             on_progress=record_progress, restraint_fgroups=fgroups or None))
 
     manifest.add_epoch(f"done:{method}", steps_so_far=kernel.current_step)
+    _log_run_end(log, started)
 
     manifest_path = None
     if sink is not None:
