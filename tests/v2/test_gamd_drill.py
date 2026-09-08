@@ -353,6 +353,7 @@ def test_sinkless_drive_still_runs_and_counts(gamd):
 # ===========================================================================
 
 
+@pytest.mark.cuda
 def test_drive_dispatches_plugin_on_openmm_ala2(tmp_path, gamd):
     plan = Plan.from_dict(gamd_config(
         steps=50,

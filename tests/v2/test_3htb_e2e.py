@@ -197,6 +197,7 @@ def test_prepare_writes_the_artifact_trio(prep):
 
 
 @needs_antechamber
+@pytest.mark.cuda
 def test_system_xml_builds_a_kernel_with_a_plausible_particle_count(prep):
     from openmm import XmlSerializer
 

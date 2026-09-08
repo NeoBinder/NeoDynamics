@@ -729,6 +729,7 @@ def test_resume_parity_vs_v1_tape(tmp_path):
                          tier)
 
 
+@pytest.mark.cuda
 def test_resume_manifest_epoch_chain(tmp_path):
     """(c) the resumed run directory carries manifest.json with the epoch
     chain (§3 glossary): every epoch fingerprint chains on its predecessor
@@ -771,6 +772,7 @@ def _meta_config(output_dir, steps, continue_md=False) -> dict:
     return config
 
 
+@pytest.mark.cuda
 def test_metadynamics_resume_bias_identical(tmp_path):
     """300 straight steps vs 150 + resume -> 150: the hills ledger arrays
     are identical (np.array_equal on steps/positions/heights), the rebuilt

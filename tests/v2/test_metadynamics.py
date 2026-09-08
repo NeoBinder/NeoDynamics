@@ -435,6 +435,7 @@ def openmm_meta_config(steps: int, **overrides) -> dict:
     return config
 
 
+@pytest.mark.cuda
 def test_openmm_method_entry_direct_ala2(tmp_path):
     plan = Plan.from_dict(openmm_meta_config(300, output=out(tmp_path)))
     kernel = KernelFactory.create(KernelSpec(
@@ -478,6 +479,7 @@ def test_openmm_method_entry_direct_ala2(tmp_path):
             assert -180.0 <= value <= 180.0
 
 
+@pytest.mark.cuda
 def test_drive_metadynamics_openmm_ala2(tmp_path):
     plan = Plan.from_dict(openmm_meta_config(300, output=out(tmp_path)))
     started = time.perf_counter()

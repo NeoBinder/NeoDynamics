@@ -373,6 +373,11 @@ entry points remain thin wrappers for one release.
 
 ## Testing and CI
 
+Hosted CI skips tests marked `cuda` using `PYTEST_ADDOPTS=--skip-cuda`;
+these include integration tests that use the default CUDA platform. CPU,
+fake-kernel, and golden tests remain enabled. Use the same option for a
+local CPU-only run; omit it on a CUDA machine to run the GPU cases too.
+
 ```bash
 pixi run test          # pytest -m 'not golden and not legacy' — the CI gate (~6 min)
 pixi run test-golden   # bit-exact parity vs recorded v1 tapes (~3 min)
@@ -386,11 +391,13 @@ pixi run -e ml test-ml # ML/MM torch tier (openmm-torch + torch env; see ADR-000
   outside `kernel/`, no openmm private API outside `openmm_privates.py`, no
   torch/openmmtorch imports outside `src/neomd/ml/`.
 - `tests/v2/test_mlmm.py` — the ML/MM coupling: mock pipeline + embedding
-  semantics in the default (torch-free) gate; TorchScript round-trip and the
+  semantics in the default (torch-free) gate, checked analytically with
+  CPU-appropriate tolerance and a strict double-precision Reference tier;
+  TorchScript round-trip and the
   openmm-ml cross-validation behind `pytest.importorskip` (ml env).
 - `tests/golden/` — the record / trim / compare harness and 9 committed v1
-  tapes. Golden comparisons are bit-exact in CI; across environments use
-  `NEO_GOLDEN_TOLERANT=1` for the statistical tier. Golden samples catch
+  tapes. CI uses the statistical tier (`NEO_GOLDEN_TOLERANT=1`); bit-exact
+  comparisons are for reruns on the recording machine. Golden samples catch
   behavior changes; they do not prove physical correctness.
 
 ## Documentation

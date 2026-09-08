@@ -72,6 +72,9 @@ def openmm_spec(system_xml, topology_file, **overrides) -> KernelSpec:
 # which is how the embedding semantics are proven through public reads
 # ===========================================================================
 
+# OpenMM 8.6 SimTKOpenMMRealType.h: ONE_4PI_EPS0, in kJ nm / (mol e^2).
+COULOMB_KJ_NM_PER_MOL_E2 = 138.93545764438198
+
 #: (charge / e, sigma / nm, epsilon / kJ/mol) per particle
 TINY_NB_PARAMS = [(0.5, 0.25, 0.50), (-0.5, 0.30, 0.60), (0.8, 0.28, 0.40)]
 #: bond 0-1: K = 500 kJ/mol/nm^2, r0 = 0.28 nm (r01 = 0.3 nm at the geometry)
@@ -85,14 +88,13 @@ TINY_MOCK = {"tether_k": 200.0, "repulsion_k": 2.0, "repulsion_sigma": 0.2}
 def _pair_energy(r, i, j) -> float:
     """Coulomb + LJ between particles i and j from TINY_NB_PARAMS (kJ/mol).
 
-    Same convention as test_kernel.py's dummy-exceptions proof: Coulomb
-    138.935456 q_i q_j / r + 4 sqrt(eps_i eps_j) ((sigma_ij/r)^12-(sigma_ij/r)^6).
+    Uses the pinned OpenMM Coulomb constant and Lorentz-Berthelot mixing.
     """
     qi, si, ei = TINY_NB_PARAMS[i]
     qj, sj, ej = TINY_NB_PARAMS[j]
     sigma = 0.5 * (si + sj)
     epsilon = math.sqrt(ei * ej)
-    return (138.935456 * qi * qj / r
+    return (COULOMB_KJ_NM_PER_MOL_E2 * qi * qj / r
             + 4.0 * epsilon * ((sigma / r) ** 12 - (sigma / r) ** 6))
 
 
@@ -120,7 +122,7 @@ def _write_tiny_fixture(directory, periodic: bool = False) -> tuple[str, str]:
                               epsilon * unit.kilojoule_per_mole)
     system.addForce(nonbonded)
     bond = openmm.HarmonicBondForce()
-    # openmm harmonic bond energy: K (r - r0)^2 -> 0.2 kJ/mol at r01 = 0.3 nm
+    # openmm harmonic bond energy: 0.5*K*(r-r0)^2 -> 0.1 kJ/mol at r01 = 0.3 nm
     bond.addBond(0, 1, TINY_BOND_R0 * unit.nanometer,
                  TINY_BOND_K * unit.kilojoule_per_mole / unit.nanometer**2)
     system.addForce(bond)
@@ -256,7 +258,26 @@ def test_build_kernel_spec_carries_the_raw_ml_region():
 # ===========================================================================
 
 
-def test_mechanical_embedding_removes_ml_ml_and_keeps_ml_mm(tiny):
+@pytest.mark.parametrize("platform, energy_rtol", [
+    pytest.param("CPU", 1e-6, id="cpu"),
+    pytest.param("Reference", 1e-12, id="reference"),
+])
+def test_mechanical_embedding_removes_ml_ml_and_keeps_ml_mm(
+        tiny, monkeypatch, platform, energy_rtol):
+    # CPU results differed by one float32 spacing between local and CI,
+    # pushing the original 1e-7 check over its bound. Keep a strict double-
+    # precision oracle check alongside the CPU integration check.
+    if platform == "Reference":
+        # KernelSpec exposes CPU/CUDA. Substitute only OpenMM's public
+        # Simulation boundary so the real adapter still assembles both systems.
+        simulation = app.Simulation
+
+        def reference_simulation(*args, **kwargs):
+            kwargs["platform"] = openmm.Platform.getPlatformByName("Reference")
+            kwargs.pop("platformProperties", None)
+            return simulation(*args, **kwargs)
+
+        monkeypatch.setattr(app, "Simulation", reference_simulation)
     plain = KernelFactory.create(openmm_spec(*tiny))
     mixed = KernelFactory.create(openmm_spec(
         *tiny, ml_region={"indices": "0,1", "model": {"type": "mock", **TINY_MOCK}}))
@@ -266,14 +287,14 @@ def test_mechanical_embedding_removes_ml_ml_and_keeps_ml_mm(tiny):
     expected_plain = (_pair_energy(r01, 0, 1) + _pair_energy(r02, 0, 2)
                       + _pair_energy(r12, 1, 2)
                       + 0.5 * TINY_BOND_K * (r01 - TINY_BOND_R0) ** 2)
-    assert plain.energy_forces().potential == pytest.approx(expected_plain, rel=1e-7)
+    assert plain.energy_forces().potential == pytest.approx(expected_plain, rel=energy_rtol)
 
     # ML-ML MM (pair 0-1 nonbonded AND the 0-1 bond) removed; ML-MM pairs
     # (0-2, 1-2) kept at the ORIGINAL charges; the mock contributes tethers
     # (exactly 0 at the reference geometry) + the pair repulsion.
     expected_mixed = (_pair_energy(r02, 0, 2) + _pair_energy(r12, 1, 2)
                       + _mock_repulsion_energy(r01))
-    assert mixed.energy_forces().potential == pytest.approx(expected_mixed, rel=1e-7)
+    assert mixed.energy_forces().potential == pytest.approx(expected_mixed, rel=energy_rtol)
 
 
 def test_mock_forces_take_groups_from_the_one_allocator(tiny):
@@ -293,6 +314,7 @@ def test_mock_forces_take_groups_from_the_one_allocator(tiny):
                                                      rel=1e-9)
 
 
+@pytest.mark.cuda
 def test_mock_ml_region_runs_minimizes_and_survives_md_run(tiny, tmp_path):
     mixed = KernelFactory.create(openmm_spec(
         *tiny, seed=7, ml_region={"indices": [0, 1], "model": {"type": "mock",

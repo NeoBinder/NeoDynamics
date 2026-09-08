@@ -868,6 +868,7 @@ class TestHooksOnOpenmm:
         assert "coordinates" in excinfo.value.failed
         assert (out_dir / QC_REPORT_FILENAME).is_file()
 
+    @pytest.mark.cuda
     def test_md_run_min_writes_the_report(self, tmp_path):
         """The full facade: md_run (L2 dict) on the real ala2 files with
         method min — the min hook QCs the minimized coordinates."""
@@ -888,6 +889,7 @@ class TestHooksOnOpenmm:
         assert payload["stage"] == "min"
         assert payload["verdict"] == "pass", payload  # minimized = clean
 
+    @pytest.mark.cuda
     def test_md_run_min_strict_raises_after_the_report(self, tmp_path):
         from neomd import md_run
 

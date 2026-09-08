@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+# Hosted runners have no CUDA device. Keep CPU/fake and golden coverage active.
+env:
+  PYTEST_ADDOPTS: "--skip-cuda"
+
 jobs:
   test:
     runs-on: ubuntu-latest

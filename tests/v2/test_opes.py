@@ -772,6 +772,7 @@ def test_drive_unknown_method_error_lists_opes():
         drive(plan, kernel_factory=lambda spec: FakeKernel(spec))
 
 
+@pytest.mark.cuda
 def test_md_run_end_to_end_yaml_to_artifacts(tmp_path):
     """The facade path: a plan FILE on disk -> md_run -> artifacts (the
     openmm kernel — ``compile(kernel='fake')`` is a documented
@@ -882,6 +883,7 @@ def openmm_opes_config(steps: int, **overrides) -> dict:
     return config
 
 
+@pytest.mark.cuda
 def test_drive_opes_openmm_ala2(tmp_path):
     plan = Plan.from_dict(openmm_opes_config(300, output=out(tmp_path)))
     started = time.perf_counter()
