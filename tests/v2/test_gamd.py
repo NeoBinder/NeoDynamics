@@ -405,6 +405,7 @@ def openmm_gamd_config(steps: int, mode: str, directory, **extra) -> dict:
 
 
 @pytest.mark.parametrize("mode", ["total", "dual"])
+@pytest.mark.cuda
 def test_openmm_gamd_ala2(tmp_path, mode):
     directory = tmp_path / mode
     started = time.perf_counter()
@@ -441,6 +442,7 @@ def test_openmm_gamd_ala2(tmp_path, mode):
     assert [epoch.reason for epoch in manifest.epochs] == ["start", "done:gamd"]
 
 
+@pytest.mark.cuda
 def test_openmm_same_seed_bit_identical_tape(tmp_path):
     def once(directory):
         drive(Plan.from_dict(openmm_gamd_config(140, "total", directory)),
@@ -450,6 +452,7 @@ def test_openmm_same_seed_bit_identical_tape(tmp_path):
     assert once(tmp_path / "a") == once(tmp_path / "b")
 
 
+@pytest.mark.cuda
 def test_openmm_dual_isolates_torsions_into_free_group(tmp_path):
     """The ala2 system ships PeriodicTorsionForce in group 0 (shared with
     bonds/angles/nonbonded): dual boost must isolate it — the dihedral

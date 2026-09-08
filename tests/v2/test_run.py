@@ -106,6 +106,7 @@ def test_package_lazy_exports():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.cuda
 def test_compile_returns_compiled_run_matching_plan_fingerprint(tmp_path):
     plan = Plan.from_dict(ala2_plan_dict(tmp_path / "out"))
     compiled = compile_run(plan)
@@ -117,6 +118,7 @@ def test_compile_returns_compiled_run_matching_plan_fingerprint(tmp_path):
     assert compiled.sink.path("output.state").parent == tmp_path / "out"
 
 
+@pytest.mark.cuda
 def test_compile_accepts_dict_and_plan_equally(tmp_path):
     config = ala2_plan_dict(tmp_path / "out")
     from_plan = compile_run(Plan.from_dict(config))

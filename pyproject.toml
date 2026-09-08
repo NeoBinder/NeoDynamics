@@ -35,6 +35,7 @@ Issues = "https://github.com/NeoBinder/NeoDynamics/issues"
 
 [tool.pytest.ini_options]
 markers = [
+  "cuda: requires CUDA execution (including the default OpenMM platform); skipped by --skip-cuda",
   "golden: golden-sample parity tests against v1 tapes (run via `pixi run test-golden`)",
   "legacy: tests exercising frozen v1 (neomd_legacy) live; excluded from CI after the flip (run via `pixi run test-legacy`)",
 ]

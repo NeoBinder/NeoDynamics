@@ -267,6 +267,7 @@ class TestModificationIR:
 
 
 class TestPrepareSystemProteinOnly:
+    @pytest.mark.cuda
     def test_end_to_end(self, tmp_path):
         out = tmp_path / "prep"
         config = {
@@ -351,6 +352,7 @@ needs_antechamber = pytest.mark.skipif(
 
 
 @needs_antechamber
+@pytest.mark.cuda
 def test_end_to_end_ligand_through_the_default_gaff_route(tmp_path):
     """Regression: ``prepare_system`` with NO ``gaff=`` hook on protein+ligand
     inputs must parameterize the ligand through the DEFAULT factory.

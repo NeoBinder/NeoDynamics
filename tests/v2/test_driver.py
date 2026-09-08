@@ -573,6 +573,7 @@ def test_drive_resume_checkpoint_through_continue_md(tmp_path):
 # ===========================================================================
 
 
+@pytest.mark.cuda
 def test_drive_openmm_ala2_with_restraint(tmp_path):
     plan = Plan.from_dict({
         "method": "eq",

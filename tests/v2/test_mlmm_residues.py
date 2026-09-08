@@ -559,6 +559,7 @@ def test_pme_fixture_boundary_exceptions_are_exact():
         (6, 8), (8, 10), (8, 14), (14, 15)}
 
 
+@pytest.mark.cuda
 def test_residue_region_md_run_end_to_end(tmp_path):
     from neomd import md_run
 

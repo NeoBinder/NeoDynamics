@@ -136,6 +136,7 @@ def test_run_kernel_fake_surfaces_the_documented_error(tmp_path):
         main(["run", str(plan_dir), "--kernel", "fake"])
 
 
+@pytest.mark.cuda
 def test_run_silent_prints_nothing(tmp_path, capsys):
     # --silent: no banner/progress on stderr, no summary on stdout, and the
     # logging-level pin is undone after the run
@@ -190,6 +191,7 @@ def test_migrate_end_to_end(tmp_path, capsys):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.cuda
 def test_prepare_tiny_protein_system(tmp_path, capsys):
     out = tmp_path / "prep"
     config_file = tmp_path / "prepare.yaml"

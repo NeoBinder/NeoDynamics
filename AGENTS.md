@@ -161,6 +161,10 @@ The docs env (`mkdocs-material`) builds this site; `docs-gen` re-renders
 the generated file is committed and pinned by a sync test, so regenerate
 and commit it together with any schema/vocabulary change.
 
+The ML/MM analytical energy test uses the pinned OpenMM Coulomb constant,
+CPU `rtol=1e-6`, and Reference `rtol=1e-12`; retain both tiers when updating
+the fixture or numerical tolerances.
+
 Tests live in `tests/v2/` (unit + e2e, fake kernel — millisecond tier) and
 `tests/golden/` (recording/trimming/compare harness). Golden tapes are
 bit-stable only on the microarchitecture that recorded them, so CI runs the
@@ -169,7 +173,11 @@ stats rtol 1e-3, no coordinate-hash identity); bit-exact comparison is for
 re-runs on the recording machine.
 
 CI (`.github/workflows/ci.yml`) runs `pixi run test`, `pixi run test-golden`,
-and the 3HTB smoke on every PR; `.github/workflows/docs.yml` strictly
+and the 3HTB smoke on every PR, with `PYTEST_ADDOPTS=--skip-cuda` on
+CPU-only hosted runners. Mark tests that execute CUDA (including implicit
+default-platform execution) with `@pytest.mark.cuda`; explicit CPU and fake
+tests remain enabled. Local runs include CUDA tests unless `--skip-cuda` is
+provided; `.github/workflows/docs.yml` strictly
 rebuilds the mkdocs site on PRs touching docs/mkdocs/the package and
 deploys it to GitHub Pages on main. pre-commit.ci enforces
 `.pre-commit-config.yaml` (check-only hooks — basic file sanity plus the
