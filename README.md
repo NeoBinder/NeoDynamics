@@ -397,7 +397,9 @@ pixi run -e ml test-ml # ML/MM torch tier (openmm-torch + torch env; see ADR-000
   openmm-ml cross-validation behind `pytest.importorskip` (ml env).
 - `tests/golden/` — the record / trim / compare harness and 9 committed v1
   tapes. CI uses the statistical tier (`NEO_GOLDEN_TOLERANT=1`); bit-exact
-  comparisons are for reruns on the recording machine. Golden samples catch
+  comparisons are for reruns on the recording machine. The spine gate applies
+  the selected tier to every sample, including step 0; both tiers require
+  nonempty energy/frame samples and matching sample counts. Golden samples catch
   behavior changes; they do not prove physical correctness.
 
 ## Documentation

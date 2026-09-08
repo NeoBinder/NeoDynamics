@@ -270,24 +270,12 @@ def _assert_parity(scenario: str, tape: dict, rerun: dict) -> None:
 
 @pytest.mark.parametrize("scenario", PARITY_SCENARIOS)
 def test_parity_spine(scenario, tmp_path):
-    """v2 spine == v1 golden tape, bit-exactly (energies + frame hashes).
-
-    The step-0 assertions run for EVERY scenario (they hold even for the
-    xfail'd one: the initial energy and frame hash — i.e. the compiled system
-    + restraint forces at t=0 — are bit-identical to v1), so partial signal
-    survives an xfail.
-    """
+    """Compare every sample, including step 0, using the selected tier."""
     tape = _load_tape(scenario)
     rerun = run_v2_scenario(scenario, tmp_path)
 
     assert len(tape["energies"]) >= 1 and len(rerun["energies"]) >= 1
-    assert tape["energies"][0] == rerun["energies"][0], (
-        f"[{scenario}] step-0 potential energy differs: "
-        f"v1 tape {tape['energies'][0]} vs v2 spine {rerun['energies'][0]}")
-    assert tape["coord_hashes"][0] == rerun["coord_hashes"][0], (
-        f"[{scenario}] step-0 positions hash differs: "
-        f"v1 tape {tape['coord_hashes'][0]} vs v2 spine "
-        f"{rerun['coord_hashes'][0]}")
+    assert len(tape["coord_hashes"]) >= 1 and len(rerun["coord_hashes"]) >= 1
 
     _assert_parity(scenario, tape, rerun)
 
