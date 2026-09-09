@@ -24,11 +24,13 @@ from .kernel.port import (
     KernelFactory,
     KernelPort,
     KernelSpec,
+    MoleculeGroups,
     StructureWriter,
     provides,
 )
 from .manifest import MANIFEST_FILENAME
 from .probes import KernelView, Probe, ProbeScheduler, RunView
+from .wrap import wrap_positions
 
 __all__ = [
     "MinResult",
@@ -151,19 +153,43 @@ def _default_view_factory(kernel: KernelPort) -> ViewFactory:
     return make_view
 
 
-def _write_last_structure(kernel: KernelPort, sink) -> None:
+def _write_last_structure(kernel: KernelPort, sink, wrap: bool = False) -> None:
     """Final positions as a ``last.pdbx`` structure artifact, written
     through the port's negotiated
     :class:`~neomd.kernel.port.StructureWriter` capability (only the openmm
     adapter has a real topology to write; fake/replay kernels skip the
-    artifact by not providing it).  Filesystem-less sinks
-    (``sink.path`` raises NotImplementedError) skip it too."""
+    artifact by not providing it).  ``wrap`` is the plan's
+    ``output.wrap_coordinates`` — the writer wraps whole molecules into the
+    runtime box when it can, and never fails the run when it cannot.
+    Filesystem-less sinks (``sink.path`` raises NotImplementedError) skip
+    it too."""
     if not provides(kernel, StructureWriter):
         return
     try:
-        kernel.write_structure(sink.path(LAST_STRUCTURE_FILENAME))
+        kernel.write_structure(sink.path(LAST_STRUCTURE_FILENAME), wrap=wrap)
     except NotImplementedError:
         pass  # filesystem-less sink (MemorySink): no structure artifact
+
+
+def _wrap_transform(plan, kernel, log=None):
+    """``(positions, box) -> positions`` for wrap-requiring trajectory
+    output, or None.
+
+    Resolved from the plan's ``output.wrap_coordinates`` (derived, default
+    True = molecule-wrapped) and the kernel's ``MoleculeGroups`` capability:
+    kernels without molecule connectivity (fake, replay) degrade to raw
+    coordinates behind one warning — the wrap must never fail a run.
+    """
+    if not bool(getattr(plan, "wrap_coordinates", True)):
+        return None
+    if kernel is None or not provides(kernel, MoleculeGroups):
+        if log is not None:
+            log.warning("output.wrap_coordinates: kernel %r provides no "
+                        "molecule connectivity; coordinates written "
+                        "unwrapped", getattr(kernel, "name", kernel))
+        return None
+    groups = kernel.molecule_groups()
+    return lambda positions, box: wrap_positions(positions, box, groups)
 
 
 # ---------------------------------------------------------------------------
@@ -457,7 +483,9 @@ def run_md(
     scheduler.finish()
     if sink is not None:  # per-leg final state: last.ckpt + last.pdbx
         sink.write_bytes(LAST_CHECKPOINT_FILENAME, kernel.snapshot())
-        _write_last_structure(kernel, sink)
+        _write_last_structure(kernel, sink,
+                              wrap=bool(getattr(plan, "wrap_coordinates",
+                                                True)))
     report = kernel.energy_forces()
     elapsed_sec = clock() - start_time
     stepped = kernel.current_step - start_step
@@ -489,7 +517,7 @@ def _kernel_spec(plan, kind: str = "openmm") -> KernelSpec:
     return build_kernel_spec(plan, kind=kind)
 
 
-def _default_probes(plan, sink, resume=None) -> list:
+def _default_probes(plan, sink, resume=None, kernel=None, log=None) -> list:
     """Probes implied by the plan's derived output intervals ([] without a
     sink — the caller (run.py) owns sink construction, the driver never
     invents one).  The built-in presets are constructed through the probe
@@ -497,7 +525,8 @@ def _default_probes(plan, sink, resume=None) -> list:
     the same way.  ``resume`` (a :class:`~neomd.resume.ResumePlan`, or None
     for a fresh run) owns every append decision: an artifact trimmed by the
     resume planner is appended to, everything else starts fresh — the probes
-    themselves never decide append/truncate."""
+    themselves never decide append/truncate.  ``kernel``/``log`` resolve the
+    trajectory wrap transform (``output.wrap_coordinates``)."""
     if sink is None:
         return []
     from . import probes as _probes  # noqa: F401  (import = registration)
@@ -505,6 +534,8 @@ def _default_probes(plan, sink, resume=None) -> list:
 
     trims = resume.trims if resume is not None else {}
     dt_ps = _plan_dt_ps(plan)
+    trajectory_wrap = _wrap_transform(plan, kernel, log)
+
     def make(name):
         return registry.get("probe", name).make  # KeyError w/ did-you-mean
     probes: list = []
@@ -518,7 +549,8 @@ def _default_probes(plan, sink, resume=None) -> list:
         probes.append(make("trajectory")(
             sink=sink, interval=trajectory_interval,
             dt_ps=dt_ps,
-            append="output.dcd" in trims))
+            append="output.dcd" in trims,
+            wrap=trajectory_wrap))
     checkpoint_interval = int(getattr(plan, "checkpoint_interval", 0) or 0)
     if checkpoint_interval > 0:
         probes.append(make("checkpoint")(sink=sink,
@@ -696,7 +728,8 @@ def run_prepared_method(kernel: KernelPort, plan, prepared: PreparedMethod, *,
     records — or the bare :class:`RunResult` when the method supplied no
     ``finish``.
     """
-    probes = _default_probes(plan, sink, resume=prepared.resume_plan)
+    probes = _default_probes(plan, sink, resume=prepared.resume_plan,
+                             kernel=kernel, log=logger)
     _append_restraint_probe(probes, plan, sink, kernel, restraint_fgroups,
                             resume=prepared.resume_plan)
     for filename, probe in prepared.tapes.items():
@@ -843,7 +876,8 @@ def drive(
                      sorted(resume_plan.trims) or "none")
             manifest.add_epoch(f"resume:{resume_plan.resume_step}",
                                steps_so_far=resume_plan.resume_step)
-        probes = _default_probes(plan, sink, resume=resume_plan)
+        probes = _default_probes(plan, sink, resume=resume_plan,
+                                 kernel=kernel, log=log)
         _append_restraint_probe(probes, plan, sink, kernel, fgroups,
                                 resume=resume_plan)
         results.append(run_md(kernel, plan, probes,

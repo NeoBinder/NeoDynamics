@@ -208,6 +208,11 @@ _OUTPUT = {
                           "else 0.",
     "report_restraint": "bool — switch for the `restraint.tsv` tape.",
     "report_smd": "bool — switch for the `smd.tsv` tape (default on).",
+    "wrap_coordinates": "bool — wrap coordinate artifacts (`output.dcd` "
+                        "frames, `last.pdbx`) into the periodic box, whole "
+                        "molecule by whole molecule (default true; set "
+                        "false for raw / unwrapped). `neomd run "
+                        "--wrap/--unwrap` overrides.",
 }
 
 #: integrator sub-key -> meaning (`dt` is the only validated-required one)

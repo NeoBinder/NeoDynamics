@@ -305,6 +305,13 @@ class TrajectoryProbe:
     * False — never write box records (vacuum)
     * callable — ``box(view) -> (3, 3) nm or None``, evaluated per observe
 
+    ``wrap`` (None = raw/unwrapped, the historical default): an optional
+    ``(positions, box) -> positions`` transform applied to every frame's
+    coordinates before they hit the file — the driver wires
+    ``neomd.wrap.wrap_positions`` over the kernel's ``MoleculeGroups``
+    capability when ``output.wrap_coordinates`` asks for it.  A frame
+    without a box (vacuum) is never transformed.
+
     ``append=True`` (the resume planner's instruction, never the probe's own
     decision) continues an existing file: the first observe adopts the
     existing header (validating atom count and stride) instead of recreating
@@ -318,11 +325,13 @@ class TrajectoryProbe:
         dt_ps: float,
         box: bool | Callable[[RunView], "np.ndarray | None"] | None = None,
         append: bool = False,
+        wrap: Callable[["np.ndarray", "np.ndarray"], "np.ndarray"] | None = None,
     ):
         self.sink = sink
         self.interval = _check_interval(interval)
         self.dt_ps = float(dt_ps)
         self._box = box
+        self._wrap = wrap
         self.append = bool(append)
         self._initialized = False
         self._periodic = False
@@ -361,6 +370,8 @@ class TrajectoryProbe:
     def observe(self, view: RunView) -> None:
         positions = view.positions()
         box = self._box_for(view)
+        if self._wrap is not None and box is not None:
+            positions = self._wrap(positions, box)
         if not self._initialized:
             self._n_atoms = int(positions.shape[0])
             if self.append and self.sink.exists(_DCD_FILENAME):

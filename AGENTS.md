@@ -25,7 +25,9 @@ release together with the `neomd2` script alias.
   plan.yaml [--check-files]` reports every problem, writes nothing, exits 2.
 - **KernelPort** (`kernel/port.py`): the closed operation surface at the
   physics seam, plus optional capability protocols (`BiasOps`,
-  `BiasParamOps`, `GroupEnergy`, `StructureWriter`, `BoostOps` —
+  `BiasParamOps`, `GroupEnergy`, `StructureWriter`, `MoleculeGroups` —
+  topology-bond connectivity for `output.wrap_coordinates`, via the
+  openmm-free `wrap.py`; `BoostOps` —
   GaMD-style energy-dependent force scaling, ADR-0005, with the
   duck-typed dual-boost companion `torsion_force_groups()`) negotiated
   via `provides()`. Three adapters: `openmm` (production, the only core file
@@ -86,6 +88,14 @@ release together with the `neomd2` script alias.
   every tape to the checkpoint step; probes never decide append/truncate
   themselves). `manifest.py` records fingerprints and the epoch chain
   (`resume:<step>` epochs). `probes.py`/`sinks.py` own all artifact writing.
+  Coordinate artifacts (`output.dcd` frames, `last.pdbx`) are
+  molecule-wrapped by DEFAULT (`output.wrap_coordinates`, default true;
+  CLI `--wrap`/`--unwrap` overrides) via `wrap.py` + the `MoleculeGroups`
+  capability, degrading to raw (one warning) on kernels without it;
+  checkpoints are never wrapped (bit-exact resume). Bias/CV forces are
+  clamped to the system's NATIVE periodicity (snapshotted before any
+  install): a periodic restraint flag cannot flip a non-periodic system —
+  wrap/volume stay off where no force applies PBC.
 - **Console output** (`console.py`): everything a run prints rides the
   `neomd` logger hierarchy at INFO; `drive()` brackets the run with a
   start banner (start time, method, every input file, output path) and an

@@ -33,7 +33,7 @@ import pytest
 import neomd.restraints  # noqa: F401  (import = registration)
 from neomd.kernel import KernelSpec, SystemData
 from neomd.kernel.fake import FakeKernel
-from neomd.kernel.port import Param
+from neomd.kernel.port import BiasIR, Param
 from neomd.registry import get, registered
 
 DATA = pathlib.Path(__file__).resolve().parents[1] / "data"
@@ -79,10 +79,19 @@ def v1_funnel_upper_func(name):
             "upper_wall{0}, 0)^2").format(name)
 
 
-def v1_dist_ref_min_func(name):
-    """v1 constructor.py line 381."""
-    return ("0.5*k{0}*min(((x1-x0{0})^2+(y1-y0{0})^2+(z1-z0{0})^2)^0.5"
-            "-min_dis{0},0)^order{0}").format(name)
+def v1_dist_ref_min_func(name, order=2):
+    """v1 constructor.py line 381, in its exact positive-base identity
+    min(d-min_dis, 0)^n == (sign)*max(min_dis-d, 0)^n (sign = (-1)^n):
+    v1's literal spelling raises a NEGATIVE base to a global-parameter
+    exponent whenever d < min_dis, and openmm's CUDA platform compiles `^`
+    to powf — NaN for a negative base.  The rewrite is value-identical and
+    CUDA-safe.  (The sign follows the restraint's constant `order` —
+    order is not rampable.)
+    """
+    sign = "-" if order % 2 else ""
+    return (f"0.5*{sign}k{name}*max(min_dis{name}-"
+            f"(((x1-x0{name})^2+(y1-y0{name})^2+(z1-z0{name})^2)^0.5),0)"
+            f"^order{name}")
 
 
 def v1_dist_ref_max_func(name):
@@ -92,13 +101,21 @@ def v1_dist_ref_max_func(name):
 
 
 def v1_xyz_box_funcs(name):
-    """v1 constructor.py lines 290/299/310/319/330/339, in v1's emission order."""
+    """v1 constructor.py lines 290/299/310/319/330/339, in v1's emission order.
+
+    The min walls deviate from v1's literal spelling by the exact identity
+    min(x1-min_x, 0)^n == (+-1) * max(min_x-x1, 0)^n (sign = (-1)^n):
+    v1's form raises a NEGATIVE base to a global-parameter exponent, and
+    openmm's CUDA platform compiles `^` to powf, which is NaN for a
+    negative base — the whole Context's energy goes NaN the moment a floor
+    wall engages.  The rewrite is value-identical and CUDA-safe.
+    """
     return [
-        "(k{0}/2)*(min(x1-min_x{0}, 0)^order{0})".format(name),
+        "(k{0}/2)*(max(min_x{0}-x1, 0)^order{0})".format(name),
         "(k{0}/2)*(max(x1-max_x{0}, 0)^order{0})".format(name),
-        "(k{0}/2)*(min(y1-min_y{0}, 0)^order{0})".format(name),
+        "(k{0}/2)*(max(min_y{0}-y1, 0)^order{0})".format(name),
         "(k{0}/2)*(max(y1-max_y{0}, 0)^order{0})".format(name),
-        "(k{0}/2)*(min(z1-min_z{0}, 0)^order{0})".format(name),
+        "(k{0}/2)*(max(min_z{0}-z1, 0)^order{0})".format(name),
         "(k{0}/2)*(max(z1-max_z{0}, 0)^order{0})".format(name),
     ]
 
@@ -312,6 +329,29 @@ def test_dist_ref_position_two_bounds_verbatim():
         assert ir.label == "drp"
 
 
+def test_dist_ref_position_min_wall_identity_with_v1_value():
+    """The positive-base min-wall rewrite is value-identical to v1's
+    literal `min(d-min_dis, 0)^order` on both sides of the wall, for even
+    and odd orders — through the fake kernel's port surface."""
+    for order in (1, 2, 3, 4):
+        new_irs = get("restraint", "dist_ref_position").make_bias("w", {
+            "restr_grp": "0", "ref_position_nm": [0.0, 0.0, 0.0],
+            "restr_k": 500.0, "min_nm": 1.5, "order": order})
+        v1_ir = BiasIR(
+            kind="CustomCentroidBondForce",
+            energy=("0.5*kw*min(((x1-x0w)^2+(y1-y0w)^2+(z1-z0w)^2)^0.5"
+                    "-min_disw,0)^orderw"),
+            params={"kw": Param(500.0, "kJ/mol"), "x0w": Param(0.0, "nm"),
+                    "y0w": Param(0.0, "nm"), "z0w": Param(0.0, "nm"),
+                    "min_disw": Param(1.5, "nm"),
+                    "orderw": Param(order, "dimensionless")},
+            groups=[[0]], periodic=False, label="w")
+        for t in (-0.5, 0.0, 0.7, 1.5, 2.0, 9.0):
+            new = _bias_energy_at(new_irs[0], [t, 0.0, 0.0])
+            v1 = _bias_energy_at(v1_ir, [t, 0.0, 0.0])
+            assert new == pytest.approx(v1), (order, t)
+
+
 def test_dist_ref_position_k_per_atom_scaling():
     spec = {"restr_grp": "0,1,2,3", "ref_position_nm": [0.1, 0.2, 0.3],
             "restr_k_per_atom": 2.5, "min_nm": 0.1}
@@ -383,6 +423,37 @@ def test_xyz_box_six_axes_verbatim():
             name: Param(value, "nm"),
             "orderbox": Param(2, "dimensionless"),
         }
+
+
+def test_xyz_box_min_wall_identity_with_v1_value():
+    """The positive-base rewrite is value-identical to v1's literal
+    `min(x1-min_x, 0)^order` at every centroid position (both sides of the
+    wall), for even and odd orders alike — checked through the fake
+    kernel's port surface (install_bias + energy_forces)."""
+    for order in (1, 2, 3, 4):
+        new_irs = get("restraint", "xyz_box").make_bias("w", {
+            "restr_grp": "0", "restr_k": 500.0,
+            "min_x_nm": 1.5, "order": order})
+        v1_ir = BiasIR(
+            kind="CustomCentroidBondForce",
+            energy="(kw/2)*(min(x1-min_xw, 0)^orderw)",
+            params={"kw": Param(500.0, "kJ/mol"), "min_xw": Param(1.5, "nm"),
+                    "orderw": Param(order, "dimensionless")},
+            groups=[[0]], periodic=False, label="w")
+        for x1 in (-0.5, 0.0, 0.7, 1.5, 2.0, 9.0):
+            new = _bias_energy_at(new_irs[0], [x1, 0.0, 0.0])
+            v1 = _bias_energy_at(v1_ir, [x1, 0.0, 0.0])
+            assert new == pytest.approx(v1), (order, x1)
+
+
+def _bias_energy_at(bias, atom_x):
+    """Bias energy of one installed wall with the group atom at ``atom_x``."""
+    k = FakeKernel(KernelSpec(
+        kind="fake", seed=1, temperature=298.0,
+        system_data=SystemData(positions=np.array([atom_x]),
+                               masses=np.array([12.0]), box_vectors=None)))
+    k.install_bias(bias)
+    return k.energy_forces().potential
 
 
 def test_xyz_box_per_axis_emission():

@@ -374,7 +374,7 @@ def compile(plan_or_dict, *, kernel: str = "openmm", platform: str = "cuda",
 
 
 def md_run(target, *, platform: str = "cuda", kernel: str = "openmm",
-           logger=None, **overrides):
+           wrap_coordinates: bool | None = None, logger=None, **overrides):
     """Run an experiment; the entry point (see module docstring).
 
     Parameters
@@ -384,6 +384,11 @@ def md_run(target, *, platform: str = "cuda", kernel: str = "openmm",
         path, or the plan dict / a :class:`Plan` (L2).
     platform:
         openmm platform passed through to the kernel (default ``"cuda"``).
+    wrap_coordinates:
+        L1 scalar override of ``output.wrap_coordinates``: True wraps the
+        coordinate artifacts (``output.dcd`` frames, ``last.pdbx``) into
+        the periodic box molecule by molecule, False forces raw/unwrapped;
+        None (default) leaves the plan's own value (default True).
     **overrides:
         L1: top-level plan keys replaced via ``plan.with_`` (unknown keys
         raise :class:`~neomd.errors.ConfigKeyError` with a did-you-mean).
@@ -392,5 +397,9 @@ def md_run(target, *, platform: str = "cuda", kernel: str = "openmm",
     """
     _scan_plugins()  # ADR-0002: plugins register before the Plan validates
     plan = _resolve_plan(target, overrides)
+    if wrap_coordinates is not None:
+        output = dict(plan.raw.get("output") or {})
+        output["wrap_coordinates"] = bool(wrap_coordinates)
+        plan = plan.with_(output=output)
     return compile(plan, kernel=kernel, platform=platform,
                    logger=logger).run()

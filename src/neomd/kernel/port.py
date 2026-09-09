@@ -445,10 +445,29 @@ class StructureWriter(Protocol):
     The ``last.pdbx`` half of v1 ``save_last``: writing real coordinates
     needs a real topology, which only topology-carrying kernels (openmm)
     have — ask ``provides(kernel, StructureWriter)`` and skip the artifact
-    when absent.
+    when absent.  ``wrap=True`` asks for molecule-wrapped coordinates (the
+    plan's ``output.wrap_coordinates``); a writer that cannot honor it
+    writes the raw positions instead — it must never fail the run over it.
     """
 
-    def write_structure(self, path) -> None:
+    def write_structure(self, path, wrap: bool = False) -> None:
+        ...
+
+
+@runtime_checkable
+class MoleculeGroups(Protocol):
+    """OPTIONAL capability: molecule connectivity for box wrapping.
+
+    What ``output.wrap_coordinates`` needs (``neomd.wrap``): per-molecule
+    atom-index groups so whole molecules — never single atoms — are
+    translated into the primary box.  Kernels with real connectivity (the
+    openmm adapter, from topology bonds) provide it; kernels without a
+    topology (fake, replay) do not, and wrap-requiring output degrades to
+    raw coordinates behind one driver warning.  Ask
+    ``provides(kernel, MoleculeGroups)``.
+    """
+
+    def molecule_groups(self) -> "list[np.ndarray]":
         ...
 
 

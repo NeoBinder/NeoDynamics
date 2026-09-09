@@ -84,6 +84,7 @@ _OUTPUT_KEYS = frozenset(
         "state_interval",
         "checkpoint_interval",
         "restraint_interval",
+        "wrap_coordinates",
     }
 )
 _INTERVAL_KEYS = (
@@ -490,6 +491,15 @@ def _validate(data: Any, ctx: _Context) -> list:
                 ("output", "report_smd"),
                 report_smd,
             )
+        wrap_coordinates = output.get("wrap_coordinates")
+        if wrap_coordinates is not None and not isinstance(wrap_coordinates,
+                                                           bool):
+            problem(
+                ConfigValueError,
+                "output.wrap_coordinates must be a boolean (true/false)",
+                ("output", "wrap_coordinates"),
+                wrap_coordinates,
+            )
 
     # -- restraint types (registry-aware, best effort) -----------------------
     _validate_restraint_types(data, ctx, problem)
@@ -879,9 +889,9 @@ def _validate_smd_section(data: Mapping, ctx: _Context, problem) -> None:
     # ramp sanity — the rampable key set is owned by the method triple
     # (single source of truth; the checks degrade away when unimportable)
     try:
-        from .methods.smd import RAMP_KEYS
+        from .methods.smd import FIXED_KEYS, RAMP_KEYS
     except ImportError:  # pragma: no cover - the package ships both
-        RAMP_KEYS = ()
+        RAMP_KEYS, FIXED_KEYS = (), ()
     for name, spec in smd.items():
         if not isinstance(spec, Mapping):
             continue  # already reported above
@@ -907,6 +917,18 @@ def _validate_smd_section(data: Mapping, ctx: _Context, problem) -> None:
                     ("smd", name, key),
                     value,
                 )
+            elif key in FIXED_KEYS:
+                # `order` is a constant: v1's single-element-list spelling
+                # is accepted, a real ramp is not (a varying exponent changes
+                # the force's shape and flips min-wall force direction)
+                if len(value) != 1 or not _numeric(value[0]):
+                    problem(
+                        ConfigValueError,
+                        f"smd.{name}.{key} must be a single number "
+                        f"(order is not rampable)",
+                        ("smd", name, key),
+                        value,
+                    )
 
     # entry types against the restraint registry (same did-you-mean pass)
     registry = _load_registry()
@@ -1359,6 +1381,12 @@ def _derive(raw: Mapping, ctx: _Context) -> dict:
     # output.report_smd (default on) by the driver at run time.
     derived_output["smd_interval"] = (output.get("report_interval", 0)
                                       if raw.get("smd") else 0)
+
+    # wrap output coordinates (output.dcd frames / last.pdbx) into the
+    # periodic box, molecule by molecule; default ON (raw/unwrapped needs
+    # an explicit false)
+    derived_output["wrap_coordinates"] = bool(
+        output.get("wrap_coordinates", True))
     derived["output"] = derived_output
 
     return derived
@@ -1391,6 +1419,7 @@ class Plan:
         "checkpoint_interval",
         "restraint_interval",
         "smd_interval",  # derived-only (steered MD's tape cadence)
+        "wrap_coordinates",  # derived-only (output dcd/pdbx wrap switch)
     )
     _FLAT_INPUT_KEYS = ("checkpoint", "state", "templates")
 

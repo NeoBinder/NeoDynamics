@@ -393,8 +393,22 @@ def _observables_funnel(name: str, spec: dict) -> ObservableSpec:
 # (k = per_atom * len(grp)); otherwise plain ``restr_k`` is used.
 # --------------------------------------------------------------------------
 
-_DIST_REF_MIN_FUNC = "0.5*k{0}*min(((x1-x0{0})^2+(y1-y0{0})^2+(z1-z0{0})^2)^0.5-min_dis{0},0)^order{0}"
+# The max wall keeps v1's literal spelling (positive `max(...)` base).
+# The min wall is v1's exact positive-base identity
+#   min(d-min_dis, 0)^n == (+-1) * max(min_dis-d, 0)^n   (sign = (-1)^n)
+# with d = the COM-to-reference distance: v1's literal raises a NEGATIVE
+# base to a global-parameter exponent whenever d < min_dis (the wall's
+# active state), and openmm's CUDA platform compiles `^` to powf, which is
+# NaN for a negative base — the whole Context's energy goes NaN.  CPU
+# evaluates v1's spelling fine, which is why this never surfaced before.
 _DIST_REF_MAX_FUNC = "0.5*k{0}*max(((x1-x0{0})^2+(y1-y0{0})^2+(z1-z0{0})^2)^0.5-max_dis{0},0)^order{0}"
+_DIST_REF_DISTANCE = "((x1-x0{0})^2+(y1-y0{0})^2+(z1-z0{0})^2)^0.5"
+
+
+def _dist_ref_min_func(name: str, order: int) -> str:
+    sign = "-" if order % 2 else ""
+    return (f"0.5*{sign}k{name}*max(min_dis{name}"
+            f"-({_DIST_REF_DISTANCE.format(name)}),0)^order{name}")
 
 
 def _make_bias_dist_ref_position(name: str, spec: dict) -> list[BiasIR]:
@@ -411,7 +425,7 @@ def _make_bias_dist_ref_position(name: str, spec: dict) -> list[BiasIR]:
         f"z0{name}": Param(ref_pos[2], "nm"),
     }
     grps = [grp]
-    order = spec.get("order", 2)
+    order = int(spec.get("order", 2))
     is_periodic = spec.get("is_periodic", False)  # v1 default_periodic=False
 
     def _params(bound_params: dict) -> dict:
@@ -426,7 +440,7 @@ def _make_bias_dist_ref_position(name: str, spec: dict) -> list[BiasIR]:
     if spec.get("min_nm") is not None:
         return_ls.append(BiasIR(
             kind="CustomCentroidBondForce",
-            energy=_DIST_REF_MIN_FUNC.format(name),
+            energy=_dist_ref_min_func(name, order),
             params=_params({f"min_dis{name}": Param(spec["min_nm"], "nm")}),
             groups=grps,
             periodic=is_periodic,
@@ -459,14 +473,23 @@ def _observables_dist_ref_position(name: str, spec: dict) -> ObservableSpec:
 # Six independent one-sided walls, emitted in the order min_x, max_x, min_y,
 # max_y, min_z, max_z; each axis is optional (presence check — a written
 # 0.0 is a real wall at 0, see the Restraint contract).
+#
+# The min walls are written in the positive-base identity
+#   min(x1-min_x, 0)^n == (sign) * max(min_x-x1, 0)^n   (sign = (-1)^n)
+# instead of v1's literal `min(x1-min_x, 0)^order`: on the openmm CUDA
+# platform `^` compiles to powf, and powf(negative, runtime exponent)
+# returns NaN — v1's spelling NaNs the whole Context the moment a floor
+# wall engages (CPU evaluates it fine).  The rewrite is exact for every
+# order; the sign follows the restraint's (constant) `order` — order is
+# not rampable.
 # --------------------------------------------------------------------------
 
 _XYZ_BOX_FUNCS = [
-    ("min_x_nm", "(k{0}/2)*(min(x1-min_x{0}, 0)^order{0})", "min_x"),
+    ("min_x_nm", "(k{0}/2)*(max(min_x{0}-x1, 0)^order{0})", "min_x"),
     ("max_x_nm", "(k{0}/2)*(max(x1-max_x{0}, 0)^order{0})", "max_x"),
-    ("min_y_nm", "(k{0}/2)*(min(y1-min_y{0}, 0)^order{0})", "min_y"),
+    ("min_y_nm", "(k{0}/2)*(max(min_y{0}-y1, 0)^order{0})", "min_y"),
     ("max_y_nm", "(k{0}/2)*(max(y1-max_y{0}, 0)^order{0})", "max_y"),
-    ("min_z_nm", "(k{0}/2)*(min(z1-min_z{0}, 0)^order{0})", "min_z"),
+    ("min_z_nm", "(k{0}/2)*(max(min_z{0}-z1, 0)^order{0})", "min_z"),
     ("max_z_nm", "(k{0}/2)*(max(z1-max_z{0}, 0)^order{0})", "max_z"),
 ]
 
@@ -474,24 +497,31 @@ _XYZ_BOX_FUNCS = [
 def _make_bias_xyz_box(name: str, spec: dict) -> list[BiasIR]:
     grps = [_index_list(spec["restr_grp"], "restr_grp")]
     k = spec["restr_k"]
-    order = spec.get("order", 2)
+    order = int(spec.get("order", 2))
     is_periodic = spec.get("is_periodic", False)  # v1 default_periodic=False
+    # odd order carries v1's exact (direction-flipped) value through the
+    # sign of k, keeping the powf base non-negative
+    k_term = f"({'-' if order % 2 else ''}k{name}/2)"
 
     return_ls = []
     for key, func, param_base in _XYZ_BOX_FUNCS:
-        if spec.get(key) is not None:
-            return_ls.append(BiasIR(
-                kind="CustomCentroidBondForce",
-                energy=func.format(name),
-                params={
-                    f"k{name}": Param(k, "kJ/mol"),
-                    f"{param_base}{name}": Param(spec[key], "nm"),
-                    f"order{name}": Param(order, "dimensionless"),
-                },
-                groups=grps,
-                periodic=is_periodic,
-                label=name,
-            ))
+        if spec.get(key) is None:
+            continue
+        energy = func.format(name)
+        if key.startswith("min_"):
+            energy = energy.replace(f"(k{name}/2)", k_term, 1)
+        return_ls.append(BiasIR(
+            kind="CustomCentroidBondForce",
+            energy=energy,
+            params={
+                f"k{name}": Param(k, "kJ/mol"),
+                f"{param_base}{name}": Param(spec[key], "nm"),
+                f"order{name}": Param(order, "dimensionless"),
+            },
+            groups=grps,
+            periodic=is_periodic,
+            label=name,
+        ))
     return return_ls
 
 

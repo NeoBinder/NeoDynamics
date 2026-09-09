@@ -40,10 +40,24 @@ RAMP_KEYS = (
     "max_nm",
     "min_degree",
     "max_degree",
-    "order",
     "maxRMSD_nm",
     "ref_position_nm",  # scalar spelling: one [x, y, z]; ramp: [[x,y,z], ...]
+    # the xyz_box per-axis walls: a moving wall is the constant-velocity
+    # pull spelling (v1's run_smd vocabulary predates the per-axis keys;
+    # v2 extends the same ramp semantics to them)
+    "min_x_nm",
+    "max_x_nm",
+    "min_y_nm",
+    "max_y_nm",
+    "min_z_nm",
+    "max_z_nm",
 )
+
+#: keys that accept v1's single-element-list spelling (`order: [2]` = the
+#: constant 2) but are NOT rampable: a multi-element list is a plan error.
+#: Varying `order` changes the force's shape AND, on min walls, flips its
+#: direction at odd values — so it must stay constant.
+FIXED_KEYS = ("order",)
 
 LOG = logging.getLogger("neomd.methods.smd")
 
@@ -121,7 +135,9 @@ def _split_ramps(name: str, spec: Mapping) -> tuple[dict, dict]:
     A ramp is a RAMP_KEYS numeric key given a list of numbers, or
     ``ref_position_nm`` given a list of triples (a bare triple stays the
     scalar spelling).  Single-element lists are fixed at that value, not
-    ramps.
+    ramps.  FIXED_KEYS keys (``order``) accept v1's single-element-list
+    spelling as a constant and are never ramps (a multi-element order list
+    is rejected by plan validation).
     """
     scalar: dict = {}
     ramps: dict = {}
@@ -144,6 +160,9 @@ def _split_ramps(name: str, spec: Mapping) -> tuple[dict, dict]:
                 scalar[key] = value[0]
                 if len(value) > 1:
                     ramps[key] = list(value)
+                continue
+            if key in FIXED_KEYS:
+                scalar[key] = value[0]  # v1 spelling: [2] = the constant 2
                 continue
         scalar[key] = value
     return scalar, ramps
@@ -346,9 +365,13 @@ SCHEMA = {
         "smd": ("mapping name -> spec; each needs 'type' plus the restraint "
                 "registry's keys (same vocabulary as plan.restraint); any "
                 "rampable key (restr_k, min_nm, max_nm, min_degree, "
-                "max_degree, order, maxRMSD_nm, or ref_position_nm as a list "
-                "of [x, y, z] triples) may be given a LIST of values — "
-                "piecewise-linearly interpolated over steps (v1 run_smd)"),
+                "max_degree, maxRMSD_nm, the xyz_box per-axis walls "
+                "min_x_nm/max_x_nm/min_y_nm/max_y_nm/min_z_nm/max_z_nm, or "
+                "ref_position_nm as a list of [x, y, z] triples) may be "
+                "given a LIST of values — piecewise-linearly interpolated "
+                "over steps (v1 run_smd).  `order` is NOT rampable: it is a "
+                "constant (v1's `order: [2]` single-element spelling is "
+                "accepted and means the same constant)"),
         "steps": "int, total steps (plan-level key)",
     },
     "optional": {

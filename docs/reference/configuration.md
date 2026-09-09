@@ -64,6 +64,7 @@ key path and a did-you-mean suggestion.
 | `restraint_interval` | Steps between `restraint.tsv` rows. Derived view: mirrors `report_interval` when a `restraint` section exists and `report_restraint` is true, else 0. |
 | `state_interval` | Steps between `output.state` flushes; 0 = off. |
 | `trajectory_interval` | Steps between `output.dcd` frames; 0 = off. |
+| `wrap_coordinates` | bool — wrap coordinate artifacts (`output.dcd` frames, `last.pdbx`) into the periodic box, whole molecule by whole molecule (default true; set false for raw / unwrapped). `neomd run --wrap/--unwrap` overrides. |
 
 ### `integrator` keys
 
@@ -138,7 +139,7 @@ sampling methods register through the extension rack (`neomd.methods`).
 
 | Key | Required | Description | Default |
 |---|---|---|---|
-| `smd` | yes | mapping name -> spec; each needs 'type' plus the restraint registry's keys (same vocabulary as plan.restraint); any rampable key (restr_k, min_nm, max_nm, min_degree, max_degree, order, maxRMSD_nm, or ref_position_nm as a list of [x, y, z] triples) may be given a LIST of values — piecewise-linearly interpolated over steps (v1 run_smd) | — |
+| `smd` | yes | mapping name -> spec; each needs 'type' plus the restraint registry's keys (same vocabulary as plan.restraint); any rampable key (restr_k, min_nm, max_nm, min_degree, max_degree, maxRMSD_nm, the xyz_box per-axis walls min_x_nm/max_x_nm/min_y_nm/max_y_nm/min_z_nm/max_z_nm, or ref_position_nm as a list of [x, y, z] triples) may be given a LIST of values — piecewise-linearly interpolated over steps (v1 run_smd).  `order` is NOT rampable: it is a constant (v1's `order: [2]` single-element spelling is accepted and means the same constant) | — |
 | `steps` | yes | int, total steps (plan-level key) | — |
 | `continue_md` | no | bool; restore output.ckpt and trim smd.tsv (and the other tapes) to the checkpoint step before running | None |
 | `output.*` | no | output_dir + intervals; the smd.tsv tape fires on the derived smd_interval (mirror of report_interval); output.report_smd (bool, default true) switches the tape off — the driver reads it, the method never does | None |

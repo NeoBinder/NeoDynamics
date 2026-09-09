@@ -108,6 +108,64 @@ def test_smd_ramp_staircase_matches_the_v1_schedule(tmp_path):
     assert all(float(r["pull"]) > 0.0 for r in rows)
 
 
+def test_smd_ramps_the_xyz_box_per_axis_walls(tmp_path):
+    """The xyz_box per-axis walls are rampable like every other wall key:
+    ``max_x_nm: [0.5, 1.5]`` is a moving wall (the constant-velocity pull
+    spelling).  Regression: these keys used to fall OUTSIDE RAMP_KEYS, so a
+    list value flowed raw into a bias Param and crashed the run (frozen-
+    list/float conversion) after validation had already passed."""
+    config = smd_config(tmp_path)
+    config["smd"] = {"pull": {
+        "type": "xyz_box", "restr_grp": [0, 1],
+        "max_x_nm": [0.5, 1.5], "restr_k": [100], "order": 1,
+    }}
+    outcome = run_smd(tmp_path, config)
+    result = outcome.results[0]
+    assert result.steps_done == 12000
+    # pushes fire at the 0/5000/10000 boundaries of the ONE ramp segment
+    at_5000 = 0.5 + 5000 / 12000 * 1.0
+    at_10000 = 0.5 + 10000 / 12000 * 1.0
+    assert result.final_params == {"pull": {"max_x_nm": at_10000}}
+
+    # the same staircase the distance ramp shows, on the wall key
+    # (xyz_box's observable is the group COM: one column per axis)
+    header, rows = tsv_rows(tmp_path / "smd.tsv")
+    assert header == ["step", "pull__x", "pull__y", "pull__z",
+                      "pull__max_x_nm", "pull__energy"]
+    wall = [float(r["pull__max_x_nm"]) for r in rows]
+    assert wall[0] == 0.5
+    assert wall[1] == pytest.approx(at_5000)
+    assert wall[2] == pytest.approx(at_5000)
+    assert wall[3] == pytest.approx(at_10000)
+
+    # ramp sanity is collect-all: a non-numeric per-axis ramp is a plan error
+    bad = smd_config(tmp_path)
+    bad["smd"] = {"pull": {"type": "xyz_box", "restr_grp": [0],
+                           "max_x_nm": [1, "two"]}}
+    messages = [str(e) for e in validate_config(bad)]
+    assert any("max_x_nm" in m and "numbers" in m for m in messages)
+
+
+def test_smd_order_is_not_rampable(tmp_path):
+    """`order` is a constant: v1's single-element-list spelling is accepted
+    (and means the constant), a multi-element ramp list is a plan error —
+    varying the exponent changes the force's shape and flips min-wall
+    force direction at odd values."""
+    config = smd_config(tmp_path)
+    config["smd"] = {"pull": {
+        "type": "xyz_box", "restr_grp": [0, 1],
+        "max_x_nm": [0.5, 1.5], "restr_k": [100], "order": [2]}}
+    outcome = run_smd(tmp_path, config)
+    assert outcome.results[0].steps_done == 12000  # [2] == the constant 2
+
+    bad = smd_config(tmp_path)
+    bad["smd"] = {"pull": {
+        "type": "xyz_box", "restr_grp": [0, 1],
+        "max_x_nm": [0.5, 1.5], "restr_k": 100, "order": [1, 2]}}
+    messages = [str(e) for e in validate_config(bad)]
+    assert any("order" in m and "not rampable" in m for m in messages)
+
+
 def test_smd_without_report_interval_writes_no_tape(tmp_path):
     config = smd_config(tmp_path)
     del config["output"]["report_interval"]

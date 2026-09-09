@@ -117,15 +117,29 @@ with the [run_v2.py](examples/3HTB_complex/run_v2.py) walkthrough) and
 
 Steered MD swaps in `method: smd` and an `smd:` section whose entries use
 the restraint vocabulary — any rampable key (`restr_k`, `max_nm`,
-`min_degree`, `order`, `maxRMSD_nm`, `ref_position_nm`, ...) given a LIST
+`min_degree`, `maxRMSD_nm`, `ref_position_nm`, the xyz_box
+per-axis walls `min_x_nm`/`max_x_nm`/`min_y_nm`/..., ...) given a LIST
 of values is piecewise-linearly interpolated over `steps` and pushed to the
-kernel on a fixed 5000-step staircase (v1 semantics, verbatim). A classic
+kernel on a fixed 5000-step staircase (v1 semantics, verbatim). `order`
+is not rampable — it stays constant (v1's `order: [2]` spelling is
+accepted and means the same constant). A classic
 pull is a `max_nm`/`ref_position_nm` ramp; a soft engage/release is a
 `restr_k` ramp like `[0, 1000, ..., 0]`. The run writes `smd.tsv` (step +
 geometric observable + current ramp values + bias energy; switch it off
 with `output.report_smd: false`) alongside the usual artifacts, and a
 static `restraint:` section (e.g. holding the protein) is reported to
 `restraint.tsv` as in any MD run.
+
+The coordinate artifacts (`output.dcd` frames, `last.pdbx`) are wrapped
+into the periodic box whole-molecule-by-whole-molecule by default
+(topology bonds; internal geometry preserved, unlike per-atom wrapping);
+`output.wrap_coordinates: false` switches to raw, unwrapped coordinates,
+and `neomd run --wrap` / `--unwrap` override the plan from the command
+line. Checkpoints (`output.ckpt` / `last.ckpt`) are never wrapped — they
+are openmm's raw state snapshots, required for bit-exact resume. Bias and
+CV forces are clamped to the system's native periodicity: a periodic
+restraint flag cannot flip a non-periodic system to periodic, so on such
+systems wrap stays a no-op even when enabled.
 
 ## Installation
 

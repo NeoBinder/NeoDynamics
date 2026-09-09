@@ -320,9 +320,28 @@ class OpenMMKernel:
         self._tables: dict[str, tuple] = {}
         self._dof_cache: int | None = None
         self._simulation: app.Simulation | None = None
+        #: molecule connectivity (MoleculeGroups capability), from topology
+        #: bonds; derived once on first ask
+        self._molecule_groups: list[np.ndarray] | None = None
         #: boost channels (port.BoostOps, ADR-0005): label ->
         #: (concrete group tuple, threshold E, k); None-ish empty = no boost
         self._boost: dict[str, tuple] = {}
+        #: the system's NATIVE periodicity, snapshotted before any bias
+        #: install.  openmm's usesPeriodicBoundaryConditions() is an OR over
+        #: every force, so one periodic bias flag would silently flip a
+        #: non-periodic system (box_vectors()/wrap/volume come on against a
+        #: declared-but-unused box).  Bias/CV forces are clamped to this
+        #: snapshot — see :meth:`_effective_periodic`.
+        self._system_periodic = self.system.usesPeriodicBoundaryConditions()
+
+    def _effective_periodic(self, requested: bool) -> bool:
+        """Clamp a force's PBC request to the system's native periodicity.
+
+        Minimum image against a box no force actually uses is incoherent:
+        on a non-periodic system every bias/CV force runs with PBC off, so
+        installing a restraint can never flip the system periodic.
+        """
+        return bool(requested) and self._system_periodic
 
     @property
     def simulation(self) -> app.Simulation:
@@ -540,7 +559,8 @@ class OpenMMKernel:
         "improved"): ``CustomCentroidBondForce(len(groups), energy)`` +
         ``addGroup`` per group + ``addBond(range(n))`` + ``addGlobalParameter``
         per typed Param (kJ/mol, nm, deg, dimensionless) +
-        ``setUsesPeriodicBoundaryConditions(bias.periodic)``;
+        ``setUsesPeriodicBoundaryConditions(bias.periodic)`` (clamped to the
+        system's native periodicity — :meth:`_effective_periodic`);
         ``CustomTorsionForce(energy)`` + ``addTorsion``; ``CustomCVForce``
         wrapping the CVIR (``bias.cv.bond_params`` become per-bond
         parameters); ``CustomCVTableForce`` -> :meth:`_compile_table`."""
@@ -561,7 +581,8 @@ class OpenMMKernel:
             force.addTorsion(*bias.torsion)
             for name, param in bias.params.items():
                 force.addGlobalParameter(name, _to_quantity(param))
-            force.setUsesPeriodicBoundaryConditions(bias.periodic)
+            force.setUsesPeriodicBoundaryConditions(
+                self._effective_periodic(bias.periodic))
             return force
         if bias.kind == "CustomCVForce":
             if bias.cv is None:
@@ -658,7 +679,8 @@ class OpenMMKernel:
         force.addBond(list(range(len(groups))))
         for name, param in params.items():
             force.addGlobalParameter(name, _to_quantity(param))
-        force.setUsesPeriodicBoundaryConditions(periodic)
+        force.setUsesPeriodicBoundaryConditions(
+            self._effective_periodic(periodic))
         return force
 
     def _compile_centroid_bonds(self, bias: BiasIR) -> openmm.CustomCentroidBondForce:
@@ -689,7 +711,8 @@ class OpenMMKernel:
                 ids.append(group_ids[key])
             force.addBond(ids, [float(bond.params[name])
                                 for name in bias.params])
-        force.setUsesPeriodicBoundaryConditions(bias.periodic)
+        force.setUsesPeriodicBoundaryConditions(
+            self._effective_periodic(bias.periodic))
         return force
 
     def _compile_cv(self, cv: CVIR) -> openmm.Force:
@@ -712,11 +735,11 @@ class OpenMMKernel:
                 force.addPerBondParameter(name)
             force.addBond(list(range(len(cv.groups))),
                           [_to_quantity(cv.bond_params[n]) for n in names])
-            # force-level PBC is True on every CV force (the geometry lives
-            # in the expression's minimum-image distances); CVIR.periodic is
-            # the CV's intrinsic periodicity for the metadynamics table, not
-            # this flag.
-            force.setUsesPeriodicBoundaryConditions(True)
+            # force-level PBC follows the system's native periodicity (the
+            # geometry lives in the expression's minimum-image distances on
+            # periodic systems); CVIR.periodic is the CV's intrinsic
+            # periodicity for the metadynamics table, not this flag.
+            force.setUsesPeriodicBoundaryConditions(self._system_periodic)
             return force
         if cv.kind == "CustomTorsionForce":
             torsion = cv.torsion
@@ -727,7 +750,7 @@ class OpenMMKernel:
                 raise ValueError(f"cv {cv.label!r}: CustomTorsionForce needs torsion")
             force = openmm.CustomTorsionForce(cv.expression)
             force.addTorsion(*torsion)
-            force.setUsesPeriodicBoundaryConditions(True)
+            force.setUsesPeriodicBoundaryConditions(self._system_periodic)
             return force
         if cv.kind == "RMSDForce":
             # RMSDForce over FULL-system reference positions with a
@@ -755,6 +778,8 @@ class OpenMMKernel:
             # edge — the largest MIC-valid cutoff; the residual truncation
             # (pairs beyond it contribute ~(r/r0)^(nn-mm)) is the documented
             # deviation from the fake/evaluate tracks, which do not truncate.
+            # The branch rides the snapshotted NATIVE periodicity, not the
+            # live check — an installed bias must not change this answer.
             if len(cv.groups) != 2:
                 raise ValueError(
                     f"cv {cv.label!r}: CustomNonbondedForce needs 2 groups")
@@ -768,7 +793,7 @@ class OpenMMKernel:
             for i in range(self.system.getNumParticles()):
                 force.addParticle([1.0 if i in grp1 else 0.0,
                                    1.0 if i in grp2 else 0.0])
-            if self.system.usesPeriodicBoundaryConditions():
+            if self._system_periodic:
                 box = self.system.getDefaultPeriodicBoxVectors()
                 edge = min(np.linalg.norm([v.x, v.y, v.z]) for v in box)
                 force.setCutoffDistance(0.5 * edge * unit.nanometer)
@@ -945,7 +970,22 @@ class OpenMMKernel:
     # snapshots / resume
     # ------------------------------------------------------------------
 
-    def write_structure(self, path) -> None:
+    def molecule_groups(self) -> list[np.ndarray]:
+        """Per-molecule atom-index groups from topology bonds (the port's
+        ``MoleculeGroups`` capability) — the connectivity
+        :meth:`write_structure` and the driver's wrap-requiring trajectory
+        probes share."""
+        if self._molecule_groups is None:
+            from ..wrap import molecule_groups_from_bonds
+
+            topology = self._structure.topology
+            bonds = [(bond.atom1.index, bond.atom2.index)
+                     for bond in topology.bonds()]
+            self._molecule_groups = molecule_groups_from_bonds(
+                topology.getNumAtoms(), bonds)
+        return self._molecule_groups
+
+    def write_structure(self, path, wrap: bool = False) -> None:
         """Write the CURRENT positions as a PDBx/mmCIF structure to ``path``.
 
         The final-positions artifact seam: the driver duck-types this public
@@ -958,6 +998,10 @@ class OpenMMKernel:
         output header always matches the coordinates — an NPT run's barostat
         may have moved the box away from the input file's header (periodic
         systems only; vacuum keeps the input topology's absent box).
+        ``wrap=True`` (the plan's ``output.wrap_coordinates``) wraps whole
+        molecules into the runtime box first (:meth:`molecule_groups` via
+        :mod:`neomd.wrap`); a vacuum system has no box and writes raw
+        positions.
         """
         state = self.simulation.context.getState(getPositions=True)
         positions = state.getPositions()
@@ -967,6 +1011,17 @@ class OpenMMKernel:
             # topology's (absent) box — no zero CRYST1 record is invented.
             self._structure.topology.setPeriodicBoxVectors(
                 state.getPeriodicBoxVectors())
+            if wrap:
+                from ..wrap import wrap_positions
+
+                pos_nm = np.asarray(
+                    state.getPositions(asNumpy=True).value_in_unit(
+                        unit.nanometer), dtype=np.float64)
+                box_nm = np.asarray(
+                    state.getPeriodicBoxVectors(asNumpy=True).value_in_unit(
+                        unit.nanometer), dtype=np.float64)
+                positions = wrap_positions(
+                    pos_nm, box_nm, self.molecule_groups()) * unit.nanometer
         with open(path, "w") as handle:
             app.PDBxFile.writeFile(
                 self._structure.topology, positions, handle, keepIds=True)

@@ -585,6 +585,12 @@ def test_drive_openmm_ala2_with_restraint(tmp_path):
         "output": {"output_dir": str(tmp_path), "state_interval": 25,
                    "trajectory_interval": 0, "checkpoint_interval": 0,
                    "report_interval": 25},
+        # default wrap_coordinates (true) must stay a NO-OP here: the
+        # distance restraint's force is periodic, but bias/CV forces are
+        # clamped to the system's NATIVE periodicity (openmm counts an OR
+        # over forces — without the clamp the restraint would flip this
+        # gas-phase system to periodic and translate last.pdbx by a box
+        # lattice), so the system stays non-periodic and nothing wraps.
         "restraint": {"rst": {"type": "distance", "grp1": "0", "grp2": "21",
                               "restr_k": 100.0, "max_nm": 0.5}},
     })
@@ -605,6 +611,7 @@ def test_drive_openmm_ala2_with_restraint(tmp_path):
     assert np.isfinite(kernel.positions()).all()
     assert outcome.fgroups == {"rst": [31]}  # max free force group, v1 rule
     assert isinstance(outcome.results[0], RunResult)
+    assert kernel.box_vectors() is None  # restraint did NOT flip periodicity
 
     lines = (tmp_path / "output.state").read_text().splitlines()
     assert lines[0].startswith('#"Step"')

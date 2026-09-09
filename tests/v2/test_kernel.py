@@ -426,6 +426,35 @@ def test_openmm_solvated_pdbx_system():
     assert kernel.current_step == 2
 
 
+def test_openmm_bias_periodicity_clamps_to_the_system():
+    """Bias forces follow the SYSTEM's native periodicity: on a non-periodic
+    system a periodic=True restraint must NOT flip usesPeriodic on (which
+    would turn box_vectors()/wrap/volume on against a declared-but-unused
+    box); on a periodic system the box stays and periodic biases keep it."""
+    # ala2: a non-periodic system (NoCutoff nonbonded) with a nominal box
+    kernel = KernelFactory.create(openmm_spec())
+    assert kernel.box_vectors() is None
+    gid = kernel.install_bias(distance_min_bias(
+        "r1", [[0], [ALA2_ATOMS - 1]], 500.0, 10.0))
+    assert gid == 31
+    # the clamp: the system is still non-periodic after the install
+    assert kernel.box_vectors() is None
+    assert kernel.energy_forces().volume is None
+
+    # solvated: a genuinely periodic system keeps its box (and its
+    # minimum-image semantics) through the same install
+    solv = KernelFactory.create(KernelSpec(
+        kind="openmm", system_xml=SOLV_SYSTEM_XML,
+        topology_file=str(SOLV_PDBX), temperature=298.0, seed=SEED,
+        platform="cpu"))
+    box_before = solv.box_vectors()
+    assert box_before is not None
+    solv.install_bias(distance_min_bias(
+        "r2", [[0], [SOLV_ATOMS - 1]], 500.0, 10.0))
+    assert solv.box_vectors() is not None
+    np.testing.assert_allclose(solv.box_vectors(), box_before)
+
+
 def test_openmm_rejects_unknown_platform_and_integrator():
     with pytest.raises(NotImplementedError, match='use "cuda" or "cpu"'):
         KernelFactory.create(openmm_spec(platform="metal"))
