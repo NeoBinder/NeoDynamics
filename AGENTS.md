@@ -190,7 +190,9 @@ Tests live in `tests/v2/` (unit + e2e, fake kernel — millisecond tier) and
 bit-stable only on the microarchitecture that recorded them, so CI runs the
 statistical tier (`NEO_GOLDEN_TOLERANT=1`: max 1e-3 / mean 1e-4 kJ/mol,
 stats rtol 1e-3, no coordinate-hash identity); bit-exact comparison is for
-re-runs on the recording machine.
+re-runs on the recording machine. The spine gate uses the selected tier for
+every sample, including step 0; retain nonempty energy/frame samples and
+matching sample counts in both tiers.
 
 CI (`.github/workflows/ci.yml`) runs `pixi run test`, `pixi run test-golden`,
 and the 3HTB smoke on every PR, with `PYTEST_ADDOPTS=--skip-cuda` on
