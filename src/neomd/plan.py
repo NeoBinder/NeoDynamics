@@ -601,6 +601,10 @@ def _validate_restraint_spec_keys(name: str, spec: Mapping, entry,
     keys carry value lists — see ``_validate_smd_section``).  Best effort:
     schemas without the required/optional shape, or entries whose schema is
     missing entirely, are skipped rather than guessed at.
+
+    The cross-type ``independent_force_group`` key gets a VALUE check here
+    (must be a bool): every type accepts it, so its type contract lives
+    once — at the vocabulary's owner (``restraints.py``) — not per schema.
     """
     schema = getattr(entry, "schema", None)
     if not isinstance(schema, Mapping):
@@ -628,6 +632,17 @@ def _validate_restraint_spec_keys(name: str, spec: Mapping, entry,
                 key,
                 known_keys=known_keys,
             )
+    from .restraints import INDEPENDENT_FORCE_GROUP
+
+    if INDEPENDENT_FORCE_GROUP in spec \
+            and not isinstance(spec[INDEPENDENT_FORCE_GROUP], bool):
+        problem(
+            ConfigValueError,
+            f"restraint entry {name!r}: {INDEPENDENT_FORCE_GROUP!r} must be "
+            f"a boolean (true/false)",
+            ("restraint", name, INDEPENDENT_FORCE_GROUP),
+            spec[INDEPENDENT_FORCE_GROUP],
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -929,6 +944,24 @@ def _validate_smd_section(data: Mapping, ctx: _Context, problem) -> None:
                         ("smd", name, key),
                         value,
                     )
+
+    # the shared-group opt-out key: same value contract as the restraint
+    # section (must be a bool; the key rides the entry spec through
+    # _split_ramps into the method's install policy)
+    from .restraints import INDEPENDENT_FORCE_GROUP
+
+    for name, spec in smd.items():
+        if not isinstance(spec, Mapping):
+            continue  # already reported above
+        if INDEPENDENT_FORCE_GROUP in spec \
+                and not isinstance(spec[INDEPENDENT_FORCE_GROUP], bool):
+            problem(
+                ConfigValueError,
+                f"smd entry {name!r}: {INDEPENDENT_FORCE_GROUP!r} must be "
+                f"a boolean (true/false)",
+                ("smd", name, INDEPENDENT_FORCE_GROUP),
+                spec[INDEPENDENT_FORCE_GROUP],
+            )
 
     # entry types against the restraint registry (same did-you-mean pass)
     registry = _load_registry()

@@ -33,10 +33,17 @@ output:
   The full entry tables are in the
   [configuration reference](../reference/configuration.md#restraints).
 - **Artifacts** — the run writes `smd.tsv` (step + geometric observable +
-  current ramp values + bias energy) alongside the usual artifacts; switch
-  the tape off with `output.report_smd: false` (default on). A static
-  `restraint:` section (e.g. holding the protein) is reported to
-  `restraint.tsv` as in any MD run.
+  current ramp values + energy) alongside the usual artifacts; switch
+  the tape off with `output.report_smd: false` (default on). By default
+  all smd entries' pull forces share ONE force group and `smd.tsv`
+  carries a single `shared_smd__energy` total column; an entry that
+  needs its own energy reading opts out with
+  `independent_force_group: true` (one dedicated group + its own
+  `{name}__energy` column), mirroring the
+  [restraint policy](restraints.md#energy-columns-and-force-groups).
+  A static `restraint:` section (e.g. holding the protein) is reported
+  to `restraint.tsv` as in any MD run — restraint and smd categories
+  always get separate shared groups.
 - **Resume** — `continue_md: true` restores the checkpoint and trims
   `smd.tsv` (and every other tape) to the checkpoint step; a resumed run
   snaps its ramp push to the enclosing 5000-step boundary, so the

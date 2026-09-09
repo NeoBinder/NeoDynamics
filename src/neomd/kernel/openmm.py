@@ -71,8 +71,9 @@ _R_KJ_MOL_K = unit.MOLAR_GAS_CONSTANT_R.value_in_unit(
     unit.kilojoule_per_mole / unit.kelvin)
 
 #: force types whose energy is "the dihedrals" for the dual-boost channel
-#: (GaMD Miao 2016).  install_bias forces are excluded by identity — a
-#: torsion RESTRAINT is an additive bias, not system dihedral physics.
+#: (GaMD Miao 2016).  install_bias groups are excluded wholesale (by group
+#: id, not object identity — getForces() wrappers differ) — a torsion
+#: RESTRAINT is an additive bias, not system dihedral physics.
 _TORSION_FORCE_TYPES = (openmm.PeriodicTorsionForce, openmm.CustomTorsionForce)
 
 
@@ -513,7 +514,7 @@ class OpenMMKernel:
     # bias installation
     # ------------------------------------------------------------------
 
-    def install_bias(self, bias: BiasIR) -> int:
+    def install_bias(self, bias: BiasIR, group: int | None = None) -> int:
         if self._boost:
             # ADR-0005 ordering: the boost integrator's per-group update
             # chain is frozen at install_boost time — a bias installed
@@ -522,7 +523,26 @@ class OpenMMKernel:
                 "cannot install_bias after install_boost (boost channels "
                 "target an explicit force-group set); install biases first")
         force = self._compile_bias(bias)
-        group = self._pick_force_group()
+        if group is None:
+            group = self._pick_force_group()
+        else:
+            # shared-restraint policy: multiple biases legitimately share
+            # one group.  What an explicit group must NEVER hit is a SYSTEM
+            # force's group — that would blend system energy into the
+            # per-group energy reads.  Excluded by GROUP-SET algebra, never
+            # by force-object identity: the Python wrapper this adapter
+            # holds (from _compile_bias) is not the object getForces()
+            # hands back, so id() matching silently misses.
+            group = int(group)
+            bias_groups = {g for g, _f in self._installed}
+            system_groups = ({f.getForceGroup()
+                              for f in self.system.getForces()}
+                             - bias_groups)
+            if group in system_groups:
+                raise ValueError(
+                    f"install_bias: force group {group} is held by a system "
+                    f"force; only ids this kernel's install_bias returned "
+                    f"may be passed back")
         force.setForceGroup(group)
         self.system.addForce(force)
         self._installed.append((group, force))
@@ -929,7 +949,7 @@ class OpenMMKernel:
     def torsion_force_groups(self) -> tuple[int, ...]:
         """Duck-typed dual-boost discovery: the force groups holding the
         system's torsion energy (``PeriodicTorsionForce`` /
-        ``CustomTorsionForce``; install_bias forces excluded by identity —
+        ``CustomTorsionForce``; install_bias groups excluded wholesale —
         a torsion restraint is an additive bias, not dihedral physics).
 
         When torsion forces SHARE a group with other forces and no Context
@@ -938,32 +958,36 @@ class OpenMMKernel:
         same discipline as ``install_bias``).  A live Context is an error:
         regrouping after the integrator chain is frozen would silently
         mis-scale.  Returns () when the system has no torsion forces.
+
+        Exclusion is by GROUP-SET algebra, never force-object identity:
+        the wrappers ``getForces()`` hands back are not the objects
+        ``_compile_bias``/``addForce`` retained, so id() matching misses.
         """
         if self._simulation is not None:
             raise RuntimeError(
                 "torsion_force_groups() must run before the Context exists "
                 "(force groups are frozen once boost channels install)")
-        bias_forces = {force for _group, force in self._installed}
-        torsion = [force for force in self.system.getForces()
-                   if isinstance(force, _TORSION_FORCE_TYPES)
-                   and force not in bias_forces]
-        if not torsion:
+        bias_groups = {group for group, _force in self._installed}
+        all_forces = list(self.system.getForces())
+        torsion_groups = {f.getForceGroup() for f in all_forces
+                          if isinstance(f, _TORSION_FORCE_TYPES)
+                          and f.getForceGroup() not in bias_groups}
+        if not torsion_groups:
             return ()
-        torsion_ids = {id(force) for force in torsion}
-        mixed = any(
-            force.getForceGroup() in
-            {f.getForceGroup() for f in self.system.getForces()
-             if id(f) not in torsion_ids}
-            for force in torsion)
-        if not mixed:
-            return tuple(sorted({f.getForceGroup() for f in torsion}))
+        other_groups = ({f.getForceGroup() for f in all_forces
+                         if not isinstance(f, _TORSION_FORCE_TYPES)}
+                        - bias_groups)
+        if not torsion_groups & other_groups:
+            return tuple(sorted(torsion_groups))
         # isolate: one fresh group for every torsion force
-        used = {force.getForceGroup() for force in self.system.getForces()}
+        used = {force.getForceGroup() for force in all_forces}
         free = pick_free_force_group(
             used, {force.getForceGroup(): type(force).__name__
-                   for force in self.system.getForces()})
-        for force in torsion:
-            force.setForceGroup(free)
+                   for force in all_forces})
+        for force in all_forces:
+            if (isinstance(force, _TORSION_FORCE_TYPES)
+                    and force.getForceGroup() in torsion_groups):
+                force.setForceGroup(free)
         return (free,)
 
     # ------------------------------------------------------------------
@@ -1053,6 +1077,18 @@ class _OpenMMBiasOps:
             self._kernel.simulation.context))
 
     def bias_energy(self, label: str) -> float:
+        """Table-bias energy (kJ/mol), read as the carrier's force-group
+        energy ALONE (``getState(groups=...)``).
+
+        That read is only pure because the carrier owns its group
+        EXCLUSIVELY — ``install_bias`` allocated it with ``group=None``
+        and nothing else may ever enter it: a shared group would blend
+        other forces' energy into the well-tempered hill height
+        (metadynamics ``_tempered_height``) and the OPES kernel weights
+        ``w = exp(V/kT)`` — physics, not reporting.  All CVs of one
+        method live INSIDE this one carrier (``_compile_table`` inner
+        forces carry no group of their own), so one exclusive group
+        covers every CV."""
         force, *_ = self._entry(label)
         energy = self._kernel.simulation.context.getState(
             getEnergy=True, groups={force.getForceGroup()}).getPotentialEnergy()

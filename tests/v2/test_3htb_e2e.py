@@ -352,10 +352,11 @@ def test_eq_restraints_leg(prep, runbook):
     assert os.path.getsize(os.path.join(out_dir, "output.dcd")) > 1000
 
     # restraint.tsv (new v2 format): the restr_com observable (nm, full
-    # precision) + its bias energy, one row per report interval
+    # precision) + the shared-group total energy (the shared-default
+    # policy), one row per report interval
     with open(os.path.join(out_dir, "restraint.tsv")) as handle:
         restraint_lines = handle.read().splitlines()
-    assert restraint_lines[0] == "# step\trestr_com\trestr_com__energy"
+    assert restraint_lines[0] == "# step\trestr_com\tshared_restraints__energy"
     restraint_rows = [line.split("\t") for line in restraint_lines[1:]]
     assert [row[0] for row in restraint_rows] == [
         str(step) for step in range(SMOKE_EQ_INTERVAL,

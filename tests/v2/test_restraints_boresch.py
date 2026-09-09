@@ -254,7 +254,10 @@ def test_boresch_schema_documents_every_key():
             "lig_grp3", "r0_nm", "thetaA0_degree", "thetaB0_degree",
             "phiA0_degree", "phiB0_degree", "phiC0_degree", "restr_k_r",
             "restr_k_theta", "restr_k_phi"} == set(schema["required"])
-    assert schema["optional"] == {"is_periodic": ("bool", True)}
+    assert schema["optional"]["is_periodic"] == ("bool", True)
+    # the cross-type opt-out key every restraint schema carries
+    # (restraints._with_independent_group); default off
+    assert schema["optional"]["independent_force_group"][1] is False
 
 
 # ===========================================================================
@@ -371,11 +374,12 @@ def test_drive_boresch_tape_matches_hand_computed_geometry(tmp_path):
                     sink=LocalDirSink(tmp_path))
 
     assert outcome.phases_run == ["eq"]
-    assert len(outcome.fgroups["b"]) == 3  # one force group per expression kind
+    # one id per expression-kind force, all on the ONE shared group
+    assert outcome.fgroups["b"] == [31, 31, 31]
 
     lines = (tmp_path / "restraint.tsv").read_text().splitlines()
     assert lines[0] == ("# step\tb__r\tb__thetaA\tb__thetaB\tb__phiA\t"
-                        "b__phiB\tb__phiC\tb__energy")
+                        "b__phiB\tb__phiC\tshared_restraints__energy")
     rows = [line.split("\t") for line in lines[1:]]
     assert [row[0] for row in rows] == ["25", "50", "75", "100"]
     for row in rows:

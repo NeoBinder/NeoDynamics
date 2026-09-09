@@ -486,6 +486,27 @@ def test_restraint_entry_needs_a_type():
         Plan.from_dict(base_config(restraint={"restr_com": {"restr_k": 1000}}))
 
 
+def test_restraint_independent_force_group_key_accepted_and_bool_checked():
+    """Every restraint type accepts the cross-type ``independent_force_group``
+    opt-out (driver install policy); the value must be a bool, a typo gets
+    the did-you-mean treatment like any unknown key."""
+    config = restrained_config()
+    config["restraint"]["restr_com"]["independent_force_group"] = True
+    plan = Plan.from_dict(config)
+    assert plan.restraint["restr_com"]["independent_force_group"] is True
+
+    bad = restrained_config()
+    bad["restraint"]["restr_com"]["independent_force_group"] = "yes"
+    with pytest.raises(ConfigValueError, match="boolean"):
+        Plan.from_dict(bad)
+
+    typo = restrained_config()
+    typo["restraint"]["restr_com"]["independant_force_group"] = True
+    with pytest.raises(ConfigKeyError) as excinfo:
+        Plan.from_dict(typo)
+    assert "independent_force_group" in str(excinfo.value)
+
+
 # ---------------------------------------------------------------------------
 # loading (YAML / JSON) and provenance
 # ---------------------------------------------------------------------------

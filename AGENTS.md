@@ -48,7 +48,17 @@ release together with the `neomd2` script alias.
   special paths pinned bit-exact against `colvars.evaluate`). Restraint spec
   keys are validated by `plan.py` against the registry schemas (collect-all:
   missing required + unknown keys with did-you-mean). Force-group ids come
-  from the one allocator `port.pick_free_force_group`. Methods are
+  from the one allocator `port.pick_free_force_group`; user-added forces
+  install under the SHARED-force-group policy, one shared group per
+  CATEGORY — every `restraint:` entry's forces in one group
+  (restraint.tsv reports one `shared_restraints__energy` total column),
+  every `smd:` entry's pull forces in one group (smd.tsv: one
+  `shared_smd__energy` total column) — unless the entry opts out with
+  `independent_force_group: true` (one dedicated group, its own
+  `{name}__energy` column; install_bias takes the shared id back as an
+  explicit `group=`). The categories' groups are distinct (restraint
+  energies never include pull energies). The meta/OPES table bias is a
+  single method-side force and keeps its own group. Methods are
   dispatched by `drive()` through the prepare contract:
   `entry.prepare(...) -> PreparedMethod` (biases installed, resume planned,
   tapes built) and the DRIVER runs the loop with the reporting it owns

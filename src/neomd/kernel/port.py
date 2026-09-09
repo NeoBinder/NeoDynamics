@@ -621,9 +621,17 @@ class KernelPort(Protocol):
         """Advance the dynamics by n steps."""
         ...
 
-    def install_bias(self, bias: BiasIR) -> int:
+    def install_bias(self, bias: BiasIR, group: int | None = None) -> int:
         """Install one biasing force; returns the assigned force-group id
-        (an opaque int — never compared across kernels)."""
+        (an opaque int — never compared across kernels).
+
+        ``group=None`` (the default) lets the shared allocator
+        (:func:`pick_free_force_group`) pick the max free id.  An explicit
+        ``group`` installs into a previously returned id — the shared
+        restraint force-group policy (driver.py): callers only ever pass
+        back an id this kernel handed out, never a foreign or guessed
+        number, and adapters refuse ids held by SYSTEM forces (sharing a
+        group with other installed biases is the policy's whole point)."""
         ...
 
     def clear_bias(self) -> None:

@@ -299,6 +299,7 @@ One-sided walls (`min_degree`/`max_degree`) on the angle between three groups' C
 | `grp2` | yes | str '1,2,3' or list[int] | — |
 | `grp3` | yes | str '1,2,3' or list[int] | — |
 | `restr_k` | yes | float, kJ/mol per deg^order (v1: bare kJ/mol value) | — |
+| `independent_force_group` | no | bool, default False — give THIS entry its own force group (default: all restraints share one force group; shared entries fold into the restraint.tsv shared total-energy column only) | False |
 | `is_periodic` | no | bool | True |
 | `max_degree` | no | float, upper bound (degree) | None |
 | `min_degree` | no | float, lower bound (degree) | None |
@@ -325,6 +326,7 @@ Boresch orientation restraint for RBFE: 6 harmonic components (3 distances + 2 a
 | `restr_k_theta` | yes | float, kJ/mol per rad^2 for BOTH angles (v1 convention: bare kJ/mol value) | — |
 | `thetaA0_degree` | yes | float, equilibrium angle a1-a3-b3 (degree) | — |
 | `thetaB0_degree` | yes | float, equilibrium angle a3-b3-b1 (degree) | — |
+| `independent_force_group` | no | bool, default False — give THIS entry its own force group (default: all restraints share one force group; shared entries fold into the restraint.tsv shared total-energy column only) | False |
 | `is_periodic` | no | bool | True |
 
 ### `type: dihedral`
@@ -340,6 +342,7 @@ Periodic wall keeping a dihedral between `min_degree` and `max_degree`.
 | `max_degree` | yes | float, upper bound (degree) | — |
 | `min_degree` | yes | float, lower bound (degree) | — |
 | `restr_k` | yes | float, kJ/mol per deg^order (v1: bare kJ/mol value) | — |
+| `independent_force_group` | no | bool, default False — give THIS entry its own force group (default: all restraints share one force group; shared entries fold into the restraint.tsv shared total-energy column only) | False |
 | `is_periodic` | no | bool | True |
 | `order` | no | int | 2 |
 
@@ -351,6 +354,7 @@ Walls on the distance between a group's COM and a fixed reference position.
 |---|---|---|---|
 | `ref_position_nm` | yes | str 'x,y,z' or list[float] (nm) | — |
 | `restr_grp` | yes | str '1,2,3' or list[int] | — |
+| `independent_force_group` | no | bool, default False — give THIS entry its own force group (default: all restraints share one force group; shared entries fold into the restraint.tsv shared total-energy column only) | False |
 | `is_periodic` | no | bool | False |
 | `max_nm` | no | float, upper bound (nm) | None |
 | `min_nm` | no | float, lower bound (nm) | None |
@@ -367,6 +371,7 @@ One-sided flat-bottom walls (`min_nm`/`max_nm`) on the distance between two grou
 | `grp1` | yes | str '1,2,3' or list[int] | — |
 | `grp2` | yes | str '1,2,3' or list[int] | — |
 | `restr_k` | yes | float, kJ/mol per nm^order (v1: bare kJ/mol value) | — |
+| `independent_force_group` | no | bool, default False — give THIS entry its own force group (default: all restraints share one force group; shared entries fold into the restraint.tsv shared total-energy column only) | False |
 | `is_periodic` | no | bool | True |
 | `max_nm` | no | float, upper bound (nm) | None |
 | `min_nm` | no | float, lower bound (nm) | None |
@@ -379,6 +384,7 @@ N one-sided distance pairs packed into ONE force per side (min wall / max wall) 
 | Key | Required | Description | Default |
 |---|---|---|---|
 | `params` | yes | list of per-pair entries: {grp1: str '1,2,3' or list[int], grp2: str '1,2,3' or list[int], restr_k: float (kJ/mol per nm^order), min_nm and/or max_nm: float (nm)}; one bond per entry, all bonds share ONE force per side | — |
+| `independent_force_group` | no | bool, default False — give THIS entry its own force group (default: all restraints share one force group; shared entries fold into the restraint.tsv shared total-energy column only) | False |
 | `is_periodic` | no | bool | True |
 | `order` | no | int (per entry) | 2 |
 
@@ -398,6 +404,7 @@ Funnel-shaped ligand restraint (lower / sigmoid side / upper wall) over [restr_g
 | `steepness` | yes | float, sigmoid steepness (nm; side-wall param b) | — |
 | `upper_wall_nm` | yes | float, upper wall position (nm) | — |
 | `width` | yes | float, wall width (nm; side-wall param a) | — |
+| `independent_force_group` | no | bool, default False — give THIS entry its own force group (default: all restraints share one force group; shared entries fold into the restraint.tsv shared total-energy column only) | False |
 | `is_periodic` | no | bool | True |
 
 ### `type: rmsd`
@@ -410,6 +417,7 @@ One-sided max-RMSD wall over a subset of particles against FULL-system reference
 | `ref_pos_file` | yes | str, path to a .pdb/.pdbx carrying FULL-system reference positions (one per System particle) | — |
 | `restr_grp` | yes | str '1,2,3' or list[int] | — |
 | `restr_k` | yes | float, kJ/mol (v1: bare kJ/mol value) | — |
+| `independent_force_group` | no | bool, default False — give THIS entry its own force group (default: all restraints share one force group; shared entries fold into the restraint.tsv shared total-energy column only) | False |
 | `is_periodic` | no | bool (unused: v1's rmsd CustomCVForce never set PBC; openmm derives it from the inner RMSDForce) | False |
 
 ### `type: vec_restraint`
@@ -423,6 +431,7 @@ Keeps the vector between two groups' COMs at a reference vector (ref1 - ref2).
 | `restr_k` | yes | float, kJ/mol per nm^2 (v1: bare kJ/mol value) | — |
 | `vec_grp1` | yes | str '1,2,3' or list[int] | — |
 | `vec_grp2` | yes | str '1,2,3' or list[int] | — |
+| `independent_force_group` | no | bool, default False — give THIS entry its own force group (default: all restraints share one force group; shared entries fold into the restraint.tsv shared total-energy column only) | False |
 | `is_periodic` | no | bool | True |
 
 ### `type: xyz_box`
@@ -433,6 +442,7 @@ Up to six independent axis walls (min/max per x, y, z) on a group's COM.
 |---|---|---|---|
 | `restr_grp` | yes | str '1,2,3' or list[int] | — |
 | `restr_k` | yes | float, kJ/mol (v1: bare kJ/mol value) | — |
+| `independent_force_group` | no | bool, default False — give THIS entry its own force group (default: all restraints share one force group; shared entries fold into the restraint.tsv shared total-energy column only) | False |
 | `is_periodic` | no | bool | False |
 | `max_x_nm` | no | float, upper x bound (nm) | None |
 | `max_y_nm` | no | float, upper y bound (nm) | None |

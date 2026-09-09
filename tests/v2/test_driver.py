@@ -399,7 +399,7 @@ def test_drive_eq_full_plan_with_restraint(tmp_path):
     assert kernel.current_step == 100
     # restraint installed through the public fake surface
     assert set(kernel.bias_values()) == {"rst"}
-    assert outcome.fgroups == {"rst": [31]}  # shared max-free-first policy
+    assert outcome.fgroups == {"rst": [31]}  # the one shared force group
 
     # manifest: fingerprint + epoch chain (start, done:eq)
     manifest = RunManifest.read(tmp_path / "manifest.json")
@@ -420,41 +420,82 @@ def test_drive_eq_full_plan_with_restraint(tmp_path):
     assert checkpoint.exists() and checkpoint.stat().st_size > 0
 
     # the restraint probe (derived restraint_interval mirrors
-    # report_interval): new-format restraint.tsv, one observable + one
-    # energy column per restraint, rows on the same cadence
+    # report_interval): the shared-default policy folds the entry's energy
+    # into the one shared total column, geometry + rows on the same cadence
     restraint_lines = (tmp_path / "restraint.tsv").read_text().splitlines()
-    assert restraint_lines[0] == "# step\trst\trst__energy"
+    assert restraint_lines[0] == "# step\trst\tshared_restraints__energy"
     restraint_rows = [line.split("\t") for line in restraint_lines[1:]]
     assert [row[0] for row in restraint_rows] == ["25", "50", "75", "100"]
     for row in restraint_rows:
         assert float(row[1]) > 0.3  # the restrained distance (nm)
-        assert float(row[2]) > 0.0  # the bias energy (fake group_energy)
+        assert float(row[2]) > 0.0  # the shared-group energy (fake group_energy)
 
 
-def test_drive_distances_restraint_one_force_group_per_side(tmp_path):
-    """v1 179ae35 `distances`: N pairs -> ONE force per side (the 32-group
-    budget economy), one pair column per entry + the energy column in
-    restraint.tsv (v2 reporting deviation, documented in restraints.py)."""
-    plan = Plan.from_dict(fake_config(
-        restraint={"d1": {"type": "distances", "params": [
-            {"grp1": "0", "grp2": "1", "restr_k": 500.0, "min_nm": 0.2},
-            {"grp1": "0", "grp2": "2", "restr_k": 300.0, "max_nm": 0.4},
-        ]}},
-        output={"output_dir": str(tmp_path), "report_interval": 25,
-                "report_restraint": True, "state_interval": 25,
-                "trajectory_interval": 0, "checkpoint_interval": 50},
-        steps=100))
+def test_drive_distances_restraint_shared_by_default_and_opt_in(tmp_path):
+    """Default: every restraint force lands in ONE shared group (here the
+    `distances` min + max walls); the entry-level
+    ``independent_force_group: true`` opt-out gives each force its own
+    group and restores the per-entry energy column.  Same forces, same
+    physics: the summed energy columns agree across the two spellings."""
+    restraint = {"d1": {"type": "distances", "params": [
+        {"grp1": "0", "grp2": "1", "restr_k": 500.0, "min_nm": 0.2},
+        {"grp1": "0", "grp2": "2", "restr_k": 300.0, "max_nm": 0.4},
+    ]}}
+    output = {"output_dir": str(tmp_path), "report_interval": 25,
+              "report_restraint": True, "state_interval": 25,
+              "trajectory_interval": 0, "checkpoint_interval": 50}
     factory, captured = fake_capture_factory()
-    outcome = drive(plan, kernel_factory=factory, sink=LocalDirSink(tmp_path))
+    outcome = drive(Plan.from_dict(fake_config(
+        restraint=restraint, output=output, steps=100)),
+        kernel_factory=factory, sink=LocalDirSink(tmp_path))
 
-    # two one-sided entries -> TWO forces total (min force + max force),
-    # one force group each — not one group per pair
-    assert outcome.fgroups == {"d1": [31, 30]}
+    # two one-sided forces, ONE shared group (one id per BiasIR) —
+    # not one group per force
+    assert outcome.fgroups == {"d1": [31, 31]}
     assert set(captured["kernel"].bias_values()) == {"d1"}
-
     lines = (tmp_path / "restraint.tsv").read_text().splitlines()
+    assert lines[0] == "# step\td1__pair1\td1__pair2\tshared_restraints__energy"
+    shared_rows = [line.split("\t") for line in lines[1:]]
+    assert [row[0] for row in shared_rows] == ["25", "50", "75", "100"]
+    shared_energy = [row[2] for row in shared_rows]
+
+    # the opt-out spelling: ONE dedicated group for the whole entry (both
+    # walls) + the per-entry energy column back.  A fresh output dir —
+    # sinks append, a reused dir would grow the first run's tape.
+    solo = {"d1": dict(restraint["d1"], independent_force_group=True)}
+    output_solo = dict(output, output_dir=str(tmp_path / "solo"))
+    outcome = drive(Plan.from_dict(fake_config(
+        restraint=solo, output=output_solo, steps=100)),
+        kernel_factory=fake_capture_factory()[0],
+        sink=LocalDirSink(tmp_path / "solo"))
+    assert outcome.fgroups == {"d1": [31, 31]}
+    lines = (tmp_path / "solo" / "restraint.tsv").read_text().splitlines()
     assert lines[0] == "# step\td1__pair1\td1__pair2\td1__energy"
-    assert [row.split("\t")[0] for row in lines[1:]] == ["25", "50", "75", "100"]
+    solo_energy = [row.split("\t")[2] for row in lines[1:]]
+    assert [float(a) for a in solo_energy] == [float(b) for b in shared_energy]
+
+
+def test_drive_multiple_restraints_share_one_group_id(tmp_path):
+    """Several shared entries: ONE group id for all of them, one id per
+    BiasIR in fgroups (no phantom prepends on later entries); the
+    restraint.tsv total column reads that one group."""
+    plan = Plan.from_dict(fake_config(
+        restraint={
+            "w1": {"type": "distance", "grp1": "0", "grp2": "1",
+                   "restr_k": 500.0, "max_nm": 0.3},
+            "w2": {"type": "distance", "grp1": "2", "grp2": "3",
+                   "restr_k": 300.0, "max_nm": 0.4},
+        },
+        output={"output_dir": str(tmp_path), "report_interval": 50,
+                "report_restraint": True, "state_interval": 0,
+                "trajectory_interval": 0, "checkpoint_interval": 0},
+        steps=100))
+    outcome = drive(plan, kernel_factory=fake_capture_factory()[0],
+                    sink=LocalDirSink(tmp_path))
+    assert outcome.fgroups == {"w1": [31], "w2": [31]}
+    lines = (tmp_path / "restraint.tsv").read_text().splitlines()
+    assert lines[0] == ("# step\tw1\tw2\t"
+                        "shared_restraints__energy")
 
 
 def test_drive_restraint_probe_off_without_report_restraint(tmp_path):
@@ -491,7 +532,7 @@ def test_drive_min_then_eq_sequence(tmp_path):
                         sink=LocalDirSink(tmp_path))
     assert min_outcome.phases_run == ["min"]
     assert isinstance(min_outcome.results[0], MinResult)
-    assert min_outcome.fgroups == {"rst": [31]}  # shared max-free-first policy
+    assert min_outcome.fgroups == {"rst": [31]}  # the one shared force group
     assert min_outcome.results[0].final_energy < initial_energy
     manifest = RunManifest.read(tmp_path / "manifest.json")
     assert [epoch.reason for epoch in manifest.epochs] == ["start", "done:min"]

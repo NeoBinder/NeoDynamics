@@ -241,8 +241,14 @@ class ReplayKernel:
     # biases (bookkeeping only)
     # ------------------------------------------------------------------
 
-    def install_bias(self, bias: BiasIR) -> int:
-        group = self._pick_force_group()
+    def install_bias(self, bias: BiasIR, group: int | None = None) -> int:
+        if group is None:
+            group = self._pick_force_group()
+        else:
+            # shared-restraint policy: several biases legitimately share
+            # one group; bookkeeping only here (replay has no system
+            # forces), so the id is accepted as-is.
+            group = int(group)
         self._biases.append((group, bias))
         self._next_group += 1  # install counter (snapshot-format field)
         return group

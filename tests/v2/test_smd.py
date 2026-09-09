@@ -92,7 +92,7 @@ def test_smd_ramp_staircase_matches_the_v1_schedule(tmp_path):
     assert result.final_params == {"pull": {"restr_k": 100.0}}
 
     header, rows = tsv_rows(tmp_path / "smd.tsv")
-    assert header == ["step", "pull", "pull__restr_k", "pull__energy"]
+    assert header == ["step", "pull", "pull__restr_k", "shared_smd__energy"]
     assert [int(r["step"]) for r in rows] == [3000, 6000, 9000, 12000]
     ks = [float(r["pull__restr_k"]) for r in rows]
     assert ks[0] == 0.0
@@ -100,12 +100,56 @@ def test_smd_ramp_staircase_matches_the_v1_schedule(tmp_path):
     assert ks[2] == pytest.approx(_K_AT_5000)
     assert ks[3] == 100.0
     # k=0 wall -> zero bias energy; k>0 wall -> positive energy that grows
-    # as the (free-diffusing) particles separate
-    assert float(rows[0]["pull__energy"]) == 0.0
-    assert float(rows[1]["pull__energy"]) > 0.0
-    assert float(rows[3]["pull__energy"]) > float(rows[2]["pull__energy"])
+    # as the (free-diffusing) particles separate (the single entry IS the
+    # whole shared group)
+    assert float(rows[0]["shared_smd__energy"]) == 0.0
+    assert float(rows[1]["shared_smd__energy"]) > 0.0
+    assert float(rows[3]["shared_smd__energy"]) > float(rows[2]["shared_smd__energy"])
     # the geometric observable column is the group distance (nm)
     assert all(float(r["pull"]) > 0.0 for r in rows)
+
+
+def test_smd_entries_share_one_group_and_opt_out_per_entry(tmp_path):
+    """The smd mirror of the restraint policy: all entries' pull forces in
+    ONE smd shared group by default (smd.tsv reports the single
+    shared_smd__energy column); an entry with independent_force_group:
+    true gets its own group + column, and the two categories never mix."""
+    def config(smd_entries, out):
+        cfg = smd_config(out)
+        cfg["smd"] = smd_entries
+        cfg["output"]["report_interval"] = 3000
+        return cfg
+
+    two = {
+        "pull": {"type": "distance", "grp1": [0], "grp2": [1],
+                 "max_nm": [0.5], "restr_k": [0, 100, 100], "order": 2},
+        "cap": {"type": "distance", "grp1": [2], "grp2": [3],
+                "max_nm": 0.4, "restr_k": 50.0, "order": 2},
+    }
+    outcome = run_smd(tmp_path, config(two, tmp_path))
+    # both entries' forces on the ONE smd shared group (one id per BiasIR)
+    smd_fgroups = outcome.results[0].fgroups
+    assert smd_fgroups["pull"] == [31]
+    assert smd_fgroups["cap"] == [31]
+    header, rows = tsv_rows(tmp_path / "smd.tsv")
+    assert header == ["step", "pull", "pull__restr_k", "cap",
+                      "shared_smd__energy"]
+    assert rows  # rows were written
+
+    # the opt-out spelling: its own group + its own energy column
+    solo_out = tmp_path / "solo"
+    solo = {**two, "cap": dict(two["cap"], independent_force_group=True)}
+    outcome = run_smd(solo_out, config(solo, solo_out))
+    smd_fgroups = outcome.results[0].fgroups
+    assert smd_fgroups["pull"] == [31]   # still the smd shared group
+    assert smd_fgroups["cap"] == [30]    # the opt-out's dedicated group
+    header, rows = tsv_rows(solo_out / "smd.tsv")
+    assert header == ["step", "pull", "pull__restr_k", "cap",
+                      "cap__energy", "shared_smd__energy"]
+    # cap's dedicated group carries only its own wall; the shared column
+    # (pull's group) stays present and finite
+    assert all(float(r["shared_smd__energy"]) >= 0.0 for r in rows)
+    assert all(float(r["cap__energy"]) >= 0.0 for r in rows)
 
 
 def test_smd_ramps_the_xyz_box_per_axis_walls(tmp_path):
@@ -131,7 +175,7 @@ def test_smd_ramps_the_xyz_box_per_axis_walls(tmp_path):
     # (xyz_box's observable is the group COM: one column per axis)
     header, rows = tsv_rows(tmp_path / "smd.tsv")
     assert header == ["step", "pull__x", "pull__y", "pull__z",
-                      "pull__max_x_nm", "pull__energy"]
+                      "pull__max_x_nm", "shared_smd__energy"]
     wall = [float(r["pull__max_x_nm"]) for r in rows]
     assert wall[0] == 0.5
     assert wall[1] == pytest.approx(at_5000)
@@ -178,6 +222,9 @@ def test_static_restraint_section_coexists_with_smd(tmp_path):
     config["restraint"] = {"keep": {
         "type": "dist_ref_position", "restr_grp": [0],
         "ref_position_nm": [0.1, 0.1, 0.1], "restr_k": 10.0, "max_nm": 0.2,
+        # keep its own energy column in restraint.tsv (the shared-default
+        # policy would fold it into the shared total otherwise)
+        "independent_force_group": True,
     }}
     config["output"]["report_restraint"] = True
     outcome = run_smd(tmp_path, config)
@@ -196,6 +243,7 @@ def test_report_smd_switch_gates_the_tape_but_not_the_run(tmp_path):
     config["restraint"] = {"keep": {
         "type": "dist_ref_position", "restr_grp": [0],
         "ref_position_nm": [0.1, 0.1, 0.1], "restr_k": 10.0, "max_nm": 0.2,
+        "independent_force_group": True,
     }}
     config["output"]["report_restraint"] = True
     config["output"]["report_smd"] = False

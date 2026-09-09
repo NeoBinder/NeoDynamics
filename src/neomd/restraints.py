@@ -204,6 +204,31 @@ def _observables_dihedral(name: str, spec: dict) -> ObservableSpec:
 
 _IDX = "str '1,2,3' or list[int]"
 
+#: per-entry opt-out of the shared restraint force group (the driver's
+#: install policy): the entry's forces get ONE dedicated group and keep
+#: their own ``{name}__energy`` column in restraint.tsv; shared entries
+#: contribute only to the single ``shared_restraints__energy`` total
+#: column (the column name lives in probes.py — the reporting format's
+#: owner).  Accepted by every restraint type; value-checked in plan.py.
+INDEPENDENT_FORCE_GROUP = "independent_force_group"
+
+_INDEPENDENT_GROUP_DOC = (
+    "bool, default False — give THIS entry its own force group "
+    "(default: all restraints share one force group; shared entries "
+    "fold into the restraint.tsv shared total-energy column only)")
+
+_INDEPENDENT_GROUP_DEFAULT = False
+
+
+def _with_independent_group(optional: dict) -> dict:
+    """Extend one restraint type's ``optional`` schema dict with the
+    cross-type :data:`INDEPENDENT_FORCE_GROUP` key (every type accepts
+    it; reading it is the driver's job, never ``make_bias``'s)."""
+    return {**optional,
+            INDEPENDENT_FORCE_GROUP: (_INDEPENDENT_GROUP_DOC,
+                                      _INDEPENDENT_GROUP_DEFAULT)}
+
+
 _DISTANCE_ENTRY = Restraint(
     schema={
         "required": {
@@ -211,12 +236,12 @@ _DISTANCE_ENTRY = Restraint(
             "grp2": _IDX,
             "restr_k": "float, kJ/mol per nm^order (v1: bare kJ/mol value)",
         },
-        "optional": {
+        "optional": _with_independent_group({
             "min_nm": ("float, lower bound (nm)", None),
             "max_nm": ("float, upper bound (nm)", None),
             "order": ("int", 2),
             "is_periodic": ("bool", True),
-        },
+        }),
     },
     make_bias=_make_bias_distance,
     observables=_observables_distance,
@@ -230,10 +255,10 @@ _DIHEDRAL_ENTRY = Restraint(
             "min_degree": "float, lower bound (degree)",
             "max_degree": "float, upper bound (degree)",
         },
-        "optional": {
+        "optional": _with_independent_group({
             "order": ("int", 2),
             "is_periodic": ("bool", True),
-        },
+        }),
     },
     make_bias=_make_bias_dihedral,
     observables=_observables_dihedral,
@@ -718,12 +743,12 @@ _ANGLE_ENTRY = Restraint(
             "grp1": _IDX, "grp2": _IDX, "grp3": _IDX,
             "restr_k": "float, kJ/mol per deg^order (v1: bare kJ/mol value)",
         },
-        "optional": {
+        "optional": _with_independent_group({
             "min_degree": ("float, lower bound (degree)", None),
             "max_degree": ("float, upper bound (degree)", None),
             "order": ("int", 2),
             "is_periodic": ("bool", True),
-        },
+        }),
     },
     make_bias=_make_bias_angle,
     observables=_observables_angle,
@@ -741,9 +766,9 @@ _FUNNEL_ENTRY = Restraint(
             "s_center": "float, sigmoid center (nm; side-wall param c)",
             "buffer": "float, wall buffer (nm; side-wall param d)",
         },
-        "optional": {
+        "optional": _with_independent_group({
             "is_periodic": ("bool", True),
-        },
+        }),
     },
     make_bias=_make_bias_funnel,
     observables=_observables_funnel,
@@ -755,7 +780,7 @@ _DIST_REF_POSITION_ENTRY = Restraint(
             "restr_grp": _IDX,
             "ref_position_nm": "str 'x,y,z' or list[float] (nm)",
         },
-        "optional": {
+        "optional": _with_independent_group({
             "restr_k": ("float, kJ/mol (unused when restr_k_per_atom is "
                         "written)", None),
             "restr_k_per_atom": ("float, kJ/mol per restrained atom "
@@ -764,7 +789,7 @@ _DIST_REF_POSITION_ENTRY = Restraint(
             "max_nm": ("float, upper bound (nm)", None),
             "order": ("int", 2),
             "is_periodic": ("bool", False),
-        },
+        }),
     },
     make_bias=_make_bias_dist_ref_position,
     observables=_observables_dist_ref_position,
@@ -776,7 +801,7 @@ _XYZ_BOX_ENTRY = Restraint(
             "restr_grp": _IDX,
             "restr_k": "float, kJ/mol (v1: bare kJ/mol value)",
         },
-        "optional": {
+        "optional": _with_independent_group({
             "min_x_nm": ("float, lower x bound (nm)", None),
             "max_x_nm": ("float, upper x bound (nm)", None),
             "min_y_nm": ("float, lower y bound (nm)", None),
@@ -785,7 +810,7 @@ _XYZ_BOX_ENTRY = Restraint(
             "max_z_nm": ("float, upper z bound (nm)", None),
             "order": ("int", 2),
             "is_periodic": ("bool", False),
-        },
+        }),
     },
     make_bias=_make_bias_xyz_box,
     observables=_observables_xyz_box,
@@ -799,9 +824,9 @@ _VEC_RESTRAINT_ENTRY = Restraint(
             "pos_ref2_nm": "str 'x,y,z' or list[float] (nm)",
             "restr_k": "float, kJ/mol per nm^2 (v1: bare kJ/mol value)",
         },
-        "optional": {
+        "optional": _with_independent_group({
             "is_periodic": ("bool", True),
-        },
+        }),
     },
     make_bias=_make_bias_vec_restraint,
     observables=_observables_vec_restraint,
@@ -816,11 +841,11 @@ _RMSD_ENTRY = Restraint(
             "maxRMSD_nm": "float, upper RMSD bound (nm)",
             "restr_k": "float, kJ/mol (v1: bare kJ/mol value)",
         },
-        "optional": {
+        "optional": _with_independent_group({
             "is_periodic": ("bool (unused: v1's rmsd CustomCVForce never set "
                             "PBC; openmm derives it from the inner RMSDForce)",
                             False),
-        },
+        }),
     },
     make_bias=_make_bias_rmsd,
     observables=_observables_rmsd,
@@ -930,10 +955,10 @@ _DISTANCES_ENTRY = Restraint(
                        "nm^order), min_nm and/or max_nm: float (nm)}; one "
                        "bond per entry, all bonds share ONE force per side"),
         },
-        "optional": {
+        "optional": _with_independent_group({
             "order": ("int (per entry)", 2),
             "is_periodic": ("bool", True),
-        },
+        }),
     },
     make_bias=_make_bias_distances,
     observables=_observables_distances,
@@ -1122,9 +1147,9 @@ _BOESCH_ENTRY = Restraint(
                            "((k/2)(1-cos(phi-phi0)); effective near-"
                            "equilibrium constant k/2 kJ/mol/rad^2)",
         },
-        "optional": {
+        "optional": _with_independent_group({
             "is_periodic": ("bool", True),
-        },
+        }),
     },
     make_bias=_make_bias_boresch,
     observables=_observables_boresch,

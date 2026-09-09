@@ -103,8 +103,11 @@ class RunOutcome:
 
     phases_run: list[str]  # executed phase names, e.g. ["min"] or ["eq"]
     fgroups: dict[str, list[int]] = field(default_factory=dict)
-    #: restraint name -> force-group ids assigned by the kernel:
-    #: the fgroup write-back is a return value, never a system mutation
+    #: restraint name -> force-group ids assigned by the kernel (entries
+    #: under the default shared-force-group policy carry the SAME id —
+    #: the one shared group; ``independent_force_group`` opt-ins carry
+    #: their own).  The fgroup write-back is a return value, never a
+    #: system mutation
     results: list = field(default_factory=list)  # [MinResult] or [RunResult]
     manifest_path: str | None = None  # where manifest.json landed (None: no sink)
 
@@ -558,8 +561,9 @@ def _default_probes(plan, sink, resume=None, kernel=None, log=None) -> list:
     return probes
 
 
-def _append_restraint_probe(probes: list, plan, sink, kernel, fgroups,
-                            resume=None) -> None:
+def _append_restraint_probe(probes: list, plan, sink, kernel,
+                            resume=None, independent=None,
+                            shared_group=None) -> None:
     """Append the :class:`~neomd.probes.RestraintProbe` the plan's derived
     ``restraint_interval`` asks for (> 0 only when a restraint is configured
     AND ``output.report_restraint`` is truthy — the plan-level
@@ -568,7 +572,9 @@ def _append_restraint_probe(probes: list, plan, sink, kernel, fgroups,
     (through :func:`run_prepared_method`) wire it, minimization does not).
     Columns come from the restraint registry observables +
     the kernel's masses; energies from the port's GroupEnergy
-    capability over the restraint's assigned force groups."""
+    capability over the restraint install wiring (``independent``: the
+    opt-out entries' own groups; ``shared_group``: the one shared group
+    behind the shared total column)."""
     restraint_interval = int(getattr(plan, "restraint_interval", 0) or 0)
     restraint = getattr(plan, "restraint", None) or {}
     if restraint_interval <= 0 or sink is None or not restraint:
@@ -586,7 +592,8 @@ def _append_restraint_probe(probes: list, plan, sink, kernel, fgroups,
             for name, spec in restraint.items()
         ],
         masses=kernel.masses,
-        fgroups=fgroups or None,
+        independent=independent or None,
+        shared_group=shared_group,
         append="restraint.tsv" in trims,
     ))
 
@@ -712,14 +719,17 @@ def _tape_enabled(plan, filename: str) -> bool:
 
 def run_prepared_method(kernel: KernelPort, plan, prepared: PreparedMethod, *,
                         sink=None, logger=None, on_progress=None,
-                        restraint_fgroups=None):
+                        restraint_independent=None,
+                        restraint_shared_group=None):
     """Run a prepared method's loop — the ONE definition of method-run
     reporting (drive()'s rack branch and the Run classes' direct ``run()``
     both go through here; there is no second assembly path).
 
     The probe list is the plan's default probes + the restraint tape (the
     same wiring the MD branch gets: derived ``restraint_interval``, energy
-    columns through the GroupEnergy capability over ``restraint_fgroups``)
+    columns through the GroupEnergy capability over the restraint install
+    wiring — ``restraint_independent`` / ``restraint_shared_group``, the
+    shared-force-group policy's outputs)
     + the method's tapes, each included only while its output switch
     allows (``_TAPE_SWITCHES``); every append flag comes from the method's
     resume plan, so tapes stay append-consistent across kill/resume.
@@ -730,8 +740,10 @@ def run_prepared_method(kernel: KernelPort, plan, prepared: PreparedMethod, *,
     """
     probes = _default_probes(plan, sink, resume=prepared.resume_plan,
                              kernel=kernel, log=logger)
-    _append_restraint_probe(probes, plan, sink, kernel, restraint_fgroups,
-                            resume=prepared.resume_plan)
+    _append_restraint_probe(probes, plan, sink, kernel,
+                            resume=prepared.resume_plan,
+                            independent=restraint_independent,
+                            shared_group=restraint_shared_group)
     for filename, probe in prepared.tapes.items():
         if _tape_enabled(plan, filename):
             probes.append(probe)
@@ -809,9 +821,13 @@ def drive(
       from them without manual bridging.
     * ``plan.restraint`` entries are compiled through the registry knowledge
       triples (``registry.get("restraint", type).make_bias``) and installed
-      with ``kernel.install_bias``; the assigned force-group ids come back in
-      ``RunOutcome.fgroups`` (name -> list[int]) — a return value, never a
-      system mutation.
+      with ``kernel.install_bias`` under the SHARED-force-group policy:
+      every entry's forces land in one shared group (its energies report as
+      the single ``shared_restraints__energy`` column), unless the entry
+      opts out with ``independent_force_group: true`` — one dedicated group
+      and its own ``{name}__energy`` column.  The assigned ids come back in
+      ``RunOutcome.fgroups`` (name -> list[int]; shared entries carry the
+      same id) — a return value, never a system mutation.
     * resume (``continue_md``): the MD branch and every method run alike go
       through :func:`neomd.resume.plan_resume` — the single owner — which
       restores the kernel and trims every tape to the checkpoint step before
@@ -848,18 +864,48 @@ def drive(
     record_progress = _manifest_recorder(manifest, sink)
 
     fgroups: dict[str, list[int]] = {}
+    independent_fgroups: dict[str, list[int]] = {}
+    shared_group: int | None = None
     restraint = getattr(plan, "restraint", None)
     if restraint:
         import neomd.restraints  # noqa: F401  (import = triple registration)
 
         from . import registry
+        from .restraints import INDEPENDENT_FORCE_GROUP
 
+        # Shared-force-group install policy: every restraint's forces land
+        # in ONE shared group unless the entry opts out via
+        # ``independent_force_group: true`` (one dedicated group per opted
+        # entry, all of the entry's BiasIRs included).  The shared id is the
+        # first install's returned handle passed back into install_bias —
+        # opaque ids flowing into the kernel they came from, never guessed.
         for name, spec in restraint.items():
             entry = registry.get("restraint", spec["type"])
-            fgroups[name] = [kernel.install_bias(ir)
-                             for ir in entry.make_bias(name, spec)]
-            log.info("restraint %s (%s) installed as force groups %s",
-                     name, spec["type"], fgroups[name])
+            irs = entry.make_bias(name, spec)
+            if irs and spec.get(INDEPENDENT_FORCE_GROUP, False):
+                group = kernel.install_bias(irs[0])
+                fgroups[name] = [group] + [
+                    kernel.install_bias(ir, group=group) for ir in irs[1:]]
+                independent_fgroups[name] = fgroups[name]
+                log.info("restraint %s (%s) installed as independent force "
+                         "group %s", name, spec["type"], fgroups[name])
+            elif irs:
+                if shared_group is None:
+                    # the first install allocates the shared id; the
+                    # entry's remaining BiasIRs re-enter it explicitly
+                    shared_group = kernel.install_bias(irs[0])
+                    fgroups[name] = [shared_group] + [
+                        kernel.install_bias(ir, group=shared_group)
+                        for ir in irs[1:]]
+                else:
+                    # later entries: one id per BiasIR, all explicit
+                    fgroups[name] = [
+                        kernel.install_bias(ir, group=shared_group)
+                        for ir in irs]
+                log.info("restraint %s (%s) installed on the shared force "
+                         "group %s", name, spec["type"], fgroups[name])
+            else:
+                fgroups[name] = []  # bounds-less entry: no force to install
 
     method = (getattr(plan, "method", None) or "md").lower()
     results: list = []
@@ -878,8 +924,10 @@ def drive(
                                steps_so_far=resume_plan.resume_step)
         probes = _default_probes(plan, sink, resume=resume_plan,
                                  kernel=kernel, log=log)
-        _append_restraint_probe(probes, plan, sink, kernel, fgroups,
-                                resume=resume_plan)
+        _append_restraint_probe(probes, plan, sink, kernel,
+                                resume=resume_plan,
+                                independent=independent_fgroups,
+                                shared_group=shared_group)
         results.append(run_md(kernel, plan, probes,
                               view=_default_view_factory(kernel), logger=log,
                               sink=sink, on_progress=record_progress))
@@ -907,7 +955,9 @@ def drive(
                                steps_so_far=resume.resume_step)
         results.append(run_prepared_method(
             kernel, plan, prepared, sink=sink, logger=log,
-            on_progress=record_progress, restraint_fgroups=fgroups or None))
+            on_progress=record_progress,
+            restraint_independent=independent_fgroups or None,
+            restraint_shared_group=shared_group))
 
     manifest.add_epoch(f"done:{method}", steps_so_far=kernel.current_step)
     _log_run_end(log, started)

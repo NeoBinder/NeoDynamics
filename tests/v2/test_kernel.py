@@ -163,6 +163,25 @@ def test_force_group_exhaustion_lists_current_holders():
         kernel.install_bias(distance_min_bias("one-too-many", [[0], [1]], 10.0, 1.0))
 
 
+def test_install_bias_explicit_group_shares_one_group():
+    """The shared-restraint policy: an explicit group id — one install_bias
+    handed out earlier — hosts several biases, and group_energy over that
+    single id reads their SUM (twin kernels: one bias vs two shared)."""
+    spec = KernelSpec(kind="fake", seed=3, temperature=298.0,
+                      system_data=SystemData(
+                          positions=np.zeros((2, 3)),
+                          masses=np.array([1.0, 1.0]), box_vectors=None))
+    lone = KernelFactory.create(spec)
+    g = lone.install_bias(distance_min_bias("a", [[0], [1]], 10.0, 1.0))
+    lone_energy = lone.group_energy([g])
+
+    twin = KernelFactory.create(spec)
+    same = twin.install_bias(distance_min_bias("a", [[0], [1]], 10.0, 1.0))
+    twin.install_bias(distance_min_bias("b", [[0], [1]], 10.0, 1.0), group=same)
+    assert same == g
+    assert twin.group_energy([same]) == pytest.approx(2 * lone_energy)
+
+
 def test_fake_bias_values_on_hand_placed_geometry():
     # weighted COM, right angle, planar-trans dihedral — expectations computed
     # independently: COM([0,1]) with masses 1,3 sits at x=0.75
