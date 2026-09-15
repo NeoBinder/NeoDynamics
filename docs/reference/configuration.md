@@ -70,7 +70,7 @@ key path and a did-you-mean suggestion.
 
 | Key | Meaning |
 |---|---|
-| `dt` | Required. Integration timestep in picoseconds, > 0 (v1 default spelling: 0.002). |
+| `dt` | Required. Integration timestep in picoseconds, > 0 (kernel-spec build default: 0.004 = 4 fs, paired with hydrogenMass 3 amu). |
 | `friction_coeff` | Langevin friction coefficient; defaults to 1.0 at kernel-spec build time. |
 
 ## Methods

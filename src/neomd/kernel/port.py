@@ -313,7 +313,7 @@ class KernelSpec:
     system_data: SystemData | None = None
     # shared:
     integrator: dict = field(default_factory=lambda: {
-        "integrator_name": "LangevinIntegrator", "dt": 0.002, "friction_coeff": 1.0})
+        "integrator_name": "LangevinIntegrator", "dt": 0.004, "friction_coeff": 1.0})
     temperature: float = 298.0  # K
     seed: int = 0
     platform: str = "cuda"  # "cuda" (default) | "cpu"
