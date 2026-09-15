@@ -80,7 +80,7 @@ def load_complex(complex_path):
 def sys_params_from_config(sys_config):
     """createSystem kwargs from the ``system_params`` config (defaults are
     physics: constraints HBonds, nonbonded PME, cutoff 1.0 nm, rigid water,
-    no CMMotion removal, hydrogenMass 4 amu)."""
+    no CMMotion removal, hydrogenMass 3 amu)."""
     _, app, unit, _ = _openmm()
     if sys_config is None:
         sys_config = {}
@@ -93,7 +93,7 @@ def sys_params_from_config(sys_config):
     )
     sys_args["rigidWater"] = sys_config.get("rigidWater", True)
     sys_args["removeCMMotion"] = sys_config.get("removeCMMotion", False)
-    sys_args["hydrogenMass"] = sys_config.get("hydrogenMass", 4) * unit.amu
+    sys_args["hydrogenMass"] = sys_config.get("hydrogenMass", 3) * unit.amu
     if sys_config.get("constraints") == "HBonds":
         sys_args["constraints"] = app.HBonds
     if sys_config.get("nonbonded_method") == "pme":

@@ -585,7 +585,7 @@ class TestSysParams:
         assert args["nonbondedCutoff"] == 1.0 * unit.nanometers
         assert args["rigidWater"] is True
         assert args["removeCMMotion"] is False
-        assert args["hydrogenMass"] == 4 * unit.amu
+        assert args["hydrogenMass"] == 3 * unit.amu
 
     def test_non_pme_leaves_method_unset(self):
         args = sys_params_from_config({"nonbonded_method": "no-cutoff"})
@@ -594,11 +594,11 @@ class TestSysParams:
     def test_overrides(self):
         args = sys_params_from_config({
             "nonbondedCutoff": 1.2, "rigidWater": False,
-            "removeCMMotion": True, "hydrogenMass": 3})
+            "removeCMMotion": True, "hydrogenMass": 4})
         assert args["nonbondedCutoff"] == 1.2 * unit.nanometers
         assert args["rigidWater"] is False
         assert args["removeCMMotion"] is True
-        assert args["hydrogenMass"] == 3 * unit.amu
+        assert args["hydrogenMass"] == 4 * unit.amu
 
 
 # ---------------------------------------------------------------------------

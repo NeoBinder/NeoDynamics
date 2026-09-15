@@ -133,7 +133,7 @@ def _plan_integrator(plan) -> Mapping:
 
 def _plan_dt_ps(plan) -> float:
     """Integrator timestep in ps (the unit plans carry it in)."""
-    return float(_plan_integrator(plan).get("dt", 0.002))
+    return float(_plan_integrator(plan).get("dt", 0.004))
 
 
 def _next_boundary(step_now: int, intervals: Iterable[int], cap: int) -> int:

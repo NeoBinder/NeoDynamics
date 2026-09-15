@@ -253,7 +253,7 @@ def build_kernel_spec(plan: Plan, *, kind: str = "openmm",
     integrator = dict(getattr(plan, "integrator", None) or {})
     integrator.setdefault("integrator_name", "LangevinIntegrator")
     integrator.setdefault("friction_coeff", 1.0)
-    integrator.setdefault("dt", 0.002)
+    integrator.setdefault("dt", 0.004)
 
     resume = None
     if getattr(plan, "continue_md", False):

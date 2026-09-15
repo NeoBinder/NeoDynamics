@@ -56,7 +56,7 @@ def _make_integrator(spec: KernelSpec) -> openmm.Integrator:
         integrator = openmm.LangevinIntegrator(
             spec.temperature,
             spec.integrator.get("friction_coeff", 1.0) / unit.picoseconds,
-            spec.integrator.get("dt", 0.002) * unit.picoseconds,
+            spec.integrator.get("dt", 0.004) * unit.picoseconds,
         )
     else:
         raise NotImplementedError("integrator not defined")
@@ -105,7 +105,7 @@ def _make_boost_integrator(spec: KernelSpec, channels: dict,
     Langevin dynamics: b_c = 0, every s(g) = 1.
     """
     friction = float(spec.integrator.get("friction_coeff", 1.0))
-    dt = float(spec.integrator.get("dt", 0.002))
+    dt = float(spec.integrator.get("dt", 0.004))
     integrator = openmm.CustomIntegrator(dt)
     integrator.setRandomNumberSeed(spec.seed)
     integrator.addGlobalVariable("kT", _R_KJ_MOL_K * float(spec.temperature))

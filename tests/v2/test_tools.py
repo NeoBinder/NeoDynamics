@@ -381,22 +381,22 @@ def test_build_protein_only_system():
     assert ligand_names == []
     nonbonded = next(f for f in system.getForces() if isinstance(f, NonbondedForce))
     assert nonbonded.getNonbondedMethod() == NonbondedForce.PME  # default honored
-    # hydrogenMass 4 amu default (reparsed from heavy atoms)
+    # hydrogenMass 3 amu default (reparsed from heavy atoms)
     hydrogen = next(a for a in topology.atoms() if a.element.symbol == "H")
     assert system.getParticleMass(hydrogen.index).value_in_unit(unit.dalton) \
-        == pytest.approx(4.0)
+        == pytest.approx(3.0)
 
 
 def test_build_sys_kwargs_overrides():
     pdb = PDBFile(str(ALA2_PDB))
     topology = ala2_topology()  # no box: the non-pme spelling must not request PME
     system, _ = build(topology, pdb.positions,
-                      sys_kwargs={"nonbonded_method": "nocutoff", "hydrogenMass": 3})
+                      sys_kwargs={"nonbonded_method": "nocutoff", "hydrogenMass": 4})
     nonbonded = next(f for f in system.getForces() if isinstance(f, NonbondedForce))
     assert nonbonded.getNonbondedMethod() == NonbondedForce.NoCutoff
     hydrogen = next(a for a in topology.atoms() if a.element.symbol == "H")
     assert system.getParticleMass(hydrogen.index).value_in_unit(unit.dalton) \
-        == pytest.approx(3.0)
+        == pytest.approx(4.0)
 
 
 def test_build_rename_by_template_flag():
@@ -417,12 +417,12 @@ def test_build_requires_antechamber_for_ligands():
         build(ala2_topology(), None, ligands=[cco()], runner=runner)
 
 
-def test_sys_params_from_config_defaults_match_v1():
+def test_sys_params_from_config_defaults():
     args = sys_params_from_config(None)
     assert args["nonbondedCutoff"] == 1.0 * unit.nanometers
     assert args["rigidWater"] is True
     assert args["removeCMMotion"] is False
-    assert args["hydrogenMass"] == 4 * unit.amu
+    assert args["hydrogenMass"] == 3 * unit.amu
     assert args["constraints"] == HBonds
     assert args["nonbondedMethod"] == PME
 
