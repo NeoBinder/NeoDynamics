@@ -57,6 +57,16 @@ def build_parser() -> argparse.ArgumentParser:
                      default="openmm",
                      help="kernel adapter (default: openmm; replay plays a "
                           "golden tape from input_files.system)")
+    wrap = run.add_mutually_exclusive_group()
+    wrap.add_argument(
+        "--wrap", dest="wrap_coordinates", action="store_true", default=None,
+        help="wrap output coordinates (output.dcd frames, last.pdbx) into "
+             "the periodic box, molecule by molecule — the default "
+             "(overrides the plan's output.wrap_coordinates)")
+    wrap.add_argument(
+        "--unwrap", dest="wrap_coordinates", action="store_false",
+        help="write raw, unwrapped coordinates (overrides the plan's "
+             "output.wrap_coordinates)")
     run.add_argument("--silent", action="store_true",
                      help="print nothing: no console logging, no run "
                           "summary (default: progress and the start/end "
@@ -195,7 +205,9 @@ def _cmd_run(args) -> int:
     overrides = {} if args.steps is None else {"steps": args.steps}
     try:
         outcome = md_run(args.target, platform=args.platform,
-                         kernel=args.kernel, **overrides)
+                         kernel=args.kernel,
+                         wrap_coordinates=args.wrap_coordinates,
+                         **overrides)
     finally:
         if args.silent:
             package_log.setLevel(previous_level)

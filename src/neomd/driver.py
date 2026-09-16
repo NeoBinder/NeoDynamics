@@ -24,11 +24,13 @@ from .kernel.port import (
     KernelFactory,
     KernelPort,
     KernelSpec,
+    MoleculeGroups,
     StructureWriter,
     provides,
 )
 from .manifest import MANIFEST_FILENAME
 from .probes import KernelView, Probe, ProbeScheduler, RunView
+from .wrap import wrap_positions
 
 __all__ = [
     "MinResult",
@@ -101,8 +103,11 @@ class RunOutcome:
 
     phases_run: list[str]  # executed phase names, e.g. ["min"] or ["eq"]
     fgroups: dict[str, list[int]] = field(default_factory=dict)
-    #: restraint name -> force-group ids assigned by the kernel:
-    #: the fgroup write-back is a return value, never a system mutation
+    #: restraint name -> force-group ids assigned by the kernel (entries
+    #: under the default shared-force-group policy carry the SAME id —
+    #: the one shared group; ``independent_force_group`` opt-ins carry
+    #: their own).  The fgroup write-back is a return value, never a
+    #: system mutation
     results: list = field(default_factory=list)  # [MinResult] or [RunResult]
     manifest_path: str | None = None  # where manifest.json landed (None: no sink)
 
@@ -128,7 +133,7 @@ def _plan_integrator(plan) -> Mapping:
 
 def _plan_dt_ps(plan) -> float:
     """Integrator timestep in ps (the unit plans carry it in)."""
-    return float(_plan_integrator(plan).get("dt", 0.002))
+    return float(_plan_integrator(plan).get("dt", 0.004))
 
 
 def _next_boundary(step_now: int, intervals: Iterable[int], cap: int) -> int:
@@ -151,19 +156,43 @@ def _default_view_factory(kernel: KernelPort) -> ViewFactory:
     return make_view
 
 
-def _write_last_structure(kernel: KernelPort, sink) -> None:
+def _write_last_structure(kernel: KernelPort, sink, wrap: bool = False) -> None:
     """Final positions as a ``last.pdbx`` structure artifact, written
     through the port's negotiated
     :class:`~neomd.kernel.port.StructureWriter` capability (only the openmm
     adapter has a real topology to write; fake/replay kernels skip the
-    artifact by not providing it).  Filesystem-less sinks
-    (``sink.path`` raises NotImplementedError) skip it too."""
+    artifact by not providing it).  ``wrap`` is the plan's
+    ``output.wrap_coordinates`` — the writer wraps whole molecules into the
+    runtime box when it can, and never fails the run when it cannot.
+    Filesystem-less sinks (``sink.path`` raises NotImplementedError) skip
+    it too."""
     if not provides(kernel, StructureWriter):
         return
     try:
-        kernel.write_structure(sink.path(LAST_STRUCTURE_FILENAME))
+        kernel.write_structure(sink.path(LAST_STRUCTURE_FILENAME), wrap=wrap)
     except NotImplementedError:
         pass  # filesystem-less sink (MemorySink): no structure artifact
+
+
+def _wrap_transform(plan, kernel, log=None):
+    """``(positions, box) -> positions`` for wrap-requiring trajectory
+    output, or None.
+
+    Resolved from the plan's ``output.wrap_coordinates`` (derived, default
+    True = molecule-wrapped) and the kernel's ``MoleculeGroups`` capability:
+    kernels without molecule connectivity (fake, replay) degrade to raw
+    coordinates behind one warning — the wrap must never fail a run.
+    """
+    if not bool(getattr(plan, "wrap_coordinates", True)):
+        return None
+    if kernel is None or not provides(kernel, MoleculeGroups):
+        if log is not None:
+            log.warning("output.wrap_coordinates: kernel %r provides no "
+                        "molecule connectivity; coordinates written "
+                        "unwrapped", getattr(kernel, "name", kernel))
+        return None
+    groups = kernel.molecule_groups()
+    return lambda positions, box: wrap_positions(positions, box, groups)
 
 
 # ---------------------------------------------------------------------------
@@ -457,7 +486,9 @@ def run_md(
     scheduler.finish()
     if sink is not None:  # per-leg final state: last.ckpt + last.pdbx
         sink.write_bytes(LAST_CHECKPOINT_FILENAME, kernel.snapshot())
-        _write_last_structure(kernel, sink)
+        _write_last_structure(kernel, sink,
+                              wrap=bool(getattr(plan, "wrap_coordinates",
+                                                True)))
     report = kernel.energy_forces()
     elapsed_sec = clock() - start_time
     stepped = kernel.current_step - start_step
@@ -489,7 +520,7 @@ def _kernel_spec(plan, kind: str = "openmm") -> KernelSpec:
     return build_kernel_spec(plan, kind=kind)
 
 
-def _default_probes(plan, sink, resume=None) -> list:
+def _default_probes(plan, sink, resume=None, kernel=None, log=None) -> list:
     """Probes implied by the plan's derived output intervals ([] without a
     sink — the caller (run.py) owns sink construction, the driver never
     invents one).  The built-in presets are constructed through the probe
@@ -497,7 +528,8 @@ def _default_probes(plan, sink, resume=None) -> list:
     the same way.  ``resume`` (a :class:`~neomd.resume.ResumePlan`, or None
     for a fresh run) owns every append decision: an artifact trimmed by the
     resume planner is appended to, everything else starts fresh — the probes
-    themselves never decide append/truncate."""
+    themselves never decide append/truncate.  ``kernel``/``log`` resolve the
+    trajectory wrap transform (``output.wrap_coordinates``)."""
     if sink is None:
         return []
     from . import probes as _probes  # noqa: F401  (import = registration)
@@ -505,6 +537,8 @@ def _default_probes(plan, sink, resume=None) -> list:
 
     trims = resume.trims if resume is not None else {}
     dt_ps = _plan_dt_ps(plan)
+    trajectory_wrap = _wrap_transform(plan, kernel, log)
+
     def make(name):
         return registry.get("probe", name).make  # KeyError w/ did-you-mean
     probes: list = []
@@ -518,7 +552,8 @@ def _default_probes(plan, sink, resume=None) -> list:
         probes.append(make("trajectory")(
             sink=sink, interval=trajectory_interval,
             dt_ps=dt_ps,
-            append="output.dcd" in trims))
+            append="output.dcd" in trims,
+            wrap=trajectory_wrap))
     checkpoint_interval = int(getattr(plan, "checkpoint_interval", 0) or 0)
     if checkpoint_interval > 0:
         probes.append(make("checkpoint")(sink=sink,
@@ -526,8 +561,9 @@ def _default_probes(plan, sink, resume=None) -> list:
     return probes
 
 
-def _append_restraint_probe(probes: list, plan, sink, kernel, fgroups,
-                            resume=None) -> None:
+def _append_restraint_probe(probes: list, plan, sink, kernel,
+                            resume=None, independent=None,
+                            shared_group=None) -> None:
     """Append the :class:`~neomd.probes.RestraintProbe` the plan's derived
     ``restraint_interval`` asks for (> 0 only when a restraint is configured
     AND ``output.report_restraint`` is truthy — the plan-level
@@ -536,7 +572,9 @@ def _append_restraint_probe(probes: list, plan, sink, kernel, fgroups,
     (through :func:`run_prepared_method`) wire it, minimization does not).
     Columns come from the restraint registry observables +
     the kernel's masses; energies from the port's GroupEnergy
-    capability over the restraint's assigned force groups."""
+    capability over the restraint install wiring (``independent``: the
+    opt-out entries' own groups; ``shared_group``: the one shared group
+    behind the shared total column)."""
     restraint_interval = int(getattr(plan, "restraint_interval", 0) or 0)
     restraint = getattr(plan, "restraint", None) or {}
     if restraint_interval <= 0 or sink is None or not restraint:
@@ -554,7 +592,8 @@ def _append_restraint_probe(probes: list, plan, sink, kernel, fgroups,
             for name, spec in restraint.items()
         ],
         masses=kernel.masses,
-        fgroups=fgroups or None,
+        independent=independent or None,
+        shared_group=shared_group,
         append="restraint.tsv" in trims,
     ))
 
@@ -680,14 +719,17 @@ def _tape_enabled(plan, filename: str) -> bool:
 
 def run_prepared_method(kernel: KernelPort, plan, prepared: PreparedMethod, *,
                         sink=None, logger=None, on_progress=None,
-                        restraint_fgroups=None):
+                        restraint_independent=None,
+                        restraint_shared_group=None):
     """Run a prepared method's loop — the ONE definition of method-run
     reporting (drive()'s rack branch and the Run classes' direct ``run()``
     both go through here; there is no second assembly path).
 
     The probe list is the plan's default probes + the restraint tape (the
     same wiring the MD branch gets: derived ``restraint_interval``, energy
-    columns through the GroupEnergy capability over ``restraint_fgroups``)
+    columns through the GroupEnergy capability over the restraint install
+    wiring — ``restraint_independent`` / ``restraint_shared_group``, the
+    shared-force-group policy's outputs)
     + the method's tapes, each included only while its output switch
     allows (``_TAPE_SWITCHES``); every append flag comes from the method's
     resume plan, so tapes stay append-consistent across kill/resume.
@@ -696,9 +738,12 @@ def run_prepared_method(kernel: KernelPort, plan, prepared: PreparedMethod, *,
     records — or the bare :class:`RunResult` when the method supplied no
     ``finish``.
     """
-    probes = _default_probes(plan, sink, resume=prepared.resume_plan)
-    _append_restraint_probe(probes, plan, sink, kernel, restraint_fgroups,
-                            resume=prepared.resume_plan)
+    probes = _default_probes(plan, sink, resume=prepared.resume_plan,
+                             kernel=kernel, log=logger)
+    _append_restraint_probe(probes, plan, sink, kernel,
+                            resume=prepared.resume_plan,
+                            independent=restraint_independent,
+                            shared_group=restraint_shared_group)
     for filename, probe in prepared.tapes.items():
         if _tape_enabled(plan, filename):
             probes.append(probe)
@@ -776,9 +821,13 @@ def drive(
       from them without manual bridging.
     * ``plan.restraint`` entries are compiled through the registry knowledge
       triples (``registry.get("restraint", type).make_bias``) and installed
-      with ``kernel.install_bias``; the assigned force-group ids come back in
-      ``RunOutcome.fgroups`` (name -> list[int]) — a return value, never a
-      system mutation.
+      with ``kernel.install_bias`` under the SHARED-force-group policy:
+      every entry's forces land in one shared group (its energies report as
+      the single ``shared_restraints__energy`` column), unless the entry
+      opts out with ``independent_force_group: true`` — one dedicated group
+      and its own ``{name}__energy`` column.  The assigned ids come back in
+      ``RunOutcome.fgroups`` (name -> list[int]; shared entries carry the
+      same id) — a return value, never a system mutation.
     * resume (``continue_md``): the MD branch and every method run alike go
       through :func:`neomd.resume.plan_resume` — the single owner — which
       restores the kernel and trims every tape to the checkpoint step before
@@ -815,18 +864,48 @@ def drive(
     record_progress = _manifest_recorder(manifest, sink)
 
     fgroups: dict[str, list[int]] = {}
+    independent_fgroups: dict[str, list[int]] = {}
+    shared_group: int | None = None
     restraint = getattr(plan, "restraint", None)
     if restraint:
         import neomd.restraints  # noqa: F401  (import = triple registration)
 
         from . import registry
+        from .restraints import INDEPENDENT_FORCE_GROUP
 
+        # Shared-force-group install policy: every restraint's forces land
+        # in ONE shared group unless the entry opts out via
+        # ``independent_force_group: true`` (one dedicated group per opted
+        # entry, all of the entry's BiasIRs included).  The shared id is the
+        # first install's returned handle passed back into install_bias —
+        # opaque ids flowing into the kernel they came from, never guessed.
         for name, spec in restraint.items():
             entry = registry.get("restraint", spec["type"])
-            fgroups[name] = [kernel.install_bias(ir)
-                             for ir in entry.make_bias(name, spec)]
-            log.info("restraint %s (%s) installed as force groups %s",
-                     name, spec["type"], fgroups[name])
+            irs = entry.make_bias(name, spec)
+            if irs and spec.get(INDEPENDENT_FORCE_GROUP, False):
+                group = kernel.install_bias(irs[0])
+                fgroups[name] = [group] + [
+                    kernel.install_bias(ir, group=group) for ir in irs[1:]]
+                independent_fgroups[name] = fgroups[name]
+                log.info("restraint %s (%s) installed as independent force "
+                         "group %s", name, spec["type"], fgroups[name])
+            elif irs:
+                if shared_group is None:
+                    # the first install allocates the shared id; the
+                    # entry's remaining BiasIRs re-enter it explicitly
+                    shared_group = kernel.install_bias(irs[0])
+                    fgroups[name] = [shared_group] + [
+                        kernel.install_bias(ir, group=shared_group)
+                        for ir in irs[1:]]
+                else:
+                    # later entries: one id per BiasIR, all explicit
+                    fgroups[name] = [
+                        kernel.install_bias(ir, group=shared_group)
+                        for ir in irs]
+                log.info("restraint %s (%s) installed on the shared force "
+                         "group %s", name, spec["type"], fgroups[name])
+            else:
+                fgroups[name] = []  # bounds-less entry: no force to install
 
     method = (getattr(plan, "method", None) or "md").lower()
     results: list = []
@@ -843,9 +922,12 @@ def drive(
                      sorted(resume_plan.trims) or "none")
             manifest.add_epoch(f"resume:{resume_plan.resume_step}",
                                steps_so_far=resume_plan.resume_step)
-        probes = _default_probes(plan, sink, resume=resume_plan)
-        _append_restraint_probe(probes, plan, sink, kernel, fgroups,
-                                resume=resume_plan)
+        probes = _default_probes(plan, sink, resume=resume_plan,
+                                 kernel=kernel, log=log)
+        _append_restraint_probe(probes, plan, sink, kernel,
+                                resume=resume_plan,
+                                independent=independent_fgroups,
+                                shared_group=shared_group)
         results.append(run_md(kernel, plan, probes,
                               view=_default_view_factory(kernel), logger=log,
                               sink=sink, on_progress=record_progress))
@@ -873,7 +955,9 @@ def drive(
                                steps_so_far=resume.resume_step)
         results.append(run_prepared_method(
             kernel, plan, prepared, sink=sink, logger=log,
-            on_progress=record_progress, restraint_fgroups=fgroups or None))
+            on_progress=record_progress,
+            restraint_independent=independent_fgroups or None,
+            restraint_shared_group=shared_group))
 
     manifest.add_epoch(f"done:{method}", steps_so_far=kernel.current_step)
     _log_run_end(log, started)

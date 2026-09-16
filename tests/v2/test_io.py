@@ -393,7 +393,7 @@ def test_restraint_probe_header_and_rows():
         sink, interval=50,
         restraints=[("rst", {}, _distance_observable([[0], [1]]))],
         masses=np.full(4, 12.0),
-        fgroups={"rst": [3, 7]},
+        independent={"rst": [3, 7]},
     )
     probe.observe(view)
     lines = sink.get_text("restraint.tsv").splitlines()
@@ -405,27 +405,76 @@ def test_restraint_probe_header_and_rows():
     assert kernel.group_queries == [{3, 7}]
 
 
+def test_restraint_probe_shared_group_total_column():
+    """Entries NOT in ``independent`` share one group: no per-entry energy
+    column, one trailing shared total column (present iff the group is)."""
+    sink = MemorySink()
+    kernel = GroupEnergyStubKernel(np.zeros((4, 3)), EnergyReport(
+        potential=0.0, forces=np.zeros((4, 3))), group_energy=-2.0)
+    probe = RestraintProbe(
+        sink, interval=10,
+        restraints=[
+            ("a", {}, _distance_observable([[0], [1]])),
+            ("b", {}, _distance_observable([[2], [3]])),
+            ("solo", {}, _distance_observable([[0], [3]])),
+        ],
+        masses=np.full(4, 12.0),
+        independent={"solo": [29]}, shared_group=31)
+    probe.observe(KernelView(kernel, 10))
+    lines = sink.get_text("restraint.tsv").splitlines()
+    assert lines[0] == ("# step\ta\tb\tsolo\tsolo__energy"
+                        "\tshared_restraints__energy")
+    row = lines[1].split("\t")
+    assert row[4] == "-2.0"   # the solo entry's own group
+    assert row[5] == "-2.0"   # the shared total (stub returns a constant)
+    assert kernel.group_queries == [{29}, {31}]
+
+    # every entry opted out -> no shared column at all
+    sink2 = MemorySink()
+    probe2 = RestraintProbe(
+        sink2, interval=10,
+        restraints=[("a", {}, _distance_observable([[0], [1]]))],
+        masses=np.full(4, 12.0), independent={"a": [0]})
+    probe2.observe(KernelView(GroupEnergyStubKernel(
+        np.zeros((4, 3)), EnergyReport(0.0, np.zeros((4, 3)))), 10))
+    assert sink2.get_text("restraint.tsv").splitlines()[0] \
+        == "# step\ta\ta__energy"
+
+
 def test_restraint_probe_energy_nan_without_groups_or_reader():
-    # no fgroups -> nan energy even when the kernel exposes group_energy
+    # an opted-in entry with NO known groups -> nan energy even when the
+    # kernel exposes group_energy
     sink = MemorySink()
     probe = RestraintProbe(
         sink, interval=10,
         restraints=[("a", {}, _distance_observable([[0], [1]]))],
-        masses=np.full(4, 12.0))
+        masses=np.full(4, 12.0), independent={"a": []})
     probe.observe(KernelView(GroupEnergyStubKernel(
         np.zeros((4, 3)), EnergyReport(0.0, np.zeros((4, 3)))), 10))
     row = sink.get_text("restraint.tsv").splitlines()[1].split("\t")
     assert row[2] == "nan"
 
-    # no group_energy on the kernel -> nan energy even with fgroups
+    # no group_energy on the kernel -> nan energy even with groups
     sink2 = MemorySink()
     probe2 = RestraintProbe(
         sink2, interval=10,
         restraints=[("a", {}, _distance_observable([[0], [1]]))],
-        masses=np.full(4, 12.0), fgroups={"a": [0]})
+        masses=np.full(4, 12.0), independent={"a": [0]})
     probe2.observe(KernelView(StubKernel(
         np.zeros((4, 3)), EnergyReport(0.0, np.zeros((4, 3)))), 10))
     assert sink2.get_text("restraint.tsv").splitlines()[1].split("\t")[2] == "nan"
+
+    # a shared entry with no shared group installed (bounds-less entry
+    # alone): no energy column at all
+    sink3 = MemorySink()
+    probe3 = RestraintProbe(
+        sink3, interval=10,
+        restraints=[("a", {}, _distance_observable([[0], [1]]))],
+        masses=np.full(4, 12.0))
+    probe3.observe(KernelView(GroupEnergyStubKernel(
+        np.zeros((4, 3)), EnergyReport(0.0, np.zeros((4, 3)))), 10))
+    assert sink3.get_text("restraint.tsv").splitlines() \
+        == ["# step\ta", "10\t0.0"]
 
 
 def test_restraint_probe_multi_quantity_and_append():
@@ -442,7 +491,8 @@ def test_restraint_probe_multi_quantity_and_append():
             ("wall", {"type": "funnel"}, funnel_obs),
             ("cap", {"type": "rmsd"}, {}),  # rmsd: energy-only, no columns
         ],
-        masses=np.full(4, 12.0), append=False, fgroups={"wall": [0], "cap": [1]})
+        masses=np.full(4, 12.0), append=False,
+        independent={"wall": [0], "cap": [1]})
     kernel = GroupEnergyStubKernel(positions, EnergyReport(
         0.0, forces=np.zeros((4, 3))), group_energy=-1.25)
     probe.observe(KernelView(kernel, 10))
@@ -459,7 +509,7 @@ def test_restraint_probe_multi_quantity_and_append():
     probe2 = RestraintProbe(
         sink2, interval=10,
         restraints=[("r", {}, _distance_observable([[0], [1]]))],
-        masses=np.full(4, 12.0), append=True, fgroups={"r": [0]})
+        masses=np.full(4, 12.0), append=True, independent={"r": [0]})
     probe2.observe(KernelView(kernel, 20))
     assert sink2.get_text("restraint.tsv").splitlines() == ["20\t3.0\t-1.25"]
 

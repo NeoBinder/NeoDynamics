@@ -302,7 +302,7 @@ class FakeKernel:
                 f"masses {self._masses.shape}")
         self._box = (None if data.box_vectors is None
                      else np.array(data.box_vectors, dtype=np.float64))
-        self._dt = float(spec.integrator.get("dt", 0.002))
+        self._dt = float(spec.integrator.get("dt", 0.004))
         self._gamma = float(spec.integrator.get("friction_coeff", 1.0))
         self._kT = _R_KJ_MOL_K * spec.temperature
 
@@ -566,7 +566,7 @@ class FakeKernel:
     # biases
     # ------------------------------------------------------------------
 
-    def install_bias(self, bias: BiasIR) -> int:
+    def install_bias(self, bias: BiasIR, group: int | None = None) -> int:
         if self._boost:
             # ADR-0005 ordering: the boost rescales force groups by explicit
             # membership — a bias installed after it would silently escape
@@ -574,7 +574,14 @@ class FakeKernel:
             raise RuntimeError(
                 "cannot install_bias after install_boost (boost channels "
                 "target an explicit force-group set); install biases first")
-        group = self._pick_force_group()
+        if group is None:
+            group = self._pick_force_group()
+        else:
+            # shared-restraint policy: several biases legitimately share
+            # one group.  The fake has no system forces — every held group
+            # is an id install_bias itself handed out — so the id is
+            # accepted as-is.
+            group = int(group)
         self._biases.append((group, bias))
         self._next_group += 1  # install counter (snapshot-format field)
         return group

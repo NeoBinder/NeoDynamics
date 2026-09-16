@@ -40,10 +40,24 @@ RAMP_KEYS = (
     "max_nm",
     "min_degree",
     "max_degree",
-    "order",
     "maxRMSD_nm",
     "ref_position_nm",  # scalar spelling: one [x, y, z]; ramp: [[x,y,z], ...]
+    # the xyz_box per-axis walls: a moving wall is the constant-velocity
+    # pull spelling (v1's run_smd vocabulary predates the per-axis keys;
+    # v2 extends the same ramp semantics to them)
+    "min_x_nm",
+    "max_x_nm",
+    "min_y_nm",
+    "max_y_nm",
+    "min_z_nm",
+    "max_z_nm",
 )
+
+#: keys that accept v1's single-element-list spelling (`order: [2]` = the
+#: constant 2) but are NOT rampable: a multi-element list is a plan error.
+#: Varying `order` changes the force's shape AND, on min walls, flips its
+#: direction at odd values — so it must stay constant.
+FIXED_KEYS = ("order",)
 
 LOG = logging.getLogger("neomd.methods.smd")
 
@@ -121,7 +135,9 @@ def _split_ramps(name: str, spec: Mapping) -> tuple[dict, dict]:
     A ramp is a RAMP_KEYS numeric key given a list of numbers, or
     ``ref_position_nm`` given a list of triples (a bare triple stays the
     scalar spelling).  Single-element lists are fixed at that value, not
-    ramps.
+    ramps.  FIXED_KEYS keys (``order``) accept v1's single-element-list
+    spelling as a constant and are never ramps (a multi-element order list
+    is rejected by plan validation).
     """
     scalar: dict = {}
     ramps: dict = {}
@@ -144,6 +160,9 @@ def _split_ramps(name: str, spec: Mapping) -> tuple[dict, dict]:
                 scalar[key] = value[0]
                 if len(value) > 1:
                     ramps[key] = list(value)
+                continue
+            if key in FIXED_KEYS:
+                scalar[key] = value[0]  # v1 spelling: [2] = the constant 2
                 continue
         scalar[key] = value
     return scalar, ramps
@@ -211,6 +230,11 @@ class SMDRun:
             self.entries.append(_Entry(name, entry, spec))
 
         self.fgroups: dict[str, list[int]] = {}
+        #: entries that opted out via ``independent_force_group`` — they
+        #: carry their own ``{name}__energy`` column in smd.tsv
+        self.independent_fgroups: dict[str, list[int]] = {}
+        #: the smd shared force-group id (None until the first install)
+        self.shared_group: int | None = None
         #: entry -> {ramp key: current value} in SPEC units (report columns)
         self._current: dict[str, dict] = {}
 
@@ -219,20 +243,50 @@ class SMDRun:
     def prepare(self):
         """Install the pull forces, plan the resume, build the smd tape.
 
-        The driver runs the loop (driver.run_prepared_method): reporting —
-        the static restraint tape, and whether smd.tsv runs at all
+        Forces install under the SHARED-force-group policy (the smd mirror
+        of the restraint policy): every entry's forces land in ONE smd
+        shared group unless the entry opts out via
+        ``independent_force_group: true`` — one dedicated group and its
+        own ``{name}__energy`` column in smd.tsv (shared entries report
+        through the single ``shared_smd__energy`` column).  The driver
+        runs the loop (driver.run_prepared_method): reporting — the static
+        restraint tape, and whether smd.tsv runs at all
         (output.report_smd, the driver's _TAPE_SWITCHES) — is the driver's
         call, never this method's.
         """
         from neomd.driver import PreparedMethod
+        from neomd.restraints import INDEPENDENT_FORCE_GROUP
 
         # -- install every entry's forces (ramps start at values[0]) ------
         for e in self.entries:
             biases = e.entry.make_bias(e.name, e.scalar_at(0, self.total_steps))
-            self.fgroups[e.name] = [self.kernel.install_bias(b)
-                                    for b in biases]
-            self.log.info("smd %s (%s) installed as force groups %s",
-                          e.name, e.spec.get("type"), self.fgroups[e.name])
+            if biases and e.spec.get(INDEPENDENT_FORCE_GROUP, False):
+                group = self.kernel.install_bias(biases[0])
+                self.fgroups[e.name] = [group] + [
+                    self.kernel.install_bias(b, group=group)
+                    for b in biases[1:]]
+                self.independent_fgroups[e.name] = self.fgroups[e.name]
+                self.log.info("smd %s (%s) installed as independent force "
+                              "group %s", e.name, e.spec.get("type"),
+                              self.fgroups[e.name])
+            elif biases:
+                if self.shared_group is None:
+                    # the first install allocates the smd shared id; the
+                    # entry's remaining biases re-enter it explicitly
+                    self.shared_group = self.kernel.install_bias(biases[0])
+                    self.fgroups[e.name] = [self.shared_group] + [
+                        self.kernel.install_bias(b, group=self.shared_group)
+                        for b in biases[1:]]
+                else:
+                    # later entries: one id per BiasIR, all explicit
+                    self.fgroups[e.name] = [
+                        self.kernel.install_bias(b, group=self.shared_group)
+                        for b in biases]
+                self.log.info("smd %s (%s) installed on the shared smd "
+                              "force group %s", e.name, e.spec.get("type"),
+                              self.fgroups[e.name])
+            else:
+                self.fgroups[e.name] = []  # bounds-less entry: no force
 
         if not provides(self.kernel, BiasParamOps):
             raise NotImplementedError(
@@ -268,7 +322,8 @@ class SMDRun:
                                              e.scalar_at(0, self.total_steps)))
                          for e in self.entries],
                 masses=self.kernel.masses,
-                fgroups=dict(self.fgroups),
+                independent=self.independent_fgroups or None,
+                shared_group=self.shared_group,
                 params_now=lambda name: self._current.get(name, {}),
                 append=resume_plan is not None
                 and SMD_FILENAME in resume_plan.trims,
@@ -346,9 +401,13 @@ SCHEMA = {
         "smd": ("mapping name -> spec; each needs 'type' plus the restraint "
                 "registry's keys (same vocabulary as plan.restraint); any "
                 "rampable key (restr_k, min_nm, max_nm, min_degree, "
-                "max_degree, order, maxRMSD_nm, or ref_position_nm as a list "
-                "of [x, y, z] triples) may be given a LIST of values — "
-                "piecewise-linearly interpolated over steps (v1 run_smd)"),
+                "max_degree, maxRMSD_nm, the xyz_box per-axis walls "
+                "min_x_nm/max_x_nm/min_y_nm/max_y_nm/min_z_nm/max_z_nm, or "
+                "ref_position_nm as a list of [x, y, z] triples) may be "
+                "given a LIST of values — piecewise-linearly interpolated "
+                "over steps (v1 run_smd).  `order` is NOT rampable: it is a "
+                "constant (v1's `order: [2]` single-element spelling is "
+                "accepted and means the same constant)"),
         "steps": "int, total steps (plan-level key)",
     },
     "optional": {

@@ -208,12 +208,17 @@ _OUTPUT = {
                           "else 0.",
     "report_restraint": "bool — switch for the `restraint.tsv` tape.",
     "report_smd": "bool — switch for the `smd.tsv` tape (default on).",
+    "wrap_coordinates": "bool — wrap coordinate artifacts (`output.dcd` "
+                        "frames, `last.pdbx`) into the periodic box, whole "
+                        "molecule by whole molecule (default true; set "
+                        "false for raw / unwrapped). `neomd run "
+                        "--wrap/--unwrap` overrides.",
 }
 
 #: integrator sub-key -> meaning (`dt` is the only validated-required one)
 _INTEGRATOR = {
-    "dt": "Required. Integration timestep in picoseconds, > 0 (v1 default "
-          "spelling: 0.002).",
+    "dt": "Required. Integration timestep in picoseconds, > 0 (kernel-spec "
+          "build default: 0.004 = 4 fs, paired with hydrogenMass 3 amu).",
     "friction_coeff": "Langevin friction coefficient; defaults to 1.0 at "
                       "kernel-spec build time.",
 }

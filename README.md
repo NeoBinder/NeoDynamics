@@ -117,15 +117,29 @@ with the [run_v2.py](examples/3HTB_complex/run_v2.py) walkthrough) and
 
 Steered MD swaps in `method: smd` and an `smd:` section whose entries use
 the restraint vocabulary — any rampable key (`restr_k`, `max_nm`,
-`min_degree`, `order`, `maxRMSD_nm`, `ref_position_nm`, ...) given a LIST
+`min_degree`, `maxRMSD_nm`, `ref_position_nm`, the xyz_box
+per-axis walls `min_x_nm`/`max_x_nm`/`min_y_nm`/..., ...) given a LIST
 of values is piecewise-linearly interpolated over `steps` and pushed to the
-kernel on a fixed 5000-step staircase (v1 semantics, verbatim). A classic
+kernel on a fixed 5000-step staircase (v1 semantics, verbatim). `order`
+is not rampable — it stays constant (v1's `order: [2]` spelling is
+accepted and means the same constant). A classic
 pull is a `max_nm`/`ref_position_nm` ramp; a soft engage/release is a
 `restr_k` ramp like `[0, 1000, ..., 0]`. The run writes `smd.tsv` (step +
 geometric observable + current ramp values + bias energy; switch it off
 with `output.report_smd: false`) alongside the usual artifacts, and a
 static `restraint:` section (e.g. holding the protein) is reported to
 `restraint.tsv` as in any MD run.
+
+The coordinate artifacts (`output.dcd` frames, `last.pdbx`) are wrapped
+into the periodic box whole-molecule-by-whole-molecule by default
+(topology bonds; internal geometry preserved, unlike per-atom wrapping);
+`output.wrap_coordinates: false` switches to raw, unwrapped coordinates,
+and `neomd run --wrap` / `--unwrap` override the plan from the command
+line. Checkpoints (`output.ckpt` / `last.ckpt`) are never wrapped — they
+are openmm's raw state snapshots, required for bit-exact resume. Bias and
+CV forces are clamped to the system's native periodicity: a periodic
+restraint flag cannot flip a non-periodic system to periodic, so on such
+systems wrap stays a no-op even when enabled.
 
 ## Installation
 
@@ -158,7 +172,7 @@ flowchart LR
     FAC --> FK["fake kernel<br/>(deterministic CI)"]
     FAC --> RP["replay kernel<br/>(golden tapes)"]
     OM & FK & RP -.-> PORT["KernelPort<br/>closed operation surface"]
-    REG["registry: knowledge triples<br/>9 restraints · 5 CVs · methods · probes"] -.-> DRV
+    REG["registry: knowledge triples<br/>10 restraints · 5 CVs · methods · probes"] -.-> DRV
     MR --> DRV["driver.drive()<br/>boundary-chunked loop"]
     RES["resume.py<br/>restore + trim"] -.-> DRV
     DRV --> PRB["probes + sinks"] --> ART["manifest.json · output.state/dcd/ckpt<br/>last.ckpt/pdbx · colvar.tsv · hills.npz · fes.tsv"]
@@ -192,13 +206,20 @@ before `KernelFactory.create(kind="replay")`.
 
 One module per restraint / collective variable / method / probe, each
 holding **schema + force expression + observables**, injected via
-`registry.register(kind, name, entry)`. Built-ins: 9 restraint types
+`registry.register(kind, name, entry)`. Built-ins: 10 restraint types
 (`distance`, `dihedral`, `angle`, `funnel`, `dist_ref_position`, `xyz_box`,
-`vec_restraint`, `rmsd`, and `distances` — many pairs packed into one force
-per side, the v1 179ae35 group-economy type), 5 CVs (`distance`, `dihedral`, `angle`,
+`vec_restraint`, `rmsd`, `distances` — many pairs packed into one force
+per side, the v1 179ae35 group-economy type — and `boresch`), 5 CVs
+(`distance`, `dihedral`, `angle`,
 `min_distances`, `distance_ref`), the well-tempered `metadynamics` and
 steered-MD (`smd`) methods, and 6 probe presets. Physics expressions are
-ported verbatim from v1 — that is physics, not architecture.
+ported verbatim from v1 — that is physics, not architecture. User-added
+forces install under the shared-force-group policy, one group per
+category: all restraints share ONE group (`restraint.tsv` carries a
+single `shared_restraints__energy` total column) and all smd entries
+share one group (`smd.tsv`: `shared_smd__energy`); an entry opts out
+with `independent_force_group: true` for a dedicated group and its own
+`{name}__energy` column.
 
 ### Driver, probes, sinks — what a run writes
 
@@ -209,8 +230,8 @@ ported verbatim from v1 — that is physics, not architecture.
 | `output.dcd` | `TrajectoryProbe` | CHARMM-compatible DCD trajectory (append-aware, trimmable) |
 | `output.ckpt` | `CheckpointProbe` + final write | kernel checkpoint incl. RNG state |
 | `last.ckpt`, `last.pdbx` | driver, at leg end | final snapshot (+ final structure when the kernel provides `StructureWriter`; the pdbx header carries the RUNTIME periodic box — v1 8d04b0c fix — and fresh starts take the initial box from the structure file's header) |
-| `restraint.tsv` | `RestraintProbe` | restraint observables + `__energy` via `GroupEnergy` |
-| `smd.tsv` | `SmdProbe` (steered MD) | per-entry geometric observable + current ramp values + `__energy` (switch: `output.report_smd`) |
+| `restraint.tsv` | `RestraintProbe` | restraint observables + one `shared_restraints__energy` total column (shared-force-group default); `independent_force_group: true` entries get their own `{name}__energy` via `GroupEnergy` |
+| `smd.tsv` | `SmdProbe` (steered MD) | per-entry geometric observable + current ramp values + one `shared_smd__energy` total column (shared-force-group default; `independent_force_group: true` entries get their own `{name}__energy`) (switch: `output.report_smd`) |
 | `colvar.tsv` | `ColvarProbe` (metadynamics) | CV values in natural units (e.g. degrees) |
 | `hills.npz` | metadynamics | hill ledger `{steps, positions, heights}` |
 | `fes.tsv` | metadynamics | free-energy surface at run end |

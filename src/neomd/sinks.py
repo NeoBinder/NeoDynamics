@@ -269,7 +269,7 @@ def init_dcd(
     n_atoms: int,
     first_step: int = 0,
     interval_steps: int = 1,
-    dt_ps: float = 0.002,
+    dt_ps: float = 0.004,
     n_fixed: int = 0,
     periodic: bool = False,
     titles: tuple[bytes, bytes] | None = None,

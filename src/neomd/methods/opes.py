@@ -280,6 +280,11 @@ class OPESRun:
             table=table,
             label=LABEL,
         )
+        # group=None: the allocator hands an EXCLUSIVE id — every CV lives
+        # inside this one carrier (inner forces carry no group), and
+        # bias_ops().bias_energy reads that group alone to drive the KDE
+        # kernel weights exp(V/kT).  Never install anything else into it
+        # (never pass it to a shared-group policy).
         self.fgroup = self.kernel.install_bias(bias)
 
         ops = self.kernel.bias_ops()

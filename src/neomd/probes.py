@@ -305,6 +305,13 @@ class TrajectoryProbe:
     * False — never write box records (vacuum)
     * callable — ``box(view) -> (3, 3) nm or None``, evaluated per observe
 
+    ``wrap`` (None = raw/unwrapped, the historical default): an optional
+    ``(positions, box) -> positions`` transform applied to every frame's
+    coordinates before they hit the file — the driver wires
+    ``neomd.wrap.wrap_positions`` over the kernel's ``MoleculeGroups``
+    capability when ``output.wrap_coordinates`` asks for it.  A frame
+    without a box (vacuum) is never transformed.
+
     ``append=True`` (the resume planner's instruction, never the probe's own
     decision) continues an existing file: the first observe adopts the
     existing header (validating atom count and stride) instead of recreating
@@ -318,11 +325,13 @@ class TrajectoryProbe:
         dt_ps: float,
         box: bool | Callable[[RunView], "np.ndarray | None"] | None = None,
         append: bool = False,
+        wrap: Callable[["np.ndarray", "np.ndarray"], "np.ndarray"] | None = None,
     ):
         self.sink = sink
         self.interval = _check_interval(interval)
         self.dt_ps = float(dt_ps)
         self._box = box
+        self._wrap = wrap
         self.append = bool(append)
         self._initialized = False
         self._periodic = False
@@ -361,6 +370,8 @@ class TrajectoryProbe:
     def observe(self, view: RunView) -> None:
         positions = view.positions()
         box = self._box_for(view)
+        if self._wrap is not None and box is not None:
+            positions = self._wrap(positions, box)
         if not self._initialized:
             self._n_atoms = int(positions.shape[0])
             if self.append and self.sink.exists(_DCD_FILENAME):
@@ -528,27 +539,39 @@ def _observable_columns(name: str, observable: dict) -> list[str]:
     return [name]
 
 
+#: the restraint.tsv total column over every restraint sharing the shared
+#: force group (the default install policy; entries that opted out via
+#: ``independent_force_group`` keep their own ``{name}__energy`` column)
+SHARED_ENERGY_COLUMN = "shared_restraints__energy"
+
+
 class RestraintProbe:
     """Appends restraint observables + bias energies to ``restraint.tsv``.
 
-    One
-    row per observation, one column pair per restraint: the geometric
-    observable(s) from the restraint triple's ``observables`` spec (through
-    :func:`_observable_values`, i.e. the cv registry's natural units) then
-    the restraint's bias energy — the sum of its assigned force groups'
-    energies read through the kernel's negotiated
+    One row per observation.  Every restraint contributes its geometric
+    observable(s) from the triple's ``observables`` spec (through
+    :func:`_observable_values`, the cv registry's natural units).  Energy
+    columns follow the shared-group install policy (driver.py): entries in
+    ``independent`` get their own ``{name}__energy`` column — the sum of
+    their force groups' energies; entries NOT in it share one force group
+    and contribute only to the single trailing
+    :data:`SHARED_ENERGY_COLUMN` (present iff the shared group exists).
+    Energies read through the kernel's negotiated
     :class:`~neomd.kernel.port.GroupEnergy` capability (``nan`` when the
-    kernel does not provide it or no groups are known for the restraint).
+    kernel does not provide it or no groups are known).
 
     ``restraints``: list of ``(name, spec, observable)`` — the plan's
     restraint entries paired with their registry ObservableSpecs (the driver
-    wires this).  ``fgroups``: optional ``name -> force-group ids`` mapping
-    (the driver's install-time assignment) for the energy columns.
-    Layout: header ``# step <name1> <name1>__energy ...`` (multi-quantity
-    restraints expand to ``<name>__<key>`` sub-columns; xyz_box COMs to
-    ``<name>__x/__y/__z``), then tab-separated rows in full-precision
-    ``str(float)`` like the other tsv artifacts.  ``append=True`` resumes
-    without rewriting the header.
+    wires this).  ``independent``: optional ``name -> force-group ids``
+    for the entries that opted out of the shared group; an empty list
+    degrades to ``nan`` like any unknown-group entry.  ``shared_group``:
+    the shared force-group id (None when every entry opted out or no
+    restraint carries forces).
+    Layout: header ``# step <name1> [<name1>__energy] <name2> ...
+    [shared_restraints__energy]`` (multi-quantity restraints expand to
+    ``<name>__<key>`` sub-columns; xyz_box COMs to ``<name>__x/__y/__z``),
+    then tab-separated rows in full-precision ``str(float)`` like the other
+    tsv artifacts.  ``append=True`` resumes without rewriting the header.
     """
 
     def __init__(
@@ -558,14 +581,16 @@ class RestraintProbe:
         restraints: Sequence[tuple],
         masses: np.ndarray | None = None,
         append: bool = False,
-        fgroups: Mapping[str, Sequence[int]] | None = None,
+        independent: Mapping[str, Sequence[int]] | None = None,
+        shared_group: int | None = None,
     ):
         self.sink = sink
         self.interval = _check_interval(interval)
         self.restraints = list(restraints)
         self.masses = masses
         self.append = bool(append)
-        self.fgroups = dict(fgroups) if fgroups else None
+        self.independent = dict(independent) if independent else {}
+        self.shared_group = shared_group
         self._wrote_header = False
         self._last_step: int | None = None
 
@@ -580,13 +605,15 @@ class RestraintProbe:
         parts = ["# step"]
         for name, _spec, observable in self.restraints:
             parts.extend(_observable_columns(name, observable))
-            parts.append(f"{name}__energy")
+            if name in self.independent:
+                parts.append(f"{name}__energy")
+        if self.shared_group is not None:
+            parts.append(SHARED_ENERGY_COLUMN)
         return "\t".join(parts)
 
     # -- observation --------------------------------------------------------
 
-    def _energy(self, view: RunView, name: str) -> float:
-        groups = (self.fgroups or {}).get(name)
+    def _energy(self, view: RunView, groups) -> float:
         if not groups or not provides(view.kernel, GroupEnergy):
             return float("nan")
         try:
@@ -607,7 +634,10 @@ class RestraintProbe:
                 else:
                     row.extend(str(v) for v in
                                _observable_values(observable, positions, masses))
-            row.append(str(self._energy(view, name)))
+            if name in self.independent:
+                row.append(str(self._energy(view, self.independent[name])))
+        if self.shared_group is not None:
+            row.append(str(self._energy(view, [self.shared_group])))
         with self.sink.text_writer(_RESTRAINT_FILENAME) as fh:
             if not self._wrote_header and not self.append:
                 fh.write(self._header() + "\n")
@@ -621,6 +651,12 @@ class RestraintProbe:
 # ---------------------------------------------------------------------------
 
 
+#: the smd.tsv total column over every steered entry sharing the smd
+#: force group (the default install policy; entries that opted out via
+#: ``independent_force_group`` keep their own ``{name}__energy`` column)
+SHARED_SMD_ENERGY_COLUMN = "shared_smd__energy"
+
+
 class SmdProbe:
     """Appends steered-MD rows to ``smd.tsv``.
 
@@ -631,16 +667,26 @@ class SmdProbe:
     kJ/mol, nm, degrees, as written in the plan; supplied by the method's
     ``params_now(name)`` so rows reflect what the kernel was actually
     pushed; a ``ref_position_nm`` triple ramp expands to ``__x/__y/__z``
-    columns), then the
-    entry's bias energy — the sum of its assigned force groups' energies
-    through the negotiated :class:`~neomd.kernel.port.GroupEnergy`
-    capability (``nan`` when unavailable).
+    columns).  Energy columns follow the shared-group install policy
+    (methods/smd.py — the smd mirror of the restraint policy): entries in
+    ``independent`` get their own ``{name}__energy`` column — the sum of
+    their force groups' energies; entries NOT in it share one smd force
+    group and contribute only to the single trailing
+    :data:`SHARED_SMD_ENERGY_COLUMN` (present iff the shared group
+    exists).  Energies read through the negotiated
+    :class:`~neomd.kernel.port.GroupEnergy` capability (``nan`` when
+    unavailable).
 
     ``entries``: list of ``(name, scalar_spec, observable)`` like
-    RestraintProbe's ``restraints``.  ``params_now``: callable
-    ``name -> {ramp key: current value}`` or None (no parameter columns).
-    Layout: header ``# step <name1> [ramp cols] <name1>__energy ...``;
-    ``append=True`` resumes without rewriting the header.
+    RestraintProbe's ``restraints``.  ``independent``: optional
+    ``name -> force-group ids`` for the entries that opted out of the smd
+    shared group.  ``shared_group``: the smd shared force-group id (None
+    when every entry opted out or no entry carries forces).
+    ``params_now``: callable ``name -> {ramp key: current value}`` or None
+    (no parameter columns).
+    Layout: header ``# step <name1> [ramp cols] [<name1>__energy] ...
+    [shared_smd__energy]``; ``append=True`` resumes without rewriting the
+    header.
     """
 
     def __init__(
@@ -650,7 +696,8 @@ class SmdProbe:
         entries: Sequence[tuple],
         masses: np.ndarray | None = None,
         append: bool = False,
-        fgroups: Mapping[str, Sequence[int]] | None = None,
+        independent: Mapping[str, Sequence[int]] | None = None,
+        shared_group: int | None = None,
         params_now: Callable[[str], Mapping[str, float]] | None = None,
     ):
         self.sink = sink
@@ -658,7 +705,8 @@ class SmdProbe:
         self.entries = list(entries)
         self.masses = masses
         self.append = bool(append)
-        self.fgroups = dict(fgroups) if fgroups else None
+        self.independent = dict(independent) if independent else {}
+        self.shared_group = shared_group
         if params_now is not None and not callable(params_now):
             raise ValueError("params_now must be callable name -> {key: value}")
         self.params_now = params_now
@@ -692,11 +740,13 @@ class SmdProbe:
                 if axis is not None:
                     column += f"__{'xyz'[axis]}"
                 parts.append(column)
-            parts.append(f"{name}__energy")
+            if name in self.independent:
+                parts.append(f"{name}__energy")
+        if self.shared_group is not None:
+            parts.append(SHARED_SMD_ENERGY_COLUMN)
         return "\t".join(parts)
 
-    def _energy(self, view: RunView, name: str) -> float:
-        groups = (self.fgroups or {}).get(name)
+    def _energy(self, view: RunView, groups) -> float:
         if not groups or not provides(view.kernel, GroupEnergy):
             return float("nan")
         try:
@@ -722,7 +772,10 @@ class SmdProbe:
                 for key, axis in self._ramp_columns.get(name, ()):
                     value = current[key]
                     row.append(str(value) if axis is None else str(value[axis]))
-            row.append(str(self._energy(view, name)))
+            if name in self.independent:
+                row.append(str(self._energy(view, self.independent[name])))
+        if self.shared_group is not None:
+            row.append(str(self._energy(view, [self.shared_group])))
         with self.sink.text_writer(_SMD_FILENAME) as fh:
             if not self._wrote_header and not self.append:
                 fh.write(self._header() + "\n")

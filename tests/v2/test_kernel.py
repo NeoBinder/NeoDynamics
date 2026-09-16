@@ -163,6 +163,25 @@ def test_force_group_exhaustion_lists_current_holders():
         kernel.install_bias(distance_min_bias("one-too-many", [[0], [1]], 10.0, 1.0))
 
 
+def test_install_bias_explicit_group_shares_one_group():
+    """The shared-restraint policy: an explicit group id — one install_bias
+    handed out earlier — hosts several biases, and group_energy over that
+    single id reads their SUM (twin kernels: one bias vs two shared)."""
+    spec = KernelSpec(kind="fake", seed=3, temperature=298.0,
+                      system_data=SystemData(
+                          positions=np.zeros((2, 3)),
+                          masses=np.array([1.0, 1.0]), box_vectors=None))
+    lone = KernelFactory.create(spec)
+    g = lone.install_bias(distance_min_bias("a", [[0], [1]], 10.0, 1.0))
+    lone_energy = lone.group_energy([g])
+
+    twin = KernelFactory.create(spec)
+    same = twin.install_bias(distance_min_bias("a", [[0], [1]], 10.0, 1.0))
+    twin.install_bias(distance_min_bias("b", [[0], [1]], 10.0, 1.0), group=same)
+    assert same == g
+    assert twin.group_energy([same]) == pytest.approx(2 * lone_energy)
+
+
 def test_fake_bias_values_on_hand_placed_geometry():
     # weighted COM, right angle, planar-trans dihedral — expectations computed
     # independently: COM([0,1]) with masses 1,3 sits at x=0.75
@@ -424,6 +443,35 @@ def test_openmm_solvated_pdbx_system():
     assert report.temperature > 0.0
     kernel.step(2)
     assert kernel.current_step == 2
+
+
+def test_openmm_bias_periodicity_clamps_to_the_system():
+    """Bias forces follow the SYSTEM's native periodicity: on a non-periodic
+    system a periodic=True restraint must NOT flip usesPeriodic on (which
+    would turn box_vectors()/wrap/volume on against a declared-but-unused
+    box); on a periodic system the box stays and periodic biases keep it."""
+    # ala2: a non-periodic system (NoCutoff nonbonded) with a nominal box
+    kernel = KernelFactory.create(openmm_spec())
+    assert kernel.box_vectors() is None
+    gid = kernel.install_bias(distance_min_bias(
+        "r1", [[0], [ALA2_ATOMS - 1]], 500.0, 10.0))
+    assert gid == 31
+    # the clamp: the system is still non-periodic after the install
+    assert kernel.box_vectors() is None
+    assert kernel.energy_forces().volume is None
+
+    # solvated: a genuinely periodic system keeps its box (and its
+    # minimum-image semantics) through the same install
+    solv = KernelFactory.create(KernelSpec(
+        kind="openmm", system_xml=SOLV_SYSTEM_XML,
+        topology_file=str(SOLV_PDBX), temperature=298.0, seed=SEED,
+        platform="cpu"))
+    box_before = solv.box_vectors()
+    assert box_before is not None
+    solv.install_bias(distance_min_bias(
+        "r2", [[0], [SOLV_ATOMS - 1]], 500.0, 10.0))
+    assert solv.box_vectors() is not None
+    np.testing.assert_allclose(solv.box_vectors(), box_before)
 
 
 def test_openmm_rejects_unknown_platform_and_integrator():

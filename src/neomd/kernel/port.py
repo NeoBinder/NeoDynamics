@@ -313,7 +313,7 @@ class KernelSpec:
     system_data: SystemData | None = None
     # shared:
     integrator: dict = field(default_factory=lambda: {
-        "integrator_name": "LangevinIntegrator", "dt": 0.002, "friction_coeff": 1.0})
+        "integrator_name": "LangevinIntegrator", "dt": 0.004, "friction_coeff": 1.0})
     temperature: float = 298.0  # K
     seed: int = 0
     platform: str = "cuda"  # "cuda" (default) | "cpu"
@@ -445,10 +445,29 @@ class StructureWriter(Protocol):
     The ``last.pdbx`` half of v1 ``save_last``: writing real coordinates
     needs a real topology, which only topology-carrying kernels (openmm)
     have — ask ``provides(kernel, StructureWriter)`` and skip the artifact
-    when absent.
+    when absent.  ``wrap=True`` asks for molecule-wrapped coordinates (the
+    plan's ``output.wrap_coordinates``); a writer that cannot honor it
+    writes the raw positions instead — it must never fail the run over it.
     """
 
-    def write_structure(self, path) -> None:
+    def write_structure(self, path, wrap: bool = False) -> None:
+        ...
+
+
+@runtime_checkable
+class MoleculeGroups(Protocol):
+    """OPTIONAL capability: molecule connectivity for box wrapping.
+
+    What ``output.wrap_coordinates`` needs (``neomd.wrap``): per-molecule
+    atom-index groups so whole molecules — never single atoms — are
+    translated into the primary box.  Kernels with real connectivity (the
+    openmm adapter, from topology bonds) provide it; kernels without a
+    topology (fake, replay) do not, and wrap-requiring output degrades to
+    raw coordinates behind one driver warning.  Ask
+    ``provides(kernel, MoleculeGroups)``.
+    """
+
+    def molecule_groups(self) -> "list[np.ndarray]":
         ...
 
 
@@ -602,9 +621,17 @@ class KernelPort(Protocol):
         """Advance the dynamics by n steps."""
         ...
 
-    def install_bias(self, bias: BiasIR) -> int:
+    def install_bias(self, bias: BiasIR, group: int | None = None) -> int:
         """Install one biasing force; returns the assigned force-group id
-        (an opaque int — never compared across kernels)."""
+        (an opaque int — never compared across kernels).
+
+        ``group=None`` (the default) lets the shared allocator
+        (:func:`pick_free_force_group`) pick the max free id.  An explicit
+        ``group`` installs into a previously returned id — the shared
+        restraint force-group policy (driver.py): callers only ever pass
+        back an id this kernel handed out, never a foreign or guessed
+        number, and adapters refuse ids held by SYSTEM forces (sharing a
+        group with other installed biases is the policy's whole point)."""
         ...
 
     def clear_bias(self) -> None:

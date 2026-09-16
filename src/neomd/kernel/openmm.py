@@ -56,7 +56,7 @@ def _make_integrator(spec: KernelSpec) -> openmm.Integrator:
         integrator = openmm.LangevinIntegrator(
             spec.temperature,
             spec.integrator.get("friction_coeff", 1.0) / unit.picoseconds,
-            spec.integrator.get("dt", 0.002) * unit.picoseconds,
+            spec.integrator.get("dt", 0.004) * unit.picoseconds,
         )
     else:
         raise NotImplementedError("integrator not defined")
@@ -71,8 +71,9 @@ _R_KJ_MOL_K = unit.MOLAR_GAS_CONSTANT_R.value_in_unit(
     unit.kilojoule_per_mole / unit.kelvin)
 
 #: force types whose energy is "the dihedrals" for the dual-boost channel
-#: (GaMD Miao 2016).  install_bias forces are excluded by identity — a
-#: torsion RESTRAINT is an additive bias, not system dihedral physics.
+#: (GaMD Miao 2016).  install_bias groups are excluded wholesale (by group
+#: id, not object identity — getForces() wrappers differ) — a torsion
+#: RESTRAINT is an additive bias, not system dihedral physics.
 _TORSION_FORCE_TYPES = (openmm.PeriodicTorsionForce, openmm.CustomTorsionForce)
 
 
@@ -104,7 +105,7 @@ def _make_boost_integrator(spec: KernelSpec, channels: dict,
     Langevin dynamics: b_c = 0, every s(g) = 1.
     """
     friction = float(spec.integrator.get("friction_coeff", 1.0))
-    dt = float(spec.integrator.get("dt", 0.002))
+    dt = float(spec.integrator.get("dt", 0.004))
     integrator = openmm.CustomIntegrator(dt)
     integrator.setRandomNumberSeed(spec.seed)
     integrator.addGlobalVariable("kT", _R_KJ_MOL_K * float(spec.temperature))
@@ -320,9 +321,28 @@ class OpenMMKernel:
         self._tables: dict[str, tuple] = {}
         self._dof_cache: int | None = None
         self._simulation: app.Simulation | None = None
+        #: molecule connectivity (MoleculeGroups capability), from topology
+        #: bonds; derived once on first ask
+        self._molecule_groups: list[np.ndarray] | None = None
         #: boost channels (port.BoostOps, ADR-0005): label ->
         #: (concrete group tuple, threshold E, k); None-ish empty = no boost
         self._boost: dict[str, tuple] = {}
+        #: the system's NATIVE periodicity, snapshotted before any bias
+        #: install.  openmm's usesPeriodicBoundaryConditions() is an OR over
+        #: every force, so one periodic bias flag would silently flip a
+        #: non-periodic system (box_vectors()/wrap/volume come on against a
+        #: declared-but-unused box).  Bias/CV forces are clamped to this
+        #: snapshot — see :meth:`_effective_periodic`.
+        self._system_periodic = self.system.usesPeriodicBoundaryConditions()
+
+    def _effective_periodic(self, requested: bool) -> bool:
+        """Clamp a force's PBC request to the system's native periodicity.
+
+        Minimum image against a box no force actually uses is incoherent:
+        on a non-periodic system every bias/CV force runs with PBC off, so
+        installing a restraint can never flip the system periodic.
+        """
+        return bool(requested) and self._system_periodic
 
     @property
     def simulation(self) -> app.Simulation:
@@ -494,7 +514,7 @@ class OpenMMKernel:
     # bias installation
     # ------------------------------------------------------------------
 
-    def install_bias(self, bias: BiasIR) -> int:
+    def install_bias(self, bias: BiasIR, group: int | None = None) -> int:
         if self._boost:
             # ADR-0005 ordering: the boost integrator's per-group update
             # chain is frozen at install_boost time — a bias installed
@@ -503,7 +523,26 @@ class OpenMMKernel:
                 "cannot install_bias after install_boost (boost channels "
                 "target an explicit force-group set); install biases first")
         force = self._compile_bias(bias)
-        group = self._pick_force_group()
+        if group is None:
+            group = self._pick_force_group()
+        else:
+            # shared-restraint policy: multiple biases legitimately share
+            # one group.  What an explicit group must NEVER hit is a SYSTEM
+            # force's group — that would blend system energy into the
+            # per-group energy reads.  Excluded by GROUP-SET algebra, never
+            # by force-object identity: the Python wrapper this adapter
+            # holds (from _compile_bias) is not the object getForces()
+            # hands back, so id() matching silently misses.
+            group = int(group)
+            bias_groups = {g for g, _f in self._installed}
+            system_groups = ({f.getForceGroup()
+                              for f in self.system.getForces()}
+                             - bias_groups)
+            if group in system_groups:
+                raise ValueError(
+                    f"install_bias: force group {group} is held by a system "
+                    f"force; only ids this kernel's install_bias returned "
+                    f"may be passed back")
         force.setForceGroup(group)
         self.system.addForce(force)
         self._installed.append((group, force))
@@ -540,7 +579,8 @@ class OpenMMKernel:
         "improved"): ``CustomCentroidBondForce(len(groups), energy)`` +
         ``addGroup`` per group + ``addBond(range(n))`` + ``addGlobalParameter``
         per typed Param (kJ/mol, nm, deg, dimensionless) +
-        ``setUsesPeriodicBoundaryConditions(bias.periodic)``;
+        ``setUsesPeriodicBoundaryConditions(bias.periodic)`` (clamped to the
+        system's native periodicity — :meth:`_effective_periodic`);
         ``CustomTorsionForce(energy)`` + ``addTorsion``; ``CustomCVForce``
         wrapping the CVIR (``bias.cv.bond_params`` become per-bond
         parameters); ``CustomCVTableForce`` -> :meth:`_compile_table`."""
@@ -561,7 +601,8 @@ class OpenMMKernel:
             force.addTorsion(*bias.torsion)
             for name, param in bias.params.items():
                 force.addGlobalParameter(name, _to_quantity(param))
-            force.setUsesPeriodicBoundaryConditions(bias.periodic)
+            force.setUsesPeriodicBoundaryConditions(
+                self._effective_periodic(bias.periodic))
             return force
         if bias.kind == "CustomCVForce":
             if bias.cv is None:
@@ -658,7 +699,8 @@ class OpenMMKernel:
         force.addBond(list(range(len(groups))))
         for name, param in params.items():
             force.addGlobalParameter(name, _to_quantity(param))
-        force.setUsesPeriodicBoundaryConditions(periodic)
+        force.setUsesPeriodicBoundaryConditions(
+            self._effective_periodic(periodic))
         return force
 
     def _compile_centroid_bonds(self, bias: BiasIR) -> openmm.CustomCentroidBondForce:
@@ -689,7 +731,8 @@ class OpenMMKernel:
                 ids.append(group_ids[key])
             force.addBond(ids, [float(bond.params[name])
                                 for name in bias.params])
-        force.setUsesPeriodicBoundaryConditions(bias.periodic)
+        force.setUsesPeriodicBoundaryConditions(
+            self._effective_periodic(bias.periodic))
         return force
 
     def _compile_cv(self, cv: CVIR) -> openmm.Force:
@@ -712,11 +755,11 @@ class OpenMMKernel:
                 force.addPerBondParameter(name)
             force.addBond(list(range(len(cv.groups))),
                           [_to_quantity(cv.bond_params[n]) for n in names])
-            # force-level PBC is True on every CV force (the geometry lives
-            # in the expression's minimum-image distances); CVIR.periodic is
-            # the CV's intrinsic periodicity for the metadynamics table, not
-            # this flag.
-            force.setUsesPeriodicBoundaryConditions(True)
+            # force-level PBC follows the system's native periodicity (the
+            # geometry lives in the expression's minimum-image distances on
+            # periodic systems); CVIR.periodic is the CV's intrinsic
+            # periodicity for the metadynamics table, not this flag.
+            force.setUsesPeriodicBoundaryConditions(self._system_periodic)
             return force
         if cv.kind == "CustomTorsionForce":
             torsion = cv.torsion
@@ -727,7 +770,7 @@ class OpenMMKernel:
                 raise ValueError(f"cv {cv.label!r}: CustomTorsionForce needs torsion")
             force = openmm.CustomTorsionForce(cv.expression)
             force.addTorsion(*torsion)
-            force.setUsesPeriodicBoundaryConditions(True)
+            force.setUsesPeriodicBoundaryConditions(self._system_periodic)
             return force
         if cv.kind == "RMSDForce":
             # RMSDForce over FULL-system reference positions with a
@@ -755,6 +798,8 @@ class OpenMMKernel:
             # edge — the largest MIC-valid cutoff; the residual truncation
             # (pairs beyond it contribute ~(r/r0)^(nn-mm)) is the documented
             # deviation from the fake/evaluate tracks, which do not truncate.
+            # The branch rides the snapshotted NATIVE periodicity, not the
+            # live check — an installed bias must not change this answer.
             if len(cv.groups) != 2:
                 raise ValueError(
                     f"cv {cv.label!r}: CustomNonbondedForce needs 2 groups")
@@ -768,7 +813,7 @@ class OpenMMKernel:
             for i in range(self.system.getNumParticles()):
                 force.addParticle([1.0 if i in grp1 else 0.0,
                                    1.0 if i in grp2 else 0.0])
-            if self.system.usesPeriodicBoundaryConditions():
+            if self._system_periodic:
                 box = self.system.getDefaultPeriodicBoxVectors()
                 edge = min(np.linalg.norm([v.x, v.y, v.z]) for v in box)
                 force.setCutoffDistance(0.5 * edge * unit.nanometer)
@@ -904,7 +949,7 @@ class OpenMMKernel:
     def torsion_force_groups(self) -> tuple[int, ...]:
         """Duck-typed dual-boost discovery: the force groups holding the
         system's torsion energy (``PeriodicTorsionForce`` /
-        ``CustomTorsionForce``; install_bias forces excluded by identity —
+        ``CustomTorsionForce``; install_bias groups excluded wholesale —
         a torsion restraint is an additive bias, not dihedral physics).
 
         When torsion forces SHARE a group with other forces and no Context
@@ -913,39 +958,58 @@ class OpenMMKernel:
         same discipline as ``install_bias``).  A live Context is an error:
         regrouping after the integrator chain is frozen would silently
         mis-scale.  Returns () when the system has no torsion forces.
+
+        Exclusion is by GROUP-SET algebra, never force-object identity:
+        the wrappers ``getForces()`` hands back are not the objects
+        ``_compile_bias``/``addForce`` retained, so id() matching misses.
         """
         if self._simulation is not None:
             raise RuntimeError(
                 "torsion_force_groups() must run before the Context exists "
                 "(force groups are frozen once boost channels install)")
-        bias_forces = {force for _group, force in self._installed}
-        torsion = [force for force in self.system.getForces()
-                   if isinstance(force, _TORSION_FORCE_TYPES)
-                   and force not in bias_forces]
-        if not torsion:
+        bias_groups = {group for group, _force in self._installed}
+        all_forces = list(self.system.getForces())
+        torsion_groups = {f.getForceGroup() for f in all_forces
+                          if isinstance(f, _TORSION_FORCE_TYPES)
+                          and f.getForceGroup() not in bias_groups}
+        if not torsion_groups:
             return ()
-        torsion_ids = {id(force) for force in torsion}
-        mixed = any(
-            force.getForceGroup() in
-            {f.getForceGroup() for f in self.system.getForces()
-             if id(f) not in torsion_ids}
-            for force in torsion)
-        if not mixed:
-            return tuple(sorted({f.getForceGroup() for f in torsion}))
+        other_groups = ({f.getForceGroup() for f in all_forces
+                         if not isinstance(f, _TORSION_FORCE_TYPES)}
+                        - bias_groups)
+        if not torsion_groups & other_groups:
+            return tuple(sorted(torsion_groups))
         # isolate: one fresh group for every torsion force
-        used = {force.getForceGroup() for force in self.system.getForces()}
+        used = {force.getForceGroup() for force in all_forces}
         free = pick_free_force_group(
             used, {force.getForceGroup(): type(force).__name__
-                   for force in self.system.getForces()})
-        for force in torsion:
-            force.setForceGroup(free)
+                   for force in all_forces})
+        for force in all_forces:
+            if (isinstance(force, _TORSION_FORCE_TYPES)
+                    and force.getForceGroup() in torsion_groups):
+                force.setForceGroup(free)
         return (free,)
 
     # ------------------------------------------------------------------
     # snapshots / resume
     # ------------------------------------------------------------------
 
-    def write_structure(self, path) -> None:
+    def molecule_groups(self) -> list[np.ndarray]:
+        """Per-molecule atom-index groups from topology bonds (the port's
+        ``MoleculeGroups`` capability) — the connectivity
+        :meth:`write_structure` and the driver's wrap-requiring trajectory
+        probes share."""
+        if self._molecule_groups is None:
+            from ..wrap import molecule_groups_from_bonds
+
+            topology = self._structure.topology
+            bonds = [(bond.atom1.index, bond.atom2.index)
+                     for bond in topology.bonds()]
+            self._molecule_groups = molecule_groups_from_bonds(
+                topology.getNumAtoms(), bonds)
+        return self._molecule_groups
+
+    def write_structure(self, path, wrap: bool = False) -> None:
         """Write the CURRENT positions as a PDBx/mmCIF structure to ``path``.
 
         The final-positions artifact seam: the driver duck-types this public
@@ -958,6 +1022,10 @@ class OpenMMKernel:
         output header always matches the coordinates — an NPT run's barostat
         may have moved the box away from the input file's header (periodic
         systems only; vacuum keeps the input topology's absent box).
+        ``wrap=True`` (the plan's ``output.wrap_coordinates``) wraps whole
+        molecules into the runtime box first (:meth:`molecule_groups` via
+        :mod:`neomd.wrap`); a vacuum system has no box and writes raw
+        positions.
         """
         state = self.simulation.context.getState(getPositions=True)
         positions = state.getPositions()
@@ -967,6 +1035,17 @@ class OpenMMKernel:
             # topology's (absent) box — no zero CRYST1 record is invented.
             self._structure.topology.setPeriodicBoxVectors(
                 state.getPeriodicBoxVectors())
+            if wrap:
+                from ..wrap import wrap_positions
+
+                pos_nm = np.asarray(
+                    state.getPositions(asNumpy=True).value_in_unit(
+                        unit.nanometer), dtype=np.float64)
+                box_nm = np.asarray(
+                    state.getPeriodicBoxVectors(asNumpy=True).value_in_unit(
+                        unit.nanometer), dtype=np.float64)
+                positions = wrap_positions(
+                    pos_nm, box_nm, self.molecule_groups()) * unit.nanometer
         with open(path, "w") as handle:
             app.PDBxFile.writeFile(
                 self._structure.topology, positions, handle, keepIds=True)
@@ -998,6 +1077,18 @@ class _OpenMMBiasOps:
             self._kernel.simulation.context))
 
     def bias_energy(self, label: str) -> float:
+        """Table-bias energy (kJ/mol), read as the carrier's force-group
+        energy ALONE (``getState(groups=...)``).
+
+        That read is only pure because the carrier owns its group
+        EXCLUSIVELY — ``install_bias`` allocated it with ``group=None``
+        and nothing else may ever enter it: a shared group would blend
+        other forces' energy into the well-tempered hill height
+        (metadynamics ``_tempered_height``) and the OPES kernel weights
+        ``w = exp(V/kT)`` — physics, not reporting.  All CVs of one
+        method live INSIDE this one carrier (``_compile_table`` inner
+        forces carry no group of their own), so one exclusive group
+        covers every CV."""
         force, *_ = self._entry(label)
         energy = self._kernel.simulation.context.getState(
             getEnergy=True, groups={force.getForceGroup()}).getPotentialEnergy()

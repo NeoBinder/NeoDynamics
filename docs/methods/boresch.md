@@ -60,7 +60,10 @@ restraint:
 ## 产物
 
 - **`restraint.tsv`**：六个几何观测量（`r` nm，θ/φ 以度报告）+
-  bias-energy 列，随 resume 通用规则截断。
+  能量列（默认全部 restraint 共享一个 force group，只有
+  `shared_restraints__energy` 总列；条目内写
+  `independent_force_group: true` 才有独立
+  `{name}__energy` 列），随 resume 通用规则截断。
 
 ## 参考文献
 

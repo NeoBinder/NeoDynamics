@@ -35,6 +35,26 @@ output:
   report on the fake and replay kernels. Observables land in
   `restraint.tsv` when `output.report_restraint` is on (interval mirrors
   `report_interval` by default).
+- **Energy columns and force groups** — by default every restraint's
+  forces share ONE force group and `restraint.tsv` carries a single
+  `shared_restraints__energy` total column. An entry that needs its own
+  energy reading (e.g. a per-CV restraint-energy correction) opts out:
+
+  ```yaml
+  restraint:
+    my_cv_wall:
+      type: distance
+      grp1: "4"
+      grp2: "21"
+      restr_k: 1000.0
+      max_nm: 1.2
+      independent_force_group: true   # own group + own my_cv_wall__energy column
+  ```
+
+  An opted-out entry gets one dedicated force group and its own
+  `{name}__energy` column; per-restraint energies are only readable for
+  such entries (group energies are read per group, so shared entries
+  cannot be decomposed).
 - **Same vocabulary in steered MD** — `method: smd` entries use exactly
   these schemas, with any rampable key allowed to be a list (see the
   [steered-MD tutorial](steered-md.md)).
