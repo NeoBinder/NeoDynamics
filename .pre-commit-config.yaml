@@ -22,6 +22,6 @@ repos:
   # extend-exclude (src/neomd_legacy, bin/, examples/, docs/, .worktrees/),
   # not by narrowing what pre-commit passes it. Run locally: uvx ruff check .
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.6
+    rev: v0.16.7
     hooks:
       - id: ruff
