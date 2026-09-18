@@ -7,6 +7,10 @@ release, including the `neomd2` alias. The interactive service is
 session policy, while reusable stepping, scientific preparation and qualified
 physical/method controls remain engine interfaces.
 
+The server is not online yet (no deployment exists): implement against the
+current versioned contracts only. Do not write forward-compatibility code
+for anticipated future service versions or undeployed behavior.
+
 ## Scientific boundaries
 
 - Preserve force expressions, units and default parameters when refactoring;
