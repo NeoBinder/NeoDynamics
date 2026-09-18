@@ -64,5 +64,7 @@ eligibility. Request construction does not bless caller metadata as trusted
 terminal evidence. Selected-H6 size and deployment admission budgets remain
 the API's separate admission checks.
 
-This slice is source-only and is deliberately not registered in runtime or
-package data until the integration gate.
+This snapshot is packaged as read-only package data (see `pyproject.toml`
+`[tool.setuptools.package-data]`), so the resident service reads the frozen
+contract from its installed distribution; runtime coordinator activation is
+separate host configuration (`NEOMD_SERVER_PUBLICATION_*` settings).

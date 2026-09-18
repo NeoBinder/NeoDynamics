@@ -142,10 +142,11 @@ return a closed exit status without printing credentials. The probe reads the
 resident startup qualification; it does not run another simulation or certify
 large-system throughput, database transactions, upload or publication.
 
-The resident runtime currently records local artifacts. Although publication
-DTOs/journal/migrations exist, uploader/coordinator activation, remote publication,
-OSS receipts and receipt-guarded cleanup remain separate unfinished work.
-No publication env is added here and no deployed/publication capability is
-claimed by these templates. See [service runtime](../docs/service-runtime.md),
+The resident runtime includes an optional reverse-publication coordinator
+(`src/neomd_server/publication_runtime.py`) that activates only from explicit
+`NEOMD_SERVER_PUBLICATION_*` settings. These templates still add no publication
+env and claim no deployed publication capability: remote publication, real OSS
+receipts and receipt-guarded cleanup in a deployed rollout remain unqualified
+local-only evidence. See [service runtime](../docs/service-runtime.md),
 [private transport](../docs/private-transport.md), and
 [ledger ownership](../docs/service-ledger.md) for the current implementation.

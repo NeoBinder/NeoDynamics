@@ -138,8 +138,11 @@ prepared inputs are outside this historical checkpoint set.
 `neomd_server.publication_journal.PublicationJournal` is a separate integration
 library over the service-owned schema. Migration `008` creates its destination,
 job, upload and operation tables without staging historical work. It performs no
-HTTP, local-file or object-store operation and is not activated by the resident
-runtime. The frozen NeoAPI publication DTO/schema snapshot is packaged under
+HTTP, local-file or object-store operation itself. The resident runtime
+activates it explicitly through the publication coordinator
+(`publication_runtime.py`) only when `PublicationSettings` is configured;
+absent settings leave publication disabled. The frozen NeoAPI publication
+DTO/schema snapshot is packaged under
 `contracts/neoapi-md-publication/v1`; parsing it does not authenticate a response.
 
 Construct the journal with `PublicationJournal(ledger, pool_id=..., settings=...)`

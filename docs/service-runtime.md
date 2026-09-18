@@ -269,9 +269,13 @@ creating parent disappears, including while blocked in a native call. A PPID
 handshake closes the registration race. Graceful shutdown still allows the
 owner-thread checkpoint/close path before the configured termination deadline.
 
-Object publication, OSS receipts and post-publication cleanup require their
-separate integration policy. This runtime only records local artifacts; it never
-labels local files as uploaded or deletes completed output to make space.
+Object publication runs only through the explicitly configured publication
+coordinator (`NEOMD_SERVER_PUBLICATION_*` settings; absent settings disable
+publication entirely). Its exchanges execute in bounded joined child processes
+with query-first recovery, and its guarded cleanup deletes only the exact
+owned sealed output set after verified receipts and writer/uploader closure.
+The runtime never labels local files as uploaded without that receipt proof
+and never deletes completed output to make space.
 
 ## Sealed-output finalization
 
