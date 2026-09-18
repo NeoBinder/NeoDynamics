@@ -60,3 +60,14 @@ function/class implementing them; a genuinely whole-module contract may
 stay in the header as a compressed paragraph (≤6 lines). Tests may pin
 docstring content (e.g. migrate_v1.py's one-shot discipline) — those
 statements are contracts, never delete them.
+
+- Site tooling/instructions belong under `exclude_docs` (see `mkdocs.yml`), not the published site.
+- Clearly distinguish accepted current decisions from proposed ADRs; a proposed interface is not a shipped capability.
+
+## Read for the change
+
+- Setup, CI, golden tolerances or docs generation: `docs/development.md`; executable task/environment definitions are in `pyproject.toml`.
+- Public usage: `docs/quickstart.md`; method questions use the relevant page via `docs/methods/index.md`, not the entire method library.
+- Supported scope: `docs/tutorials/coming-soon.md` describes current limits.
+- Architecture rationale: `docs/architecture.md`, then only the relevant ADR.
+- Service contracts, scientific intake, runtime or result publication: `src/neomd_server/AGENTS.md` routes to the current owner document. Preserve feature-tree qualification limits; a main-based documentation change cannot replace newer service behavior or mark pending integration as complete.

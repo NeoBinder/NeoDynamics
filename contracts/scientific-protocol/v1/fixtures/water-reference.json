@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "reference_id": "bb93b355-21b2-5ebc-b6ab-b7a141bd5be5",
+  "prepared_revision_id": "e69e1a9a-0580-4a7f-9dfd-be9d026d403b",
+  "particle_identity_sha256": "ded3a76bf381b98a9d2e2d115e86e824a8db15be018467996c445d802ee6e96c",
+  "content_sha256": "04750b56f9e0f777b3185f09178388d5e6a027911489e4d946e48d02e135d67e",
+  "dtype": "float64",
+  "byte_order": "little",
+  "unit": "nm",
+  "frame_count": 2,
+  "particle_count": 4,
+  "size_bytes": 192
+}

@@ -1,0 +1,447 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "const": "neomd-server"
+        },
+        "neomd_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9.+_-]+$"
+        },
+        "openmm_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9.+_-]+$"
+        },
+        "platform": {
+          "enum": [
+            "cpu",
+            "cuda"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "neomd_version",
+        "openmm_version",
+        "platform"
+      ]
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "epoch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "method": {
+          "enum": [
+            "min",
+            "eq",
+            "md",
+            "prod",
+            "metadynamics",
+            "smd",
+            "opes",
+            "gamd",
+            "rbfe"
+          ]
+        },
+        "terminal_state": {
+          "enum": [
+            "completed",
+            "stopped"
+          ]
+        },
+        "step": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "time_ps": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "control_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "session_id",
+        "attempt_id",
+        "generation",
+        "epoch",
+        "method",
+        "terminal_state",
+        "step",
+        "time_ps",
+        "control_revision"
+      ],
+      "description": "Actual terminal owner-thread observation; stopped does not mean all requested steps completed. This is separate from per-file encoded DCD steps/time. No failed/lost/recovery-required run receives this manifest."
+    },
+    "prepared": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "bundle_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "prepared_revision_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "mapping_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "bundle_id",
+        "prepared_revision_id",
+        "manifest_sha256",
+        "mapping_sha256"
+      ]
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "content_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA256(JCS({prepared: complete PreparedBinding, protocol: registered scientific descriptor})); excludes protocol_id/request_id and differs from a descriptor-only hash."
+        }
+      },
+      "required": [
+        "protocol_id",
+        "content_sha256"
+      ]
+    },
+    "particles": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "order": {
+          "const": "system_particle_index"
+        },
+        "identity_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA256(JCS(ordered manifest.particles identity_id UUID strings)), including all atom/site rows in System particle-index order."
+        }
+      },
+      "required": [
+        "count",
+        "order",
+        "identity_sha256"
+      ]
+    },
+    "trajectory_state": {
+      "enum": [
+        "written",
+        "not_written"
+      ]
+    },
+    "trajectories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "content_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "encoding": {
+            "const": "dcd_charmm24_le"
+          },
+          "coordinate_dtype": {
+            "const": "float32"
+          },
+          "coordinate_unit": {
+            "const": "angstrom"
+          },
+          "frame_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "first_step": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "last_step": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "interval_steps": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "timestep_ps": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "periodic": {
+            "type": "boolean"
+          },
+          "series": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "run"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "rbfe_window"
+                  },
+                  "window_index": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "window_count": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "lambda_values": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "propertyNames": {
+                      "pattern": "^lambda_[A-Za-z0-9_]{1,64}$"
+                    },
+                    "additionalProperties": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  }
+                },
+                "required": [
+                  "kind",
+                  "window_index",
+                  "window_count",
+                  "lambda_values"
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "artifact_id",
+          "content_sha256",
+          "size_bytes",
+          "encoding",
+          "coordinate_dtype",
+          "coordinate_unit",
+          "frame_count",
+          "first_step",
+          "last_step",
+          "interval_steps",
+          "timestep_ps",
+          "periodic",
+          "series"
+        ],
+        "description": "One sealed DCD segment. artifact_id is its immutable segment identity. Frame k has local step first_step+k*interval_steps and time_ps=step*timestep_ps. RBFE times are window-local, not a continuous concatenated trajectory. timestep_ps is the stored f32 AKMA header value multiplied by 0.04888821; it may differ from the requested timestep due to header rounding.",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "frame_count": {
+                  "const": 0
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "last_step": {
+                  "type": "null"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "last_step": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "producer",
+    "execution",
+    "prepared",
+    "protocol",
+    "particles",
+    "trajectory_state",
+    "trajectories"
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:neodyn:trajectory-result:v1",
+  "title": "Sealed NeoDynamics trajectory result evidence",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "trajectory_state": {
+            "const": "not_written"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "trajectories": {
+            "maxItems": 0
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "trajectories": {
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "execution": {
+            "properties": {
+              "method": {
+                "const": "rbfe"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "trajectories": {
+            "items": {
+              "properties": {
+                "series": {
+                  "properties": {
+                    "kind": {
+                      "const": "rbfe_window"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "trajectories": {
+            "items": {
+              "properties": {
+                "series": {
+                  "properties": {
+                    "kind": {
+                      "const": "run"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

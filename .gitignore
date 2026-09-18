@@ -190,3 +190,7 @@ idea/
 # agent workspaces
 .zcode/
 .agents/
+
+# Local wheel input for container builds
+/docker/.build/
+/docker/environment/.pixi/

@@ -10,6 +10,7 @@ integration tests run openmm on the ala2 fixture (~300 steps each, < 20 s).
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 
 # Determinism pin — BEFORE any openmm Context can exist in this process
 # (pytest imports test modules during collection; same rationale as
@@ -435,7 +436,6 @@ def openmm_meta_config(steps: int, **overrides) -> dict:
     return config
 
 
-@pytest.mark.cuda
 def test_openmm_method_entry_direct_ala2(tmp_path):
     plan = Plan.from_dict(openmm_meta_config(300, output=out(tmp_path)))
     kernel = KernelFactory.create(KernelSpec(
@@ -444,7 +444,7 @@ def test_openmm_method_entry_direct_ala2(tmp_path):
         topology_file=str(ALA2_PDB),
         integrator={"integrator_name": "LangevinIntegrator",
                     "dt": 0.002, "friction_coeff": 1.0},
-        temperature=298.0, seed=2026))
+        temperature=298.0, seed=2026, platform="cpu"))
 
     started = time.perf_counter()
     run = MetadynamicsRun(kernel, plan, sink=LocalDirSink(tmp_path))
@@ -479,11 +479,11 @@ def test_openmm_method_entry_direct_ala2(tmp_path):
             assert -180.0 <= value <= 180.0
 
 
-@pytest.mark.cuda
 def test_drive_metadynamics_openmm_ala2(tmp_path):
     plan = Plan.from_dict(openmm_meta_config(300, output=out(tmp_path)))
     started = time.perf_counter()
-    outcome = drive(plan, sink=LocalDirSink(tmp_path))
+    outcome = drive(plan, kernel_factory=lambda spec: KernelFactory.create(
+        replace(spec, platform="cpu")), sink=LocalDirSink(tmp_path))
     elapsed = time.perf_counter() - started
 
     assert elapsed < 20.0

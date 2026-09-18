@@ -1,7 +1,6 @@
 # Metadynamics
 
-Well-tempered metadynamics is one of the two sampling methods shipped with
-NeoDynamics. It swaps into a plan as `method: metadynamics` plus a
+Well-tempered metadynamics is a sampling method shipped with NeoDynamics. It swaps into a plan as `method: metadynamics` plus a
 `colvars:` section (1–3 collective variables from the CV vocabulary) and a
 `meta_set:` section (`biasFactor`, `height`, `frequency`) — same facade,
 same artifacts plus `colvar.tsv`, `hills.npz` and `fes.tsv`.
@@ -12,7 +11,7 @@ steps: 500000
 
 colvars:
   d1:
-    type: distance          # one of the 5 registered CVs
+    type: distance          # see the generated CV vocabulary
     grp1_idx: "1,2,3"
     grp2_idx: "10,11,12"
     min_cv_nm: 0.1

@@ -559,7 +559,6 @@ def test_pme_fixture_boundary_exceptions_are_exact():
         (6, 8), (8, 10), (8, 14), (14, 15)}
 
 
-@pytest.mark.cuda
 def test_residue_region_md_run_end_to_end(tmp_path):
     from neomd import md_run
 
@@ -570,7 +569,7 @@ def test_residue_region_md_run_end_to_end(tmp_path):
         "output": {"output_dir": str(tmp_path / "out"), "report_interval": 1},
         "ml_region": {"residues": ["A:ALA"], "model": {"type": "mock",
                                                        **RS_MOCK}},
-    })
+    }, platform="cpu")
     result = outcome.results[0]
     assert result.steps_done == 3
     energy = result.final_energy

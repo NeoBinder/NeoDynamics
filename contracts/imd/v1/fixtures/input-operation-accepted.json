@@ -1,0 +1,14 @@
+{
+  "operation_id": "10000000-0000-4000-8000-000000000002",
+  "request_id": "10000000-0000-4000-8000-000000000001",
+  "kind": "prepared_commit",
+  "revision": 1,
+  "state": "accepted",
+  "upload_id": "00000000-0000-4000-8000-000000000001",
+  "protocol_id": null,
+  "prepared": null,
+  "result": null,
+  "error": null,
+  "created_at": "2026-09-08T00:00:00Z",
+  "updated_at": "2026-09-08T00:00:00Z"
+}

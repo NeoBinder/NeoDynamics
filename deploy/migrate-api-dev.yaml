@@ -1,0 +1,72 @@
+# Explicit one-shot migration; pin the SAME verified digest as app-dev.yaml.
+# No GPU or data PVC is required; do not run concurrently with the resident service.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: neodynamics-migrate
+  namespace: api-dev
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        app: neodynamics-migrate
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: migrate
+        image: registry.example/neodynamics:dev
+        imagePullPolicy: Always
+        args:
+        - migrate
+        envFrom:
+        - configMapRef:
+            name: neodynamics-runtime-config
+        env:
+        - name: NEOMD_SERVER_PG_DSN
+          valueFrom:
+            secretKeyRef:
+              name: neodynamics-migration-secret
+              key: NEOMD_SERVER_PG_DSN
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: '1'
+            memory: 1Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: service-auth
+          mountPath: /var/run/neodynamics-auth
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: service-auth
+        secret:
+          secretName: neodynamics-runtime-secret
+          defaultMode: 288
+          items:
+          - key: service-token
+            path: service-token
+      - name: tmp
+        emptyDir:
+          sizeLimit: 256Mi
+      imagePullSecrets:
+      - name: harbor-robot-pull

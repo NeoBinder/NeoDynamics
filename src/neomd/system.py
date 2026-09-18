@@ -30,11 +30,13 @@ from .prepare import (  # noqa: F401  (re-exports)
     PlainForceFieldBuilder,
     custom_addH,
     custom_bonds,
+    export_system_bundle,
     load_complex,
     prepare_system,
     sys_params_from_config,
     system_from_amber,
     system_from_gromacs,
+    verify_prepared_system,
 )
 
 __all__ = [
@@ -42,6 +44,8 @@ __all__ = [
     "ForceFieldBuilder",
     "PlainForceFieldBuilder",
     "prepare_system",
+    "export_system_bundle",
+    "verify_prepared_system",
     "load_complex",
     "system_from_gromacs",
     "system_from_amber",
@@ -76,6 +80,9 @@ class SystemBundle:
         "particle_masses": {int index: float dalton} | None}``.  The barostat
         dict is kept RAW (its seed/temperature augmentation happens in
         ``run.compile`` -> KernelSpec, never here).
+    prepared_manifest:
+        optional immutable scientific-bundle manifest from an explicit export;
+        not a remote session or proof of durable publication.
     """
 
     topology_file: str | None = None
@@ -83,6 +90,7 @@ class SystemBundle:
     ligands: list | None = None
     templates: list[str] | None = None
     modifications: dict | None = None
+    prepared_manifest: str | None = None
 
     # -- construction --------------------------------------------------------
 

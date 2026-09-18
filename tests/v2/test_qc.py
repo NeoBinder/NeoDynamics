@@ -868,7 +868,6 @@ class TestHooksOnOpenmm:
         assert "coordinates" in excinfo.value.failed
         assert (out_dir / QC_REPORT_FILENAME).is_file()
 
-    @pytest.mark.cuda
     def test_md_run_min_writes_the_report(self, tmp_path):
         """The full facade: md_run (L2 dict) on the real ala2 files with
         method min — the min hook QCs the minimized coordinates."""
@@ -881,7 +880,7 @@ class TestHooksOnOpenmm:
             "input_files": {"complex": ALA2_PDB, "system": ALA2_SYSTEM},
             "output": {"output_dir": str(out)},
             "min_params": {"tolerance": 10, "maxiter": 100},
-        })
+        }, platform="cpu")
         report_path = out / QC_REPORT_FILENAME
         assert report_path.is_file()
         with open(report_path, encoding="utf-8") as handle:
@@ -889,7 +888,6 @@ class TestHooksOnOpenmm:
         assert payload["stage"] == "min"
         assert payload["verdict"] == "pass", payload  # minimized = clean
 
-    @pytest.mark.cuda
     def test_md_run_min_strict_raises_after_the_report(self, tmp_path):
         from neomd import md_run
 
@@ -905,7 +903,7 @@ class TestHooksOnOpenmm:
             atomnames=["CZ", "C9"], box_nm=6.0, ligands=["IBI"])
         out = tmp_path / "run"
         with pytest.raises(StructureQualityError) as excinfo:
-            md_run(_issue7_plan(files, out, {"mode": "strict"}))
+            md_run(_issue7_plan(files, out, {"mode": "strict"}), platform="cpu")
         assert excinfo.value.stage == "min"
         assert (out / QC_REPORT_FILENAME).is_file()
         with open(out / QC_REPORT_FILENAME, encoding="utf-8") as handle:

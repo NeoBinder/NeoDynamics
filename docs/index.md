@@ -11,7 +11,7 @@ The package contains:
 - OpenMM pipelines for generic MD (`min` / `eq` / `md` / `prod`) and
   enhanced-sampling methods — well-tempered metadynamics, steered MD,
   OPES, GaMD — plus in-tree ML/MM coupling and RBFE λ-window free-energy
-  calculation (QM/MM is planned as a 2.x plugin)
+  calculation (true QM/MM is not supported)
 - OpenMM system-building tools (protein + ligand + solvent)
 - Post-run analysis (`neomd.analysis`): FES reconstruction, convergence
   windows, block averaging, Tiwary–Parrinello reweighting, BAR/MBAR

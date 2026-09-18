@@ -1,0 +1,12 @@
+**
+!docker/
+!docker/Dockerfile
+!docker/Dockerfile.source
+!docker/smoke.py
+!docker/environment/
+!docker/environment/pixi.toml
+!docker/environment/pixi.lock
+!docker/.build/
+!docker/.build/*.whl
+!docker/.build/**/
+!docker/.build/**/*.whl

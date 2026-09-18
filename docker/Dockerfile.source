@@ -1,0 +1,24 @@
+# Reuse an already verified/published runtime for source-only changes.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+USER 0:0
+ARG WHEEL_PATH
+COPY ${WHEEL_PATH} /tmp/neodynamics-install/
+RUN python -m pip install --no-deps --force-reinstall /tmp/neodynamics-install/*.whl \
+    && rm -rf /tmp/neodynamics-install
+COPY docker/smoke.py /opt/neodynamics/smoke.py
+ARG SOURCE_REVISION
+ARG SOURCE_TREE_SHA256
+ARG WHEEL_SHA256
+ARG SOURCE_VERSION
+ARG ENVIRONMENT_LOCK_SHA256
+RUN python -c 'import json,sys; json.dump(dict(zip(["version","git_commit","source_tree_sha256","wheel_sha256","environment_lock_sha256"],sys.argv[1:])),open("/opt/neodynamics/provenance.json","w"))' \
+    "${SOURCE_VERSION}" "${SOURCE_REVISION}" "${SOURCE_TREE_SHA256}" "${WHEEL_SHA256}" "${ENVIRONMENT_LOCK_SHA256}"
+LABEL org.opencontainers.image.version="${SOURCE_VERSION}" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      org.neobinder.source.tree.sha256="${SOURCE_TREE_SHA256}" \
+      org.neobinder.wheel.sha256="${WHEEL_SHA256}" \
+      org.neobinder.environment.lock.sha256="${ENVIRONMENT_LOCK_SHA256}"
+USER 65532:65532
+ENTRYPOINT ["neomd-server"]
+CMD ["serve"]

@@ -9,12 +9,18 @@ day-to-day development notes: `.agents/` (placement policy: `docs/AGENTS.md`).
 NeoDynamics: a molecular-dynamics SDK on OpenMM (generic MD + well-tempered
 metadynamics + steered MD + OPES). The active codebase is `src/neomd/`.
 `src/neomd_legacy/` is frozen v1 — bug fixes only, kept for one deprecation
-release together with the `neomd2` script alias.
+release together with the `neomd2` script alias. The interactive service is
+`src/neomd_server/`: engine/CLI code never imports it; the service owns
+session policy and its alternative driver/probes, while reusable stepping,
+scientific preparation and qualified physical/method controls remain engine
+interfaces.
 
 ## Directory guides — load on entry
 
 - `src/neomd/AGENTS.md` — architecture as-built; points deeper to
   `methods/`, `ml/`, `mlcv/`, `analysis/`.
+- `src/neomd_server/AGENTS.md` — interactive service: session tests/
+  contracts, prepared intake, publication.
 - `tests/AGENTS.md` — test tiers, golden tapes, CI, pre-commit.
 - `docs/AGENTS.md` — documentation placement, docs gates, docs/docstring
   content policies.
@@ -65,6 +71,10 @@ Challenge these only with new evidence, and update the docs if one changes.
 10. **Version bumps of OpenMM are explicit events**: pin in `pyproject.toml`
     ([tool.pixi]), re-verify the `openmm_privates.py` gate, re-record golden
     tapes once.
+11. **All facade spellings compile to the same immutable Plan**; validation
+    collects every error with key paths and did-you-mean. Tests for new code
+    cross public interfaces (`md_run`, `compile`, `register`, port
+    operations), not internals.
 
 ## Working discipline
 
@@ -119,4 +129,10 @@ skipped.
   `README.md` and `AGENTS.md` in the same worktree, same task; stale docs
   spotted along the way (renamed commands, removed variables) are corrected
   or deleted in that task — documentation rot and omission are the same
-  offense.
+  offense. Keep this file and every local `AGENTS.md` below 2,000 tokens
+  (target 1,600): stable constraints and conditional entrances here,
+  directory differences in local files, plans/drafts in gitignored
+  `.agents/`. Before any document deletion, present exact
+  candidates/reasons and obtain explicit user confirmation; verify main
+  evidence and preserve live references, rationale and unfinished
+  decisions — those checks alone do not authorize deletion.

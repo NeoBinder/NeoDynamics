@@ -156,6 +156,7 @@ class OPESRun:
             raise ValueError(
                 f"opes_set.mode must be one of {list(MODES)}, got {self.mode!r}")
         self.explore = self.mode == "explore"
+        self.deposition_enabled = True
         self.pace = int(opes["pace"])
         if self.pace < 1:
             raise ValueError(f"opes_set.pace must be >= 1, got {self.pace}")
@@ -323,9 +324,19 @@ class OPESRun:
             fgroups={LABEL: [self.fgroup]},
             resume_plan=resume_plan,
             tapes=tapes,
-            progress=lambda step: {KERNELS_FILENAME: int(step)},
+            progress=lambda step: ({KERNELS_FILENAME: self._steps[-1]}
+                                   if self._steps else {}),
             finish=self._finish,
+            controls={"deposition_enabled": {"unit": "boolean"}},
+            update_parameter=self.update_parameter,
+            checkpoint=self._save_kernels,
         )
+
+    def update_parameter(self, name, value):
+        """Freeze/re-enable deposits without changing the historical KDE model."""
+        if name != "deposition_enabled" or not isinstance(value, bool):
+            raise ValueError("only boolean deposition_enabled is live-settable for OPES")
+        self.deposition_enabled = value
 
     def _finish(self, result) -> MethodResult:
         """End-of-run artifacts + the result drive() records."""
@@ -431,6 +442,8 @@ class OPESRun:
         weight times ``∏_i σ_i(0)/σ_i(n)`` — the 1/(√2π σ) Gaussian
         normalization up to the constant Z absorbs.
         """
+        if not self.deposition_enabled:
+            return
         position = self._ops.cv_values(LABEL)
         energy = self._ops.bias_energy(LABEL)  # kJ/mol — the tabulated bias
         log_weight = energy / self.kt

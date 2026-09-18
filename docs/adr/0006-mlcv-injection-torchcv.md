@@ -30,7 +30,7 @@ TorchScript 模型不是表达式。但既有的 kind-driven CV 已经打开了 
 
 **新增 CV kind `"TorchScriptCV"`（CVIR 层）+ 两个内核路径（openmm 适配
 器 TorchForce 组合 / fake kernel torch 确定性求值），满足双轨纪律
-（settled decision #5）。**
+（dual-track reporting contract）。**
 
 ### 1. CVIR 扩展（port 层，spec 形状）
 
@@ -101,7 +101,7 @@ float64 边界转换与 openmm 路径一致，保证双轨 bit 对拍可 pin。�
   **能量单位 kJ/mol 只在"把模型当力用"的 ML/MM 拼写里成立**——CV 拼写
   下包装模型的输出是模型自然单位的 CV 值（无量纲 TICA 分量 / 概率），
   物理量纲由外层包装 bias（表格、谐波）赋予，与其它每个 CV kind 一致。
-- torch/openmm-torch 的 pin 进 pyproject.toml（[tool.pixi]） 按决策 #10 纪律管理（升级 =
+- torch/openmm-torch 的 pin 进 pyproject.toml（[tool.pixi]） 按 OpenMM 显式升级纪律管理（升级 =
   显式事件：重验私有 API 门 + 重录金样）。
 
 ### 6. source-scan 扩展
@@ -116,7 +116,7 @@ float64 边界转换与 openmm 路径一致，保证双轨 bit 对拍可 pin。�
 
 ## 风险与对策
 
-- **torch pin**：生产路径引入重依赖（决策 #10 纪律：pin + 升级事件 +
+- **torch pin**：生产路径引入重依赖（OpenMM 升级纪律：pin + 升级事件 +
   金样重录）；切片 A 保证无 torch 也能跑线性闭环。
 - **模型确定性**：eval-mode + no-grad + CPU 归约可确定；CUDA 归约非
   确定——CI 与金样在 fake/CPU 路径，CUDA 只跑统计层（金样现有分层）。

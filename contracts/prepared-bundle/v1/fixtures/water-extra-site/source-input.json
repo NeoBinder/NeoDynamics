@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "input_key": "prepared",
+      "kind": "prepared",
+      "source_id": "997373c6-c721-4105-bb43-aa627ba56d0b",
+      "content_sha256": "4b940a171ff2ecfd7c4a142a2fbb3a4d4578b7ead61c3e7f9db06c00f84c50a8",
+      "loader": {
+        "atom_order": "preparation_input",
+        "name": "openmm.PDBxFile",
+        "version": "8.6"
+      },
+      "atom_bindings": [
+        {
+          "element": "O",
+          "input_atom_index": 0,
+          "position_nm": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "source_atom_id": "378cb072-2706-47d5-9e56-b027f99d8a54",
+          "source_residue_id": "802a8882-297b-41b3-9a3c-c7b7ee1bf79c"
+        },
+        {
+          "element": "H",
+          "input_atom_index": 1,
+          "position_nm": [
+            0.09572000000000001,
+            0.0,
+            0.0
+          ],
+          "source_atom_id": "2deaaebb-c918-4c8d-8250-0198421604fc",
+          "source_residue_id": "802a8882-297b-41b3-9a3c-c7b7ee1bf79c"
+        },
+        {
+          "element": "H",
+          "input_atom_index": 2,
+          "position_nm": [
+            -0.024,
+            0.09266,
+            0.0
+          ],
+          "source_atom_id": "9602ba59-ccb5-44c4-8a75-79b303161bb0",
+          "source_residue_id": "802a8882-297b-41b3-9a3c-c7b7ee1bf79c"
+        }
+      ]
+    }
+  ]
+}

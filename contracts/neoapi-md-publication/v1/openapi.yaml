@@ -1,0 +1,1001 @@
+openapi: 3.1.0
+info:
+  title: NeoAPI MD publication ingress v1
+  version: 1.0.0
+  description: NeoDynamics sends sealed terminal outputs to NeoAPI. NeoAPI owns storage credentials, byte
+    verification, publication identity and owner downloads. This contract is independent of job/Library
+    uploads and of Dynamics /internal/md/v1. F4b defines the contract and storage transport only; durable
+    ledger/routes are a subsequent implementation gate. No endpoint is usable until provider/session binding,
+    capacity enforcement and ambiguous-operation reconciliation are qualified.
+servers:
+- url: /internal/md-publications/v1
+security:
+- PublicationBearer: []
+x-error-statuses:
+  invalid_request: 400
+  unauthorized: 401
+  not_found: 404
+  idempotency_conflict: 409
+  binding_conflict: 409
+  part_conflict: 409
+  state_conflict: 409
+  payload_too_large: 413
+  checksum_mismatch: 422
+  capacity_exceeded: 429
+  storage_unavailable: 503
+  publication_unavailable: 503
+  deadline_exceeded: 504
+  internal_error: 500
+paths:
+  /publications:
+    parameters:
+    - $ref: '#/components/parameters/Scope'
+    - $ref: '#/components/parameters/Provider'
+    post:
+      operationId: createMdPublication
+      description: Check provider/session/scope ownership and authoritative sealed terminal artifact evidence
+        with finalization.status == complete, then reserve configured capacity and persist immutable intent
+        before any OSS initiation. Same request repeats the stored acceptance. JSON request/response maximum
+        4 MiB.
+      responses:
+        '202':
+          description: Durable result; consult typed state, not HTTP status, for verification.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Publication'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '500':
+          $ref: '#/components/responses/Error500'
+        '503':
+          $ref: '#/components/responses/Error503'
+        '504':
+          $ref: '#/components/responses/Error504'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePublication'
+  /publications/requests/{request_id}:
+    parameters:
+    - $ref: '#/components/parameters/Scope'
+    - $ref: '#/components/parameters/Provider'
+    - $ref: '#/components/parameters/request_id'
+    get:
+      operationId: lookupMdPublicationRequest
+      description: Read-only lookup after a lost create response; cross-scope and unknown IDs are indistinguishable
+        404.
+      responses:
+        '200':
+          description: Durable result; consult typed state, not HTTP status, for verification.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Publication'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '500':
+          $ref: '#/components/responses/Error500'
+        '503':
+          $ref: '#/components/responses/Error503'
+        '504':
+          $ref: '#/components/responses/Error504'
+  /publications/{publication_id}:
+    parameters:
+    - $ref: '#/components/parameters/Scope'
+    - $ref: '#/components/parameters/Provider'
+    - $ref: '#/components/parameters/publication_id'
+    get:
+      operationId: getMdPublication
+      description: Read durable upload progress or the complete immutable receipt. Never infer success
+        from connection loss.
+      responses:
+        '200':
+          description: Durable result; consult typed state, not HTTP status, for verification.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Publication'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '500':
+          $ref: '#/components/responses/Error500'
+        '503':
+          $ref: '#/components/responses/Error503'
+        '504':
+          $ref: '#/components/responses/Error504'
+  /receipts/{receipt_id}:
+    parameters:
+    - $ref: '#/components/parameters/Scope'
+    - $ref: '#/components/parameters/Provider'
+    - $ref: '#/components/parameters/receipt_id'
+    get:
+      operationId: getMdPublicationReceipt
+      description: Read the persisted complete receipt after an uncertain completion/receipt response.
+        All routes reauthorize independently.
+      responses:
+        '200':
+          description: Durable result; consult typed state, not HTTP status, for verification.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Receipt'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '500':
+          $ref: '#/components/responses/Error500'
+        '503':
+          $ref: '#/components/responses/Error503'
+        '504':
+          $ref: '#/components/responses/Error504'
+  /uploads/{upload_id}/parts/{part_number}:
+    parameters:
+    - $ref: '#/components/parameters/Scope'
+    - $ref: '#/components/parameters/Provider'
+    - $ref: '#/components/parameters/upload_id'
+    - $ref: '#/components/parameters/part_number'
+    put:
+      operationId: putMdPublicationPart
+      description: Stream exactly the negotiated range and declared SHA256 under a fenced single writer
+        for this part. Persist acceptance only after exact bytes and SHA match. Identical immutable part
+        tuple retry returns original receipt; changed tuple409. An interrupted/provider-uncertain write
+        is reconciled or safely replaced under the same intent; never silently accepted from ETag alone.
+      responses:
+        '200':
+          description: Durable result; consult typed state, not HTTP status, for verification.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartReceipt'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '500':
+          $ref: '#/components/responses/Error500'
+        '503':
+          $ref: '#/components/responses/Error503'
+        '504':
+          $ref: '#/components/responses/Error504'
+      parameters:
+      - name: Content-Length
+        in: header
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 5368709120
+      - name: X-Part-Sha256
+        in: header
+        required: true
+        schema:
+          $ref: '#/components/schemas/Sha256'
+      - name: X-Part-Offset
+        in: header
+        required: true
+        schema:
+          $ref: '#/components/schemas/SafeInteger'
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+  /uploads/{upload_id}/parts:
+    parameters:
+    - $ref: '#/components/parameters/Scope'
+    - $ref: '#/components/parameters/Provider'
+    - $ref: '#/components/parameters/upload_id'
+    get:
+      operationId: listMdPublicationParts
+      description: Only durable hash-validated part receipts; ascending part number. Exclusive next cursor;
+        null means exhausted. Provider observations do not become durable SHA receipts by listing.
+      responses:
+        '200':
+          description: Durable result; consult typed state, not HTTP status, for verification.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartPage'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '500':
+          $ref: '#/components/responses/Error500'
+        '503':
+          $ref: '#/components/responses/Error503'
+        '504':
+          $ref: '#/components/responses/Error504'
+      parameters:
+      - name: after_part_number
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+      - name: limit
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 1000
+  /uploads/{upload_id}/actions:
+    parameters:
+    - $ref: '#/components/parameters/Scope'
+    - $ref: '#/components/parameters/Provider'
+    - $ref: '#/components/parameters/upload_id'
+    post:
+      operationId: actMdPublicationUpload
+      description: Persist action intent before side effects. Same request UUID/action returns its original
+        durable action; changed intent409. complete requires all immutable part receipts and only starts
+        assembly/full readback. abort fences writers and reconciles known uploads; uncertainty never authorizes
+        local deletion.
+      responses:
+        '202':
+          description: Durable result; consult typed state, not HTTP status, for verification.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionReceipt'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '500':
+          $ref: '#/components/responses/Error500'
+        '503':
+          $ref: '#/components/responses/Error503'
+        '504':
+          $ref: '#/components/responses/Error504'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadAction'
+  /uploads/{upload_id}/actions/{request_id}:
+    parameters:
+    - $ref: '#/components/parameters/Scope'
+    - $ref: '#/components/parameters/Provider'
+    - $ref: '#/components/parameters/upload_id'
+    - $ref: '#/components/parameters/request_id'
+    get:
+      operationId: getMdPublicationUploadAction
+      description: Read-only action reconciliation after a lost mutation response.
+      responses:
+        '200':
+          description: Durable result; consult typed state, not HTTP status, for verification.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionReceipt'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '500':
+          $ref: '#/components/responses/Error500'
+        '503':
+          $ref: '#/components/responses/Error503'
+        '504':
+          $ref: '#/components/responses/Error504'
+components:
+  securitySchemes:
+    PublicationBearer:
+      type: http
+      scheme: bearer
+      description: Dedicated Dynamics-to-NeoAPI credential, distinct from user tokens and opposite-direction
+        gateway credential. 32..512 ASCII letters/digits or ._~-. Configured provider UUID binding required.
+        Never accepted in a query/body; rotate/reload at bounded authentication freshness.
+  parameters:
+    publication_id:
+      name: publication_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    request_id:
+      name: request_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    receipt_id:
+      name: receipt_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    upload_id:
+      name: upload_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    part_number:
+      name: part_number
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 10000
+    Scope:
+      name: X-Neomd-Scope
+      in: header
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+      description: Selects an existing API-owned scope; never sufficient authorization.
+    Provider:
+      name: X-Neomd-Provider-Id
+      in: header
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+      description: Must match independently authenticated provider and durable session/provider binding.
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+      pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+      minLength: 36
+      maxLength: 36
+    Sha256:
+      type: string
+      pattern: ^[0-9a-f]{64}$
+      minLength: 64
+      maxLength: 64
+    SafeInteger:
+      type: integer
+      minimum: 0
+      maximum: 9007199254740991
+    PreparedBinding:
+      type: object
+      properties:
+        bundle_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+          minLength: 36
+          maxLength: 36
+        prepared_revision_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+          minLength: 36
+          maxLength: 36
+        manifest_sha256:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+          minLength: 64
+          maxLength: 64
+        mapping_sha256:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+          minLength: 64
+          maxLength: 64
+      required:
+      - bundle_id
+      - prepared_revision_id
+      - manifest_sha256
+      - mapping_sha256
+      additionalProperties: false
+    ProtocolBinding:
+      type: object
+      properties:
+        protocol_id:
+          $ref: '#/components/schemas/Uuid'
+        content_sha256:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+          description: 'SHA256(JCS({prepared: full PreparedBinding, protocol: scientific descriptor}));
+            not the compiled Plan or descriptor alone.'
+          minLength: 64
+          maxLength: 64
+      required:
+      - protocol_id
+      - content_sha256
+      additionalProperties: false
+    Artifact:
+      type: object
+      properties:
+        artifact_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+          minLength: 36
+          maxLength: 36
+        kind:
+          enum:
+          - checkpoint
+          - trajectory
+          - structure
+          - method_state
+          - report
+        content_sha256:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+          minLength: 64
+          maxLength: 64
+        size_bytes:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        original_filename:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: ^[^/\\\u0000-\u001f\u007f]+(?![\s\S])
+        media_type:
+          type: string
+          minLength: 1
+          maxLength: 127
+          pattern: ^[a-zA-Z0-9!#$&^_.+-]+/[a-zA-Z0-9!#$&^_.+-]+$
+      required:
+      - artifact_id
+      - kind
+      - content_sha256
+      - size_bytes
+      - original_filename
+      - media_type
+      additionalProperties: false
+    OutputSet:
+      type: object
+      properties:
+        session_id:
+          $ref: '#/components/schemas/Uuid'
+        attempt_id:
+          $ref: '#/components/schemas/Uuid'
+        generation:
+          $ref: '#/components/schemas/SafeInteger'
+        prepared:
+          $ref: '#/components/schemas/PreparedBinding'
+        protocol:
+          $ref: '#/components/schemas/ProtocolBinding'
+        result_manifest_artifact_id:
+          $ref: '#/components/schemas/Uuid'
+        artifacts:
+          type: array
+          minItems: 1
+          maxItems: 4096
+          items:
+            $ref: '#/components/schemas/Artifact'
+        epoch:
+          $ref: '#/components/schemas/SafeInteger'
+      required:
+      - session_id
+      - attempt_id
+      - generation
+      - prepared
+      - protocol
+      - result_manifest_artifact_id
+      - artifacts
+      - epoch
+      additionalProperties: false
+      description: All artifact IDs unique and strictly sorted by canonical UUID text. result_manifest_artifact_id
+        occurs exactly once, with kind method_state and media_type application/json. Every artifact binds
+        this exact terminal attempt/generation/epoch; scientific result-manifest content must agree. No
+        directories, object keys, URLs, ETags, or client storage providers. Epoch must match the authenticated
+        authoritative terminal SessionSnapshot; never infer it from result bytes. The authenticated service
+        observation must have finalization.status == complete for this exact sealed set; engine terminal
+        state or a stop checkpoint alone is insufficient.
+    CreatePublication:
+      type: object
+      properties:
+        request_id:
+          $ref: '#/components/schemas/Uuid'
+        output_set_sha256:
+          $ref: '#/components/schemas/Sha256'
+        session_id:
+          $ref: '#/components/schemas/Uuid'
+        attempt_id:
+          $ref: '#/components/schemas/Uuid'
+        generation:
+          $ref: '#/components/schemas/SafeInteger'
+        prepared:
+          $ref: '#/components/schemas/PreparedBinding'
+        protocol:
+          $ref: '#/components/schemas/ProtocolBinding'
+        result_manifest_artifact_id:
+          $ref: '#/components/schemas/Uuid'
+        artifacts:
+          type: array
+          minItems: 1
+          maxItems: 4096
+          items:
+            $ref: '#/components/schemas/Artifact'
+        epoch:
+          $ref: '#/components/schemas/SafeInteger'
+      required:
+      - request_id
+      - output_set_sha256
+      - session_id
+      - attempt_id
+      - generation
+      - prepared
+      - protocol
+      - result_manifest_artifact_id
+      - artifacts
+      - epoch
+      additionalProperties: false
+      description: 'output_set_sha256 is SHA256 of exact RFC8785 JCS bytes of OutputSet: remove ONLY request_id
+        and output_set_sha256. Every field required; no omitted/default/null equivalence; arrays retain
+        order. Reject duplicate JSON keys, nonfinite values, unsafe integers, unsorted/duplicate artifact
+        IDs and hash mismatch before accepting. Same (provider,scope,request_id) + full canonical request
+        is idempotent; changed body conflicts.'
+    Upload:
+      type: object
+      properties:
+        upload_id:
+          $ref: '#/components/schemas/Uuid'
+        artifact_id:
+          $ref: '#/components/schemas/Uuid'
+        part_size_bytes:
+          type: integer
+          minimum: 5242880
+          maximum: 5368709120
+        part_count:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        state:
+          enum:
+          - initiating
+          - uploading
+          - completing
+          - verifying
+          - verified
+          - abort_requested
+          - aborted
+          - failed
+          - reconciliation_required
+        expires_at:
+          type: string
+          format: date-time
+          maxLength: 35
+      required:
+      - upload_id
+      - artifact_id
+      - part_size_bytes
+      - part_count
+      - state
+      - expires_at
+      additionalProperties: false
+      description: 'Immutable negotiated geometry: part_count=ceil(artifact.size_bytes/part_size_bytes);
+        final part is exact remaining bytes. Empty artifact has zero parts; completion writes and fully
+        reads back the empty object. Initiating/reconciliation_required forbids part writes. No provider
+        handle or ETag appears here.'
+    VerifiedArtifact:
+      type: object
+      properties:
+        artifact_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+          minLength: 36
+          maxLength: 36
+        kind:
+          enum:
+          - checkpoint
+          - trajectory
+          - structure
+          - method_state
+          - report
+        content_sha256:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+          minLength: 64
+          maxLength: 64
+        size_bytes:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        original_filename:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: ^[^/\\\u0000-\u001f\u007f]+(?![\s\S])
+        media_type:
+          type: string
+          minLength: 1
+          maxLength: 127
+          pattern: ^[a-zA-Z0-9!#$&^_.+-]+/[a-zA-Z0-9!#$&^_.+-]+$
+        download_ref:
+          $ref: '#/components/schemas/Uuid'
+      required:
+      - artifact_id
+      - kind
+      - content_sha256
+      - size_bytes
+      - original_filename
+      - media_type
+      - download_ref
+      additionalProperties: false
+    Receipt:
+      type: object
+      properties:
+        schema_version:
+          const: 1
+        receipt_id:
+          $ref: '#/components/schemas/Uuid'
+        publication_id:
+          $ref: '#/components/schemas/Uuid'
+        provider_id:
+          $ref: '#/components/schemas/Uuid'
+        scope_id:
+          $ref: '#/components/schemas/Uuid'
+        request_id:
+          $ref: '#/components/schemas/Uuid'
+        output_set_sha256:
+          $ref: '#/components/schemas/Sha256'
+        session_id:
+          $ref: '#/components/schemas/Uuid'
+        attempt_id:
+          $ref: '#/components/schemas/Uuid'
+        generation:
+          $ref: '#/components/schemas/SafeInteger'
+        prepared:
+          $ref: '#/components/schemas/PreparedBinding'
+        protocol:
+          $ref: '#/components/schemas/ProtocolBinding'
+        result_manifest_artifact_id:
+          $ref: '#/components/schemas/Uuid'
+        artifacts:
+          type: array
+          minItems: 1
+          maxItems: 4096
+          items:
+            $ref: '#/components/schemas/VerifiedArtifact'
+        verified_at:
+          type: string
+          format: date-time
+          maxLength: 35
+        verification:
+          const: full_readback_sha256
+        epoch:
+          $ref: '#/components/schemas/SafeInteger'
+      required:
+      - schema_version
+      - receipt_id
+      - publication_id
+      - provider_id
+      - scope_id
+      - request_id
+      - output_set_sha256
+      - session_id
+      - attempt_id
+      - generation
+      - prepared
+      - protocol
+      - result_manifest_artifact_id
+      - artifacts
+      - verified_at
+      - verification
+      - epoch
+      additionalProperties: false
+      description: Immutable, durably queryable confirmation for the COMPLETE sealed output set after
+        a full OSS GET verified exact size, EOF and SHA256 for EVERY artifact. Reconstruct OutputSet by
+        dropping download_ref from each artifact; all bindings including epoch and output_set_sha256 must
+        match the request. A 2xx part/complete response, HEAD, ETag, upload checksum, or partial receipt
+        cannot authorize local deletion. download_ref is an opaque API lookup reference, never an OSS
+        URL/key. Service must persist the receipt before local cleanup eligibility.
+    Publication:
+      type: object
+      properties:
+        publication_id:
+          $ref: '#/components/schemas/Uuid'
+        provider_id:
+          $ref: '#/components/schemas/Uuid'
+        scope_id:
+          $ref: '#/components/schemas/Uuid'
+        request:
+          $ref: '#/components/schemas/CreatePublication'
+        state:
+          enum:
+          - accepted
+          - uploading
+          - verifying
+          - complete
+          - failed
+          - aborted
+          - reconciliation_required
+        uploads:
+          type: array
+          minItems: 1
+          maxItems: 4096
+          items:
+            $ref: '#/components/schemas/Upload'
+        receipt:
+          anyOf:
+          - $ref: '#/components/schemas/Receipt'
+          - type: 'null'
+      required:
+      - publication_id
+      - provider_id
+      - scope_id
+      - request
+      - state
+      - uploads
+      - receipt
+      additionalProperties: false
+      description: Uploads correspond one-to-one to the exact artifact set. complete requires receipt
+        non-null; every other state requires null. Acceptance is durable before provider I/O. Physical
+        MD state is separate and never changed by publication. Pending provider work may survive requests/restarts.
+        Before accepting the create intent, serialize a conservative largest complete Publication (request,
+        every upload, full receipt, longest allowed timestamp/state values) and reserve enough metadata
+        capacity to keep it and the standalone receipt at most 4 MiB. Reject payload_too_large before
+        provider I/O if either cannot fit. Thus an accepted input cannot produce an unreturnable response;
+        MAX_ARTIFACTS is an additional count limit, not a byte-size guarantee.
+    PartReceipt:
+      type: object
+      properties:
+        upload_id:
+          $ref: '#/components/schemas/Uuid'
+        part_number:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        offset_bytes:
+          $ref: '#/components/schemas/SafeInteger'
+        size_bytes:
+          type: integer
+          minimum: 1
+          maximum: 5368709120
+        content_sha256:
+          $ref: '#/components/schemas/Sha256'
+      required:
+      - upload_id
+      - part_number
+      - offset_bytes
+      - size_bytes
+      - content_sha256
+      additionalProperties: false
+    PartPage:
+      type: object
+      properties:
+        upload_id:
+          $ref: '#/components/schemas/Uuid'
+        parts:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/PartReceipt'
+        next_part_number:
+          anyOf:
+          - type: integer
+            minimum: 1
+            maximum: 10000
+          - type: 'null'
+      required:
+      - upload_id
+      - parts
+      - next_part_number
+      additionalProperties: false
+    UploadAction:
+      type: object
+      properties:
+        request_id:
+          $ref: '#/components/schemas/Uuid'
+        action:
+          enum:
+          - complete
+          - abort
+      required:
+      - request_id
+      - action
+      additionalProperties: false
+    ActionReceipt:
+      type: object
+      properties:
+        request_id:
+          $ref: '#/components/schemas/Uuid'
+        upload_id:
+          $ref: '#/components/schemas/Uuid'
+        action:
+          enum:
+          - complete
+          - abort
+        state:
+          enum:
+          - accepted
+          - running
+          - succeeded
+          - failed
+          - reconciliation_required
+        upload:
+          $ref: '#/components/schemas/Upload'
+      required:
+      - request_id
+      - upload_id
+      - action
+      - state
+      - upload
+      additionalProperties: false
+      description: The immutable request ID recovers an uncertain action response. complete success means
+        the upload reached verified after readback; the whole publication may still await other artifacts.
+        abort success means known upload cleanup reconciled; completed immutable bytes are never deleted
+        by abort. No automatic new scientific attempt or command replay.
+    Error:
+      type: object
+      properties:
+        code:
+          enum:
+          - invalid_request
+          - unauthorized
+          - not_found
+          - idempotency_conflict
+          - binding_conflict
+          - part_conflict
+          - state_conflict
+          - payload_too_large
+          - checksum_mismatch
+          - capacity_exceeded
+          - storage_unavailable
+          - publication_unavailable
+          - deadline_exceeded
+          - internal_error
+        request_id:
+          $ref: '#/components/schemas/Uuid'
+      required:
+      - code
+      - request_id
+      additionalProperties: false
+      description: Closed public-safe envelope. request_id is HTTP trace correlation, not an idempotency
+        ID; no submitted values, credentials, object keys, paths or provider error text. HTTP status is
+        defined by x-error-statuses.
+  responses:
+    Error422:
+      description: checksum_mismatch
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error429:
+      description: capacity_exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error400:
+      description: invalid_request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error401:
+      description: unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error404:
+      description: not_found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error500:
+      description: internal_error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error503:
+      description: storage_unavailable, publication_unavailable
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error504:
+      description: deadline_exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error409:
+      description: idempotency_conflict, binding_conflict, part_conflict, state_conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error413:
+      description: payload_too_large
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

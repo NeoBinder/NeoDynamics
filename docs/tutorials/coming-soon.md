@@ -1,21 +1,14 @@
-# Coming soon
+# Current scope limits
 
-!!! warning "Not yet implemented"
+True QM/MM (ORCA backend, link atoms and charge redistribution) and generic
+`min → eq → prod` orchestration are not supported by the current SDK.
+Proposals and scheduling belong on the
+[issue board](https://github.com/NeoBinder/NeoDynamics/issues).
 
-    The features below are **planned but not shipped**. They are tracked
-    on the [issue board](https://github.com/NeoBinder/NeoDynamics/issues).
-    Everything on the other tutorial and method pages works today.
+Supported alternatives have narrower contracts:
 
-## QM/MM
-
-True QM/MM (ORCA backend, link atoms, charge redistribution), to be
-rebuilt as a 2.x plugin with two real adapters (production QM backend +
-mock). The ML/MM coupling (`ml_region`, see [methods/mlmm.md](../methods/mlmm.md))
-already covers ML-potential regions in-tree.
-
-## Multi-leg orchestration
-
-`min → eq → prod` in one invocation is deliberately deferred to 2.x.
-The RBFE ladder (`neomd.rbfe.run_ladder`, see [methods/rbfe.md](../methods/rbfe.md))
-is today's deliberately narrow special case: one full `drive()` per λ
-window, with a runner-level ledger and automatic resume.
+- [ML/MM coupling](../methods/mlmm.md) uses in-tree ML-potential regions;
+  it is not a QM/MM implementation.
+- [RBFE ladders](../methods/rbfe.md) run one full `drive()` per λ window,
+  with a runner-level ledger and automatic resume; they are not generic
+  multi-leg workflows.

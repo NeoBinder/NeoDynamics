@@ -1,0 +1,7 @@
+{
+  "request_id": "00000000-0000-4000-8000-000000000011",
+  "operation": "acquire",
+  "controller_id": "00000000-0000-4000-8000-000000000008",
+  "expected_fence": 0,
+  "lease_ms": 30000
+}

@@ -12,7 +12,7 @@
 定义，共享同一 spec 块语法）。每个 CV 是 `colvars.py` 里的一个知识
 三元组（schema + kernel 表达式 + numpy `evaluate` 观测量），
 `CVIR.kind` 驱动编译分发；kernel 字符串与表示约定记在
-`colvars.py` 模块 docstring。
+`colvars.py` 对应实现的契约 docstring。
 
 ## 使用
 

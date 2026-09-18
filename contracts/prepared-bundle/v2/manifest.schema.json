@@ -1,0 +1,1804 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:neodyn:prepared-bundle:v2:manifest",
+  "title": "NeoDynamics immutable prepared scientific bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "prepared_revision_id",
+    "sources",
+    "atoms",
+    "residues",
+    "bonds",
+    "particles",
+    "preparation_steps",
+    "particle_count",
+    "topology_atom_count",
+    "topology_particle_indices",
+    "versions",
+    "parameters",
+    "box_vectors_nm",
+    "coordinates",
+    "mapping_artifact",
+    "artifacts"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "prepared_revision_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/source"
+      }
+    },
+    "atoms": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/atom"
+      }
+    },
+    "residues": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/residue"
+      }
+    },
+    "bonds": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/bond"
+      }
+    },
+    "particles": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/particle"
+      }
+    },
+    "preparation_steps": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/step"
+      }
+    },
+    "particle_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "topology_atom_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "topology_particle_indices": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "versions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "parameters": {
+      "type": "object"
+    },
+    "box_vectors_nm": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "$ref": "#/$defs/xyz"
+          }
+        }
+      ]
+    },
+    "coordinates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact",
+        "dtype",
+        "byte_order",
+        "unit",
+        "shape",
+        "order",
+        "wrapping"
+      ],
+      "properties": {
+        "artifact": {
+          "const": "coordinates.f64le"
+        },
+        "dtype": {
+          "const": "float64"
+        },
+        "byte_order": {
+          "const": "little"
+        },
+        "unit": {
+          "const": "nm"
+        },
+        "shape": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "const": 3
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "order": {
+          "const": "particle_index"
+        },
+        "wrapping": {
+          "const": "unwrapped"
+        }
+      }
+    },
+    "mapping_artifact": {
+      "const": "mapping.json"
+    },
+    "artifacts": {
+      "type": "object",
+      "required": [
+        "mapping.json",
+        "coordinates.f64le",
+        "system.xml"
+      ],
+      "additionalProperties": {
+        "$ref": "#/$defs/artifact"
+      }
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "not": {
+        "const": "00000000-0000-0000-0000-000000000000"
+      }
+    },
+    "nullableUuid": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "xyz": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "number"
+      }
+    },
+    "element": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^[A-Z][a-z]?$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "loader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "atom_order"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "atom_order": {
+          "const": "preparation_input"
+        }
+      }
+    },
+    "inputAtom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input_atom_index",
+        "source_atom_id",
+        "source_residue_id",
+        "element",
+        "position_nm",
+        "atom_name",
+        "formal_charge"
+      ],
+      "properties": {
+        "input_atom_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_atom_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "source_residue_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "element": {
+          "$ref": "#/$defs/element"
+        },
+        "position_nm": {
+          "$ref": "#/$defs/xyz"
+        },
+        "atom_name": {
+          "type": "string"
+        },
+        "formal_charge": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      }
+    },
+    "sourceAtom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input_atom_index",
+        "source_atom_id",
+        "source_residue_id",
+        "element",
+        "position_nm",
+        "prepared_atom_id",
+        "disposition",
+        "atom_name",
+        "formal_charge"
+      ],
+      "properties": {
+        "input_atom_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_atom_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "source_residue_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "element": {
+          "$ref": "#/$defs/element"
+        },
+        "position_nm": {
+          "$ref": "#/$defs/xyz"
+        },
+        "prepared_atom_id": {
+          "$ref": "#/$defs/nullableUuid"
+        },
+        "disposition": {
+          "enum": [
+            "retained",
+            "removed_by_hydrogenation"
+          ]
+        },
+        "atom_name": {
+          "type": "string"
+        },
+        "formal_charge": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      }
+    },
+    "sourceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input_key",
+        "kind",
+        "source_id",
+        "content_sha256",
+        "loader",
+        "atom_bindings",
+        "residue_bindings",
+        "bonds",
+        "polymer_sequences"
+      ],
+      "properties": {
+        "input_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "canonical_structure",
+            "structure",
+            "ligand",
+            "amber",
+            "gromacs",
+            "prepared"
+          ]
+        },
+        "source_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "content_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "client_revision_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "loader": {
+          "$ref": "#/$defs/loader"
+        },
+        "atom_bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/inputAtom"
+          }
+        },
+        "residue_bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sourceResidue"
+          }
+        },
+        "bonds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sourceBond"
+          }
+        },
+        "polymer_sequences": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/polymerSequence"
+          }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "input_key",
+        "kind",
+        "content_sha256",
+        "artifact",
+        "loader",
+        "atoms",
+        "binding_tolerance_nm",
+        "residue_bindings",
+        "bonds",
+        "polymer_sequences"
+      ],
+      "properties": {
+        "source_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "input_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "canonical_structure",
+            "structure",
+            "ligand",
+            "amber",
+            "gromacs",
+            "prepared"
+          ]
+        },
+        "content_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "artifact": {
+          "type": "string",
+          "minLength": 1
+        },
+        "loader": {
+          "$ref": "#/$defs/loader"
+        },
+        "atoms": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sourceAtom"
+          }
+        },
+        "binding_tolerance_nm": {
+          "const": 1e-06
+        },
+        "client_revision_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "residue_bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sourceResidue"
+          }
+        },
+        "bonds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sourceBond"
+          }
+        },
+        "polymer_sequences": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/polymerSequence"
+          }
+        }
+      }
+    },
+    "atom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "atom_id",
+        "residue_id",
+        "name",
+        "element",
+        "formal_charge",
+        "origin",
+        "parent_ids",
+        "source_atom_id",
+        "source_id"
+      ],
+      "properties": {
+        "atom_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "residue_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "name": {
+          "type": "string"
+        },
+        "element": {
+          "$ref": "#/$defs/element"
+        },
+        "formal_charge": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "origin": {
+          "enum": [
+            "source",
+            "generated_hydrogen",
+            "solvent",
+            "ion",
+            "generated_heavy_atom"
+          ]
+        },
+        "parent_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/uuid"
+          }
+        },
+        "source_atom_id": {
+          "$ref": "#/$defs/nullableUuid"
+        },
+        "source_id": {
+          "$ref": "#/$defs/nullableUuid"
+        }
+      }
+    },
+    "residue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "residue_id",
+        "name",
+        "chain_label",
+        "sequence_label",
+        "insertion_code",
+        "source_residue_id"
+      ],
+      "properties": {
+        "residue_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "name": {
+          "type": "string"
+        },
+        "chain_label": {
+          "type": "string"
+        },
+        "sequence_label": {
+          "type": "string"
+        },
+        "insertion_code": {
+          "type": "string"
+        },
+        "source_residue_id": {
+          "$ref": "#/$defs/nullableUuid"
+        }
+      }
+    },
+    "bond": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "atom_ids",
+        "order",
+        "type"
+      ],
+      "properties": {
+        "atom_ids": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/uuid"
+          }
+        },
+        "order": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "virtualSite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "parent_indices",
+        "parent_ids"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "TwoParticleAverageSite",
+            "ThreeParticleAverageSite",
+            "OutOfPlaneSite",
+            "LocalCoordinatesSite"
+          ]
+        },
+        "parent_indices": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "parent_ids": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "$ref": "#/$defs/uuid"
+          }
+        },
+        "weights": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 3,
+          "items": {
+            "type": "number"
+          }
+        },
+        "cross_weight_unit": {
+          "const": "1/nm"
+        },
+        "origin_weights": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "x_weights": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "y_weights": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "local_position_nm": {
+          "$ref": "#/$defs/xyz"
+        }
+      }
+    },
+    "particle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "particle_index",
+        "identity_id",
+        "identity_kind",
+        "topology_atom_id",
+        "mass_dalton",
+        "origin",
+        "control_eligible",
+        "control_ineligibility",
+        "virtual_site"
+      ],
+      "properties": {
+        "particle_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "identity_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "identity_kind": {
+          "enum": [
+            "atom",
+            "site"
+          ]
+        },
+        "topology_atom_id": {
+          "$ref": "#/$defs/nullableUuid"
+        },
+        "mass_dalton": {
+          "type": "number",
+          "minimum": 0
+        },
+        "origin": {
+          "enum": [
+            "source",
+            "generated_hydrogen",
+            "solvent",
+            "ion",
+            "system_virtual_site",
+            "generated_heavy_atom"
+          ]
+        },
+        "control_eligible": {
+          "type": "boolean"
+        },
+        "control_ineligibility": {
+          "enum": [
+            null,
+            "virtual_site",
+            "zero_mass"
+          ]
+        },
+        "virtual_site": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/virtualSite"
+            }
+          ]
+        }
+      }
+    },
+    "step": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "operation": {
+              "enum": [
+                "load",
+                "add_hydrogens",
+                "add_solvent",
+                "translate"
+              ]
+            },
+            "input_key": {
+              "type": "string"
+            },
+            "atom_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "generated_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "removed_source_atoms": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/uuid"
+              }
+            },
+            "translation_nm": {
+              "$ref": "#/$defs/xyz"
+            },
+            "residue_variants": {
+              "type": "array"
+            },
+            "ionic_strength_molar": {
+              "type": "number",
+              "minimum": 0
+            },
+            "hydrogenation": {
+              "$ref": "#/$defs/hydrogenationReport"
+            },
+            "solvation": {
+              "$ref": "#/$defs/solvationReport"
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "hydrogenation"
+                ]
+              },
+              "then": {
+                "required": [
+                  "atom_count",
+                  "generated_count",
+                  "removed_source_atoms",
+                  "residue_variants"
+                ],
+                "properties": {
+                  "operation": {
+                    "const": "add_hydrogens"
+                  },
+                  "removed_source_atoms": {
+                    "maxItems": 0
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "required": [
+                  "solvation"
+                ]
+              },
+              "then": {
+                "required": [
+                  "atom_count",
+                  "generated_count",
+                  "removed_source_atoms",
+                  "ionic_strength_molar"
+                ],
+                "properties": {
+                  "operation": {
+                    "const": "add_solvent"
+                  },
+                  "removed_source_atoms": {
+                    "maxItems": 0
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "operation",
+            "atom_count",
+            "generated_count",
+            "repair"
+          ],
+          "properties": {
+            "operation": {
+              "const": "repair_standard_residue"
+            },
+            "atom_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "generated_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "repair": {
+              "$ref": "#/$defs/repairReport"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "operation",
+            "atom_count",
+            "residue_count",
+            "grouping"
+          ],
+          "properties": {
+            "operation": {
+              "const": "group_protein_water"
+            },
+            "atom_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "residue_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "grouping": {
+              "$ref": "#/$defs/proteinWaterGrouping"
+            }
+          }
+        }
+      ]
+    },
+    "proteinWaterGrouping": {
+      "type": "object",
+      "description": "Explicit protein/source-water grouping correspondence. Input and output indices refer to this grouping stage, not the final particle projection. Structural validation alone does not prove a bijection, retained graph or source provenance, and does not admit grouped histories to LOAD-only service intake.",
+      "additionalProperties": false,
+      "required": [
+        "policy",
+        "atoms",
+        "residues",
+        "chains"
+      ],
+      "properties": {
+        "policy": {
+          "const": "protein_runs_then_source_water_v1"
+        },
+        "atoms": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "atom_id",
+              "source_atom_id",
+              "input_atom_index",
+              "output_atom_index"
+            ],
+            "properties": {
+              "atom_id": {
+                "$ref": "#/$defs/uuid"
+              },
+              "source_atom_id": {
+                "$ref": "#/$defs/uuid"
+              },
+              "input_atom_index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "output_atom_index": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "residues": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "residue_id",
+              "source_residue_id",
+              "input_residue_index",
+              "output_residue_index",
+              "input_chain_index",
+              "output_chain_index",
+              "group"
+            ],
+            "properties": {
+              "residue_id": {
+                "$ref": "#/$defs/uuid"
+              },
+              "source_residue_id": {
+                "$ref": "#/$defs/uuid"
+              },
+              "input_residue_index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "output_residue_index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "input_chain_index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "output_chain_index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "group": {
+                "enum": [
+                  "protein",
+                  "source_water"
+                ]
+              }
+            }
+          }
+        },
+        "chains": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "group",
+              "input_chain_index",
+              "input_chain_label",
+              "output_chain_index",
+              "output_chain_label"
+            ],
+            "properties": {
+              "group": {
+                "enum": [
+                  "protein",
+                  "source_water"
+                ]
+              },
+              "input_chain_index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "input_chain_label": {
+                "type": "string"
+              },
+              "output_chain_index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "output_chain_label": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256",
+        "size_bytes"
+      ],
+      "properties": {
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "sourceResidue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_residue_id",
+        "input_residue_index",
+        "input_chain_index",
+        "name",
+        "sequence_label",
+        "insertion_code"
+      ],
+      "properties": {
+        "source_residue_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "input_residue_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "input_chain_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string"
+        },
+        "sequence_label": {
+          "type": "string"
+        },
+        "insertion_code": {
+          "type": "string"
+        }
+      }
+    },
+    "sourceBond": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_bond_id",
+        "atom_ids",
+        "order",
+        "aromatic"
+      ],
+      "properties": {
+        "source_bond_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "atom_ids": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/uuid"
+          }
+        },
+        "order": {
+          "enum": [
+            null,
+            1,
+            2,
+            3
+          ]
+        },
+        "aromatic": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "polymerSequence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input_chain_index",
+        "evidence",
+        "residue_names",
+        "residue_bindings"
+      ],
+      "properties": {
+        "input_chain_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "evidence": {
+          "enum": [
+            "canonical_file",
+            "client_declared",
+            "unknown"
+          ]
+        },
+        "residue_names": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          ]
+        },
+        "residue_bindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sequence_index",
+              "source_residue_id"
+            ],
+            "properties": {
+              "sequence_index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "source_residue_id": {
+                "$ref": "#/$defs/uuid"
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "evidence": {
+                "const": "unknown"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "residue_names": {
+                "type": "null"
+              },
+              "residue_bindings": {
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "residue_names": {
+                "type": "array",
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "repairReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool",
+        "platform",
+        "seed",
+        "retained_atoms",
+        "generated_atom_ids",
+        "added_bonds",
+        "removed_bonds",
+        "polymer_sequences"
+      ],
+      "properties": {
+        "tool": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "version"
+          ],
+          "properties": {
+            "name": {
+              "const": "pdbfixer"
+            },
+            "version": {
+              "type": "string"
+            }
+          }
+        },
+        "platform": {
+          "type": "string"
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "retained_atoms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source_atom_id",
+              "atom_id",
+              "input_atom_index",
+              "output_atom_index"
+            ],
+            "properties": {
+              "source_atom_id": {
+                "$ref": "#/$defs/uuid"
+              },
+              "atom_id": {
+                "$ref": "#/$defs/uuid"
+              },
+              "input_atom_index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "output_atom_index": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "generated_atom_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/uuid"
+          }
+        },
+        "added_bonds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/bond"
+          }
+        },
+        "removed_bonds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/bond"
+          }
+        },
+        "polymer_sequences": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/polymerSequence"
+          }
+        }
+      }
+    },
+    "preparationEngine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "const": "openmm"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "preparationResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "resource_id",
+        "package",
+        "package_version",
+        "sha256",
+        "size_bytes",
+        "artifact"
+      ],
+      "properties": {
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resource_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "package": {
+          "type": "string",
+          "minLength": 1
+        },
+        "package_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "artifact": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "hydrogenationReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "engine",
+        "resources",
+        "input_box_vectors_nm",
+        "retained_atoms",
+        "generated_atoms",
+        "generated_residues",
+        "added_bonds",
+        "settings",
+        "residue_variants",
+        "hydrogen_definitions"
+      ],
+      "properties": {
+        "engine": {
+          "$ref": "#/$defs/preparationEngine"
+        },
+        "resources": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/preparationResource"
+          }
+        },
+        "input_box_vectors_nm": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "$ref": "#/$defs/xyz"
+              }
+            }
+          ]
+        },
+        "retained_atoms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "atom_id",
+              "source_atom_id",
+              "input_atom_index",
+              "output_atom_index"
+            ],
+            "properties": {
+              "atom_id": {
+                "$ref": "#/$defs/uuid"
+              },
+              "source_atom_id": {
+                "$ref": "#/$defs/nullableUuid"
+              },
+              "input_atom_index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "output_atom_index": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "generated_atoms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "atom_id",
+              "residue_id",
+              "output_atom_index",
+              "origin",
+              "parent_ids"
+            ],
+            "properties": {
+              "atom_id": {
+                "$ref": "#/$defs/uuid"
+              },
+              "residue_id": {
+                "$ref": "#/$defs/uuid"
+              },
+              "output_atom_index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "origin": {
+                "enum": [
+                  "generated_hydrogen",
+                  "solvent",
+                  "ion"
+                ]
+              },
+              "parent_ids": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/uuid"
+                }
+              }
+            }
+          }
+        },
+        "generated_residues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "residue_id",
+              "output_residue_index"
+            ],
+            "properties": {
+              "residue_id": {
+                "$ref": "#/$defs/uuid"
+              },
+              "output_residue_index": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "added_bonds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/bond"
+          }
+        },
+        "settings": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pH",
+            "platform",
+            "seed",
+            "policy"
+          ],
+          "properties": {
+            "pH": {
+              "type": "number"
+            },
+            "platform": {
+              "type": "string",
+              "minLength": 1
+            },
+            "seed": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "policy": {
+              "const": "retain_existing_hydrogens_v1"
+            }
+          }
+        },
+        "residue_variants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "residue_id",
+              "residue_index",
+              "variant",
+              "template",
+              "hydrogens"
+            ],
+            "properties": {
+              "residue_id": {
+                "$ref": "#/$defs/uuid"
+              },
+              "residue_index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "variant": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "template": {
+                "type": "string",
+                "minLength": 1
+              },
+              "hydrogens": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "name",
+                    "parent_name"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "parent_name": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "hydrogen_definitions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "resource_id",
+            "sha256",
+            "size_bytes"
+          ],
+          "properties": {
+            "resource_id": {
+              "const": "openmm.app/data/hydrogens.xml"
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "size_bytes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "solvationReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "engine",
+        "resources",
+        "input_box_vectors_nm",
+        "retained_atoms",
+        "generated_atoms",
+        "generated_residues",
+        "added_bonds",
+        "settings",
+        "solute_charge_e",
+        "retained_water_count",
+        "generated_water_before_ions",
+        "generated_water_count",
+        "neutralizing_ion_count",
+        "salt_pair_count",
+        "positive_ion_count",
+        "negative_ion_count",
+        "box_vectors_nm"
+      ],
+      "properties": {
+        "engine": {
+          "$ref": "#/$defs/preparationEngine"
+        },
+        "resources": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/preparationResource"
+          }
+        },
+        "input_box_vectors_nm": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "$ref": "#/$defs/xyz"
+              }
+            }
+          ]
+        },
+        "retained_atoms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "atom_id",
+              "source_atom_id",
+              "input_atom_index",
+              "output_atom_index"
+            ],
+            "properties": {
+              "atom_id": {
+                "$ref": "#/$defs/uuid"
+              },
+              "source_atom_id": {
+                "$ref": "#/$defs/nullableUuid"
+              },
+              "input_atom_index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "output_atom_index": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "generated_atoms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "atom_id",
+              "residue_id",
+              "output_atom_index",
+              "origin",
+              "parent_ids"
+            ],
+            "properties": {
+              "atom_id": {
+                "$ref": "#/$defs/uuid"
+              },
+              "residue_id": {
+                "$ref": "#/$defs/uuid"
+              },
+              "output_atom_index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "origin": {
+                "enum": [
+                  "generated_hydrogen",
+                  "solvent",
+                  "ion"
+                ]
+              },
+              "parent_ids": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/uuid"
+                }
+              }
+            }
+          }
+        },
+        "generated_residues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "residue_id",
+              "output_residue_index"
+            ],
+            "properties": {
+              "residue_id": {
+                "$ref": "#/$defs/uuid"
+              },
+              "output_residue_index": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "added_bonds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/bond"
+          }
+        },
+        "settings": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "model",
+            "box_shape",
+            "padding_nm",
+            "positive_ion",
+            "negative_ion",
+            "neutralize",
+            "ionic_strength_mol_per_l",
+            "seed"
+          ],
+          "properties": {
+            "model": {
+              "const": "tip3p"
+            },
+            "box_shape": {
+              "const": "cube"
+            },
+            "padding_nm": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "positive_ion": {
+              "const": "Na+"
+            },
+            "negative_ion": {
+              "const": "Cl-"
+            },
+            "neutralize": {
+              "const": true
+            },
+            "ionic_strength_mol_per_l": {
+              "type": "number",
+              "minimum": 0
+            },
+            "seed": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            }
+          }
+        },
+        "solute_charge_e": {
+          "type": "integer"
+        },
+        "retained_water_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "generated_water_before_ions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "generated_water_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "neutralizing_ion_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "salt_pair_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "positive_ion_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "negative_ion_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "box_vectors_nm": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "$ref": "#/$defs/xyz"
+          }
+        }
+      }
+    }
+  }
+}
