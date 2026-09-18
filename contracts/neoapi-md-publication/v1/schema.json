@@ -1,0 +1,636 @@
+{
+  "$defs": {
+    "ActionReceipt": {
+      "additionalProperties": false,
+      "description": "The immutable request ID recovers an uncertain action response. complete success means the upload reached verified after readback; the whole publication may still await other artifacts. abort success means known upload cleanup reconciled; completed immutable bytes are never deleted by abort. No automatic new scientific attempt or command replay.",
+      "properties": {
+        "action": {
+          "enum": [
+            "complete",
+            "abort"
+          ]
+        },
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "state": {
+          "enum": [
+            "accepted",
+            "running",
+            "succeeded",
+            "failed",
+            "reconciliation_required"
+          ]
+        },
+        "upload": {
+          "$ref": "#/$defs/Upload"
+        },
+        "upload_id": {
+          "$ref": "#/$defs/Uuid"
+        }
+      },
+      "required": [
+        "request_id",
+        "upload_id",
+        "action",
+        "state",
+        "upload"
+      ],
+      "type": "object"
+    },
+    "Artifact": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "maxLength": 36,
+          "minLength": 36,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "content_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "checkpoint",
+            "trajectory",
+            "structure",
+            "method_state",
+            "report"
+          ]
+        },
+        "media_type": {
+          "maxLength": 127,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9!#$&^_.+-]+/[a-zA-Z0-9!#$&^_.+-]+$",
+          "type": "string"
+        },
+        "original_filename": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[^/\\\\\\u0000-\\u001f\\u007f]+(?![\\s\\S])",
+          "type": "string"
+        },
+        "size_bytes": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "kind",
+        "content_sha256",
+        "size_bytes",
+        "original_filename",
+        "media_type"
+      ],
+      "type": "object"
+    },
+    "CreatePublication": {
+      "additionalProperties": false,
+      "description": "output_set_sha256 is SHA256 of exact RFC8785 JCS bytes of OutputSet: remove ONLY request_id and output_set_sha256. Every field required; no omitted/default/null equivalence; arrays retain order. Reject duplicate JSON keys, nonfinite values, unsafe integers, unsorted/duplicate artifact IDs and hash mismatch before accepting. Same (provider,scope,request_id) + full canonical request is idempotent; changed body conflicts.",
+      "properties": {
+        "artifacts": {
+          "items": {
+            "$ref": "#/$defs/Artifact"
+          },
+          "maxItems": 4096,
+          "minItems": 1,
+          "type": "array"
+        },
+        "attempt_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "epoch": {
+          "$ref": "#/$defs/SafeInteger"
+        },
+        "generation": {
+          "$ref": "#/$defs/SafeInteger"
+        },
+        "output_set_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "prepared": {
+          "$ref": "#/$defs/PreparedBinding"
+        },
+        "protocol": {
+          "$ref": "#/$defs/ProtocolBinding"
+        },
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "result_manifest_artifact_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "session_id": {
+          "$ref": "#/$defs/Uuid"
+        }
+      },
+      "required": [
+        "request_id",
+        "output_set_sha256",
+        "session_id",
+        "attempt_id",
+        "generation",
+        "prepared",
+        "protocol",
+        "result_manifest_artifact_id",
+        "artifacts",
+        "epoch"
+      ],
+      "type": "object"
+    },
+    "Error": {
+      "additionalProperties": false,
+      "description": "Closed public-safe envelope. request_id is HTTP trace correlation, not an idempotency ID; no submitted values, credentials, object keys, paths or provider error text. HTTP status is defined by x-error-statuses.",
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid_request",
+            "unauthorized",
+            "not_found",
+            "idempotency_conflict",
+            "binding_conflict",
+            "part_conflict",
+            "state_conflict",
+            "payload_too_large",
+            "checksum_mismatch",
+            "capacity_exceeded",
+            "storage_unavailable",
+            "publication_unavailable",
+            "deadline_exceeded",
+            "internal_error"
+          ]
+        },
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        }
+      },
+      "required": [
+        "code",
+        "request_id"
+      ],
+      "type": "object"
+    },
+    "OutputSet": {
+      "additionalProperties": false,
+      "description": "All artifact IDs unique and strictly sorted by canonical UUID text. result_manifest_artifact_id occurs exactly once, with kind method_state and media_type application/json. Every artifact binds this exact terminal attempt/generation/epoch; scientific result-manifest content must agree. No directories, object keys, URLs, ETags, or client storage providers. Epoch must match the authenticated authoritative terminal SessionSnapshot; never infer it from result bytes. The authenticated service observation must have finalization.status == complete for this exact sealed set; engine terminal state or a stop checkpoint alone is insufficient.",
+      "properties": {
+        "artifacts": {
+          "items": {
+            "$ref": "#/$defs/Artifact"
+          },
+          "maxItems": 4096,
+          "minItems": 1,
+          "type": "array"
+        },
+        "attempt_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "epoch": {
+          "$ref": "#/$defs/SafeInteger"
+        },
+        "generation": {
+          "$ref": "#/$defs/SafeInteger"
+        },
+        "prepared": {
+          "$ref": "#/$defs/PreparedBinding"
+        },
+        "protocol": {
+          "$ref": "#/$defs/ProtocolBinding"
+        },
+        "result_manifest_artifact_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "session_id": {
+          "$ref": "#/$defs/Uuid"
+        }
+      },
+      "required": [
+        "session_id",
+        "attempt_id",
+        "generation",
+        "prepared",
+        "protocol",
+        "result_manifest_artifact_id",
+        "artifacts",
+        "epoch"
+      ],
+      "type": "object"
+    },
+    "PartPage": {
+      "additionalProperties": false,
+      "properties": {
+        "next_part_number": {
+          "anyOf": [
+            {
+              "maximum": 10000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "parts": {
+          "items": {
+            "$ref": "#/$defs/PartReceipt"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        "upload_id": {
+          "$ref": "#/$defs/Uuid"
+        }
+      },
+      "required": [
+        "upload_id",
+        "parts",
+        "next_part_number"
+      ],
+      "type": "object"
+    },
+    "PartReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "content_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "offset_bytes": {
+          "$ref": "#/$defs/SafeInteger"
+        },
+        "part_number": {
+          "maximum": 10000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "size_bytes": {
+          "maximum": 5368709120,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "upload_id": {
+          "$ref": "#/$defs/Uuid"
+        }
+      },
+      "required": [
+        "upload_id",
+        "part_number",
+        "offset_bytes",
+        "size_bytes",
+        "content_sha256"
+      ],
+      "type": "object"
+    },
+    "PreparedBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "bundle_id": {
+          "format": "uuid",
+          "maxLength": 36,
+          "minLength": 36,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "manifest_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "mapping_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "prepared_revision_id": {
+          "format": "uuid",
+          "maxLength": 36,
+          "minLength": 36,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "bundle_id",
+        "prepared_revision_id",
+        "manifest_sha256",
+        "mapping_sha256"
+      ],
+      "type": "object"
+    },
+    "ProtocolBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "content_sha256": {
+          "description": "SHA256(JCS({prepared: full PreparedBinding, protocol: scientific descriptor})); not the compiled Plan or descriptor alone.",
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "protocol_id": {
+          "$ref": "#/$defs/Uuid"
+        }
+      },
+      "required": [
+        "protocol_id",
+        "content_sha256"
+      ],
+      "type": "object"
+    },
+    "Publication": {
+      "additionalProperties": false,
+      "description": "Uploads correspond one-to-one to the exact artifact set. complete requires receipt non-null; every other state requires null. Acceptance is durable before provider I/O. Physical MD state is separate and never changed by publication. Pending provider work may survive requests/restarts. Before accepting the create intent, serialize a conservative largest complete Publication (request, every upload, full receipt, longest allowed timestamp/state values) and reserve enough metadata capacity to keep it and the standalone receipt at most 4 MiB. Reject payload_too_large before provider I/O if either cannot fit. Thus an accepted input cannot produce an unreturnable response; MAX_ARTIFACTS is an additional count limit, not a byte-size guarantee.",
+      "properties": {
+        "provider_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "publication_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Receipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "request": {
+          "$ref": "#/$defs/CreatePublication"
+        },
+        "scope_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "state": {
+          "enum": [
+            "accepted",
+            "uploading",
+            "verifying",
+            "complete",
+            "failed",
+            "aborted",
+            "reconciliation_required"
+          ]
+        },
+        "uploads": {
+          "items": {
+            "$ref": "#/$defs/Upload"
+          },
+          "maxItems": 4096,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "publication_id",
+        "provider_id",
+        "scope_id",
+        "request",
+        "state",
+        "uploads",
+        "receipt"
+      ],
+      "type": "object"
+    },
+    "Receipt": {
+      "additionalProperties": false,
+      "description": "Immutable, durably queryable confirmation for the COMPLETE sealed output set after a full OSS GET verified exact size, EOF and SHA256 for EVERY artifact. Reconstruct OutputSet by dropping download_ref from each artifact; all bindings including epoch and output_set_sha256 must match the request. A 2xx part/complete response, HEAD, ETag, upload checksum, or partial receipt cannot authorize local deletion. download_ref is an opaque API lookup reference, never an OSS URL/key. Service must persist the receipt before local cleanup eligibility.",
+      "properties": {
+        "artifacts": {
+          "items": {
+            "$ref": "#/$defs/VerifiedArtifact"
+          },
+          "maxItems": 4096,
+          "minItems": 1,
+          "type": "array"
+        },
+        "attempt_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "epoch": {
+          "$ref": "#/$defs/SafeInteger"
+        },
+        "generation": {
+          "$ref": "#/$defs/SafeInteger"
+        },
+        "output_set_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "prepared": {
+          "$ref": "#/$defs/PreparedBinding"
+        },
+        "protocol": {
+          "$ref": "#/$defs/ProtocolBinding"
+        },
+        "provider_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "publication_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "receipt_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "result_manifest_artifact_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "scope_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "session_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "verification": {
+          "const": "full_readback_sha256"
+        },
+        "verified_at": {
+          "format": "date-time",
+          "maxLength": 35,
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "receipt_id",
+        "publication_id",
+        "provider_id",
+        "scope_id",
+        "request_id",
+        "output_set_sha256",
+        "session_id",
+        "attempt_id",
+        "generation",
+        "prepared",
+        "protocol",
+        "result_manifest_artifact_id",
+        "artifacts",
+        "verified_at",
+        "verification",
+        "epoch"
+      ],
+      "type": "object"
+    },
+    "SafeInteger": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "Sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "Upload": {
+      "additionalProperties": false,
+      "description": "Immutable negotiated geometry: part_count=ceil(artifact.size_bytes/part_size_bytes); final part is exact remaining bytes. Empty artifact has zero parts; completion writes and fully reads back the empty object. Initiating/reconciliation_required forbids part writes. No provider handle or ETag appears here.",
+      "properties": {
+        "artifact_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "maxLength": 35,
+          "type": "string"
+        },
+        "part_count": {
+          "maximum": 10000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "part_size_bytes": {
+          "maximum": 5368709120,
+          "minimum": 5242880,
+          "type": "integer"
+        },
+        "state": {
+          "enum": [
+            "initiating",
+            "uploading",
+            "completing",
+            "verifying",
+            "verified",
+            "abort_requested",
+            "aborted",
+            "failed",
+            "reconciliation_required"
+          ]
+        },
+        "upload_id": {
+          "$ref": "#/$defs/Uuid"
+        }
+      },
+      "required": [
+        "upload_id",
+        "artifact_id",
+        "part_size_bytes",
+        "part_count",
+        "state",
+        "expires_at"
+      ],
+      "type": "object"
+    },
+    "UploadAction": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "complete",
+            "abort"
+          ]
+        },
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        }
+      },
+      "required": [
+        "request_id",
+        "action"
+      ],
+      "type": "object"
+    },
+    "Uuid": {
+      "format": "uuid",
+      "maxLength": 36,
+      "minLength": 36,
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "type": "string"
+    },
+    "VerifiedArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "maxLength": 36,
+          "minLength": 36,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "content_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "download_ref": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "kind": {
+          "enum": [
+            "checkpoint",
+            "trajectory",
+            "structure",
+            "method_state",
+            "report"
+          ]
+        },
+        "media_type": {
+          "maxLength": 127,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9!#$&^_.+-]+/[a-zA-Z0-9!#$&^_.+-]+$",
+          "type": "string"
+        },
+        "original_filename": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[^/\\\\\\u0000-\\u001f\\u007f]+(?![\\s\\S])",
+          "type": "string"
+        },
+        "size_bytes": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "kind",
+        "content_sha256",
+        "size_bytes",
+        "original_filename",
+        "media_type",
+        "download_ref"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:neodynamics:consumer:neoapi-md-publication:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

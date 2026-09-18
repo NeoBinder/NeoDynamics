@@ -10,18 +10,63 @@ NeoDynamics is NeoBinder's open-source project for molecular dynamics built
 on top of [OpenMM](https://openmm.org/). The package contains:
 
 - OpenMM pipelines for generic MD (`min` / `eq` / `md` / `prod`),
-  well-tempered metadynamics, steered MD and ML/MM coupling with any
-  TorchScript NNP (ADR-0004; QM/MM and GaMD are planned as 2.x plugins —
-  see the extension section below)
+  well-tempered metadynamics, steered MD, GaMD, OPES, RBFE windows and ML/MM
+  coupling with any TorchScript NNP (ADR-0004; QM/MM remains excluded until
+  rebuilt as a qualified plugin)
 - OpenMM system-building tools (protein + ligand + solvent)
 - Ligand forcefield creation and support for externally supplied ligand
   forcefields (AM1-BCC/GAFF via antechamber, RESP2 charges via ORCA, or
   expert-designed parameters)
 
-> The active codebase is `src/neomd/`. `src/neomd_legacy/` is the
+> The engine and CLI live in `src/neomd/`. The independent service package
+> `src/neomd_server/` owns interactive session policy and its alternative
+> driver/probes; the engine and CLI never import it. `src/neomd_legacy/` is the
 > frozen v1 package (bug fixes only), kept for one deprecation release
 > together with the `neomd2` script alias and the `bin/` compatibility
 > wrappers.
+
+The [interactive service driver](docs/interactive-driver.md) provides bounded
+advance, pause/resume, expiring atom forces, named restraints and qualified
+method controls, including ordered RBFE windows. Generic scientific stepping
+and physical controls remain reusable engine interfaces. The
+[service contract and PostgreSQL ledger](docs/service-ledger.md) provide owned
+admission, fencing and durable command outcomes. The
+[scientific protocol compiler](docs/scientific-protocol.md) binds typed methods,
+CVs and restraints to verified prepared particles and immutable coordinate
+references before creating a simulation context. The
+[private HTTP/WebSocket transport](docs/private-transport.md) authenticates scoped
+requests, streams bounded inputs and separates acknowledged events from lossy
+previews. A spawned [runtime qualification probe](docs/runtime-qualification.md)
+executes every built-in method on a tiny trusted system before reporting
+available methods. The Linux [resident service](docs/service-runtime.md) provides
+independent spawned sessions, PostgreSQL admission, bounded supervision and local
+immutable checkpoint records. Checkpoint publication consumes the command's exact
+capture and syncs each new inode and changed directory once before its receipt.
+Its required running allowance excludes paused and
+preparing/finalizing time; host budget stops have separate durable actual-engine
+receipts, and unknown crash tails are never reset. Run it with `pixi run -e server serve` after setting
+its explicit configuration and applying its owned schema migrations. A separately
+bounded output finalizer preserves confirmed engine outcomes, retains admission
+until process exit and records an exact local artifact set before publication.
+Its completion transaction preserves the producer-selected result-manifest ID and
+[immutable local inventory evidence](docs/service-ledger.md), including original
+order and full file stat values; legacy records receive no inferred evidence.
+New historical checkpoints separately retain
+[exact UUID/path/stat correspondence](docs/service-ledger.md#historical-checkpoint-evidence)
+in the same transaction as their ACK; this evidence grants no cleanup authority.
+Its required finalization deadline has no default. The service-owned
+[publication journal](docs/service-ledger.md#publication-journal) binds this
+evidence to one configured destination, preserves original operation IDs across
+uncertain exchanges and stores exact receipts without deleting local artifacts.
+It is an integration library; the resident runtime does not activate an uploader.
+CPU service tests are separate from cluster rollout and remote publication gates.
+Its [sealed trajectory result manifests](docs/trajectory-results.md) bind exact
+closed DCD bytes to prepared particle order, registered protocols and execution
+identity, including independent RBFE windows. Local evidence remains separate
+from object-store publication and download authorization.
+
+For container packaging and api-dev operation, see the
+[container guide](docker/README.md) and [deployment templates](deploy/README.md).
 
 ## Highlights
 
@@ -251,6 +296,83 @@ staircase is identical to an uninterrupted run's.
 
 ### System preparation and tools
 
+`prepare_system(config, prepared_export={})` optionally adds an immutable
+source/prepared/particle UUID bundle and returns its path through
+`SystemBundle.prepared_manifest`. `export_system_bundle` exports an existing
+prepared system with explicit particle correspondence. See
+[prepared bundles](docs/prepared-bundle.md) for source bindings, virtual sites,
+units and hash verification. The engine export has no HTTP or remote storage
+behavior.
+Service upload commit performs large metadata and System verification in a
+deadline-bound child process, then registers the exact scoped input only after
+clean exit and a live upload recheck. Durable asynchronous input uses
+explicit request IDs, scoped completion polling and a required pending-operation
+capacity. It survives HTTP disconnect; restart never silently retries old work.
+Prepared-bundle v2 intake accepts only one unchanged canonical protein load,
+using the explicit SDK `canonical_protein_load_v1` profile to independently check
+source graph and final correspondence. Repair and other preparation histories
+remain unsupported; the generic SDK reader is not this intake gate. See the
+[load-only profile](docs/protein-preparation.md#load-only-verification-profile)
+for identity, label and verification limits. Remote full preparation remains unavailable;
+the bounded SDK workflow is described below.
+Engine startup uses compact verified metadata and bounded AtomId projection
+batches. Actual public 100,000-particle intake and concurrent controls passed the
+local synthetic qualification. A separate fully written 100 GB fixture passed
+production finalization and resource/cleanup checks; neither gate establishes
+large-system simulation throughput or OSS publication.
+See [resident runtime](docs/service-runtime.md).
+A separate immutable topology-view contract and child-side projector preserve
+prepared atom/residue/bond/site identities and exact particle order in bounded
+canonical pages. Prepared-input verification stages and atomically publishes
+the exact pages; owner-scoped private GETs preserve their canonical bytes.
+The public gateway preserves these bytes under session owner/provider checks.
+The [public topology qualification](docs/runtime-qualification.md#public-input-and-complete-topology-reads)
+entrypoint passed its 513-particle dry gate with two real CPU sessions. Its 100k
+run verified every page but failed the unchanged concurrent latency gate;
+the bounded checkpoint fix passes the repeated small-system baseline, while the
+100k topology rerun remains pending. Native assembly/viewing remains separate from
+this metadata gate; see `contracts/topology-view/v1/README.md`.
+
+The [protein preparation foundation](docs/protein-preparation.md) adds explicit
+source atom, residue, bond and sequence evidence plus observed PDBFixer heavy-atom
+repair in prepared-bundle v2. Its small repair fixture verifies identity and
+lineage; its mass-only System is not a simulation input. The service preparation
+catalog records editable salt concentration, water-box padding and pH, with
+existing input water retained before completing the water box. HMR uses4 amu,
+constraints use HBonds, water is rigid, center-of-mass motion removal is
+disabled (`remove_cm_motion=false`) and PME uses a 1.0 nm cutoff with tolerance
+0.0005. Dispersion correction is enabled; switching, periodic exceptions and
+flexible-constraint force parameters are disabled. The catalog's assembly
+choices are complete. The isolated `add_ions_preserving_water` adapter counts
+retained plus generated water while permitting only generated-water replacement;
+it requires explicit settings and commits only after preservation checks. The bounded SDK path connects this adapter without changing CLI behavior.
+The separate [permanent grouping SDK](docs/protein-preparation.md#permanent-proteinsource-water-grouping)
+preserves original source identities and exact coordinates while placing protein
+runs before source-water chains. Its explicit `canonical_protein_group_v1`
+verifier accepts only LOAD→GROUP; grouped chain ends are not chemical termini.
+The [repair lineage observer](docs/protein-preparation.md#explicit-repair-correspondence)
+also accepts explicit retained-atom maps, preserving source UUIDs after reordering
+without coordinate-based identity guessing. This does not itself run PDBFixer or
+independently qualify a repaired history.
+The [bounded grouped-repair producer](docs/protein-preparation.md#evidence-gated-grouped-heavy-repair)
+now connects original source→GROUP→actual heavy repair while preserving H/water and
+original identities. Missing OXT blocks without explicit complete terminal evidence;
+missing backbone N/C requires complete ordered original sequence evidence and
+qualified generated geometry. Inferred disulfides remain unsupported. The opt-in
+`canonical_protein_repair_v1` profile independently checks exactly LOAD→GROUP→repair.
+The [complete bounded SDK](docs/protein-preparation.md#complete-bounded-sdk-preparation)
+adds retained-H completion with conflict rejection, retained-water solvation/NaCl,
+and an atomic independently verified System bundle. Service v2 remains LOAD-only.
+The separate [explicit System/report SDK](docs/protein-preparation.md#explicit-system-assembly-and-report)
+now builds from an already chemically prepared v2 topology, captures exact resource
+bytes and binds a separately versioned report to all exported artifacts. Its
+consumer rebuilds the full System before deserializing uploaded XML. This is not
+repair/H/solvation or history validation by itself; use `verify_protein_preparation`
+for the full SDK guarantee. The remote preparation request remains unavailable. Existing CLI defaults and v2 LOAD-only intake stay unchanged.
+The scientific protocol schema records the confirmed 2 fs (0.002 ps) initial
+timestep for future new-protocol editors. Submitted timesteps remain explicit;
+validation/compilation never fill an omitted value or replace a chosen value.
+
 `neomd prepare prep.yaml` (or `prepare_system(config)`) builds
 protein + ligand + solvent systems and writes `solv.pdbx`, `system.xml` and
 `ligand.json`. External binaries are wrapped by subprocess-isolated adapters
@@ -321,6 +443,19 @@ issue #12 mapping, the unit contracts and the W3-c residue-region chapter
 live in [docs/methods/mlmm.md](docs/methods/mlmm.md).
 
 ## Extending NeoDynamics
+
+Trusted in-process hosts can pass `probes` to
+`neomd.driver.prepare_method_stepper`. Omitting it or passing `None` keeps
+the existing default, restraint and enabled method reporting probes; an explicit
+sequence replaces that reporting list. Scientific hooks, method state,
+checkpoints and finalization remain independent, so `probes=[]` does not mean
+file-free execution. This engine interface does not change CLI options or output
+defaults.
+
+The resident service supplies its own explicit reporting assembly in
+`neomd_server.probes` while preserving configured archive files. Its live sampler
+reads positions on the session owner thread and uses the existing bounded preview
+channel; file reports and live observations have separate responsibilities.
 
 Register a knowledge triple — the registry is the public plugin surface
 (`neomd.register`). A method plugin mirrors the metadynamics shape
@@ -425,7 +560,7 @@ pixi run -e ml test-ml # ML/MM torch tier (openmm-torch + torch env; see ADR-000
 
 ## Documentation
 
-- [AGENTS.md](AGENTS.md) — development workflow (worktree), working discipline and settled architecture decisions
+- [AGENTS.md](AGENTS.md) — stable contributor constraints and conditional documentation entry points
 - [docs/adr/0001-neomd2-strangler-migration.md](docs/adr/0001-neomd2-strangler-migration.md) — ADR: why a same-repo strangler migration
 - [docs/adr/0004-mlmm-in-tree-coupling.md](docs/adr/0004-mlmm-in-tree-coupling.md) — ADR: in-tree `KernelSpec.ml_region`, the no-openmm-ml decision, the pinned ml environment
 

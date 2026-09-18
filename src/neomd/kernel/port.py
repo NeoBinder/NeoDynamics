@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Iterable, Mapping, Protocol, runtime_checkable
+from typing import Iterable, Mapping, Protocol, Sequence, runtime_checkable
 
 import numpy as np
 
@@ -36,6 +36,7 @@ __all__ = [
     "EnergyReport",
     "KernelSpec",
     "KernelPort",
+    "InteractiveOps",
     "KernelFactory",
     "MAX_FORCE_GROUPS",
     "pick_free_force_group",
@@ -309,6 +310,11 @@ class KernelSpec:
     # openmm adapter inputs (ignored by fake):
     system_xml: str | None = None  # serialized openmm System
     topology_file: str | None = None  # pdbx/pdb with topology + positions
+    #: Optional full System-row coordinates and chemical-topology projection.
+    #: Prepared systems can contain virtual sites absent from the topology.
+    #: Coordinates are nm; the projection maps each topology atom to one particle.
+    initial_positions_nm: tuple[tuple[float, float, float], ...] | None = None
+    topology_particle_indices: tuple[int, ...] | None = None
     # fake adapter inputs (ignored by openmm):
     system_data: SystemData | None = None
     # shared:
@@ -571,6 +577,23 @@ class BoostOps(Protocol):
     def boost_potentials(self) -> dict:
         """label -> BoostReading of the most recent step ({} before any)."""
         ...
+
+
+@runtime_checkable
+class InteractiveOps(Protocol):
+    """Optional live particle force/positional-restraint seam.
+
+    Reserve once before Context/boost creation. Updates replace the complete
+    sparse set: index -> (fx,fy,fz,x0,y0,z0,k[,offset]), canonical nm, kJ/mol/nm,
+    kJ/mol/nm². Empty clears every interaction. Energy is -f·x + k|x-x0|²/2 + offset;
+    the optional offset is kJ/mol (zero by default).
+    positions are unwrapped and targets refer to that same coordinate frame.
+    No Context rebuilding, particle remapping, or velocity reseeding occurs.
+    """
+
+    def reserve_interactions(self) -> None: ...
+
+    def set_interactions(self, particles: Mapping[int, Sequence[float]]) -> None: ...
 
 
 @runtime_checkable

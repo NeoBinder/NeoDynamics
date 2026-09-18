@@ -1,0 +1,11 @@
+{
+  "id": "77777777-7777-4777-8777-777777777777",
+  "status": "failed",
+  "total_bytes": null,
+  "processed_bytes": 0,
+  "total_files": null,
+  "processed_files": 0,
+  "updated_at": "2026-09-07T00:00:00Z",
+  "failure": "integrity_mismatch",
+  "artifact_ids": null
+}

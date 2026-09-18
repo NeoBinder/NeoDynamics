@@ -212,6 +212,7 @@ class MetadynamicsRun:
                 f"(got keys {sorted(meta)})")
         if float(meta["biasFactor"]) <= 1.0:
             raise ValueError("biasFactor should be > 1.0")
+        self.deposition_enabled = True
         self.bias_factor = float(meta["biasFactor"])
         self.height = float(meta["height"])  # kJ/mol
         self.frequency = int(meta["frequency"])
@@ -332,9 +333,26 @@ class MetadynamicsRun:
             fgroups={LABEL: [self.fgroup]},
             resume_plan=resume_plan,
             tapes=tapes,
-            progress=lambda step: {HILLS_FILENAME: int(step)},
+            progress=lambda step: ({HILLS_FILENAME: self._hills_steps[-1]}
+                                   if self._hills_steps else {}),
             finish=self._finish,
+            controls={"height": {"unit": "kJ/mol", "minimum": 0.0, "maximum": 10000.0},
+                      "deposition_enabled": {"unit": "boolean"}},
+            update_parameter=self.update_parameter,
+            checkpoint=self._save_hills,
         )
+
+    def update_parameter(self, name, value):
+        """Change future hill height or freeze deposition; historical hills stay."""
+        if name == "height":
+            value = float(value)
+            if not np.isfinite(value) or value < 0:
+                raise ValueError("height must be finite and nonnegative (kJ/mol)")
+            self.height = value
+        elif name == "deposition_enabled" and isinstance(value, bool):
+            self.deposition_enabled = value
+        else:
+            raise ValueError("unsupported metadynamics parameter")
 
     def _finish(self, result) -> MethodResult:
         """End-of-run artifacts + the result drive() records."""
@@ -414,6 +432,8 @@ class MetadynamicsRun:
 
     def _deposit(self, step: int, view) -> None:
         """One hill deposit (the verbatim v1 cycle body)."""
+        if not self.deposition_enabled:
+            return
         position = self._ops.cv_values(LABEL)
         energy = self._ops.bias_energy(LABEL)  # kJ/mol, the force group alone
         height = _tempered_height(self.height, energy, self.deltaT)

@@ -729,7 +729,6 @@ def test_resume_parity_vs_v1_tape(tmp_path):
                          tier)
 
 
-@pytest.mark.cuda
 def test_resume_manifest_epoch_chain(tmp_path):
     """(c) the resumed run directory carries manifest.json with the epoch
     chain (§3 glossary): every epoch fingerprint chains on its predecessor
@@ -737,9 +736,9 @@ def test_resume_manifest_epoch_chain(tmp_path):
     count reached after the resume.  Both legs go through the md_run facade
     so the manifest is written by drive() exactly as production would."""
     config = _ala2_eq_config(tmp_path, steps=400)
-    md_run(config)
+    md_run(config, platform="cpu")
     resumed = _ala2_eq_config(tmp_path, steps=800, continue_md=True)
-    outcome = md_run(resumed)
+    outcome = md_run(resumed, platform="cpu")
     assert outcome.results[0].steps_done == 800
 
     manifest = RunManifest.read(pathlib.Path(tmp_path) / MANIFEST_FILENAME)
@@ -772,18 +771,17 @@ def _meta_config(output_dir, steps, continue_md=False) -> dict:
     return config
 
 
-@pytest.mark.cuda
 def test_metadynamics_resume_bias_identical(tmp_path):
     """300 straight steps vs 150 + resume -> 150: the hills ledger arrays
     are identical (np.array_equal on steps/positions/heights), the rebuilt
     bias is identical (fes_sum, an exact float comparison) and the final
     positions hash is identical."""
     straight_dir = tmp_path / "straight"
-    straight_outcome = md_run(_meta_config(straight_dir, steps=300))
+    straight_outcome = md_run(_meta_config(straight_dir, steps=300), platform="cpu")
     resumed_dir = tmp_path / "resumed"
-    md_run(_meta_config(resumed_dir, steps=150))
+    md_run(_meta_config(resumed_dir, steps=150), platform="cpu")
     resumed_outcome = md_run(_meta_config(resumed_dir, steps=300,
-                                          continue_md=True))
+                                          continue_md=True), platform="cpu")
 
     def hills(path):
         with np.load(path) as data:

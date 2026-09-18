@@ -1,0 +1,18 @@
+<?xml version="1.0" ?>
+<System openmmVersion="8.6" type="System" version="1">
+	<PeriodicBoxVectors>
+		<A x="2" y="0" z="0"/>
+		<B x="0" y="2" z="0"/>
+		<C x="0" y="0" z="2"/>
+	</PeriodicBoxVectors>
+	<Particles>
+		<Particle mass="15.999"/>
+		<Particle mass="1.008"/>
+		<Particle mass="1.008"/>
+		<Particle mass="0">
+			<ThreeParticleAverageSite p1="0" p2="1" p3="2" w1=".8" w2=".1" w3=".1"/>
+		</Particle>
+	</Particles>
+	<Constraints/>
+	<Forces/>
+</System>

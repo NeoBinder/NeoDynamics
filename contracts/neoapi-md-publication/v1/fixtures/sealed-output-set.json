@@ -1,0 +1,37 @@
+{
+  "request_id": "10000000-0000-4000-8000-00000000000a",
+  "output_set_sha256": "0e33b291a181bfe55a261af19a190b1f8ecdf2f87cdf18c775e1b008c97f6f5d",
+  "session_id": "10000000-0000-4000-8000-000000000001",
+  "attempt_id": "10000000-0000-4000-8000-000000000002",
+  "generation": 3,
+  "prepared": {
+    "bundle_id": "10000000-0000-4000-8000-000000000003",
+    "prepared_revision_id": "10000000-0000-4000-8000-000000000004",
+    "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "mapping_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "protocol": {
+    "protocol_id": "10000000-0000-4000-8000-000000000005",
+    "content_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "result_manifest_artifact_id": "10000000-0000-4000-8000-000000000006",
+  "artifacts": [
+    {
+      "artifact_id": "10000000-0000-4000-8000-000000000006",
+      "kind": "method_state",
+      "content_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+      "size_bytes": 3,
+      "original_filename": "results.json",
+      "media_type": "application/json"
+    },
+    {
+      "artifact_id": "10000000-0000-4000-8000-000000000007",
+      "kind": "trajectory",
+      "content_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "size_bytes": 100000000000,
+      "original_filename": "轨迹.dcd",
+      "media_type": "application/octet-stream"
+    }
+  ],
+  "epoch": 2
+}

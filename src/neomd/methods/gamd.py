@@ -240,18 +240,19 @@ class GamdRun:
         resume_plan = plan_resume(self.plan, self.kernel, self.sink)
         resumed = resume_plan is not None
         if resumed:
-            self._load_calibration()
+            try:
+                self._load_calibration()
+            except (FileNotFoundError, KeyError):
+                partial = None if self.sink is None or not self.sink.exists("gamd_preparation.json") else json.loads(
+                    self.sink.read_bytes("gamd_preparation.json"))
+                if partial is None or self.kernel.current_step >= partial["calibration_end"]:
+                    raise FileNotFoundError(f"cannot continue gamd: {CALIBRATION_FILENAME} not found") from None
         if self.calibration:
             # fresh-with-saved-calibration or resume: push, never re-run
             # (pushing over a checkpoint is idempotent — ADR-0005)
             self._push_calibration()
         else:
-            if resumed:
-                raise FileNotFoundError(
-                    f"cannot continue gamd: {CALIBRATION_FILENAME} not "
-                    f"found in the sink (a resumed GaMD run needs the "
-                    f"parameters its calibration pre-run produced)")
-            self._calibrate()
+            pass  # bounded calibration is advanced by the driver/session
 
         tapes: dict = {}
         if self.sink is not None:
@@ -267,7 +268,20 @@ class GamdRun:
             resume_plan=resume_plan,
             tapes=tapes,
             finish=self._finish,
+            preparation=None if self.calibration else GamdCalibration(self),
+            controls={"sigma0": {"unit": "kJ/mol", "exclusive_minimum": 0.0, "maximum": 10000.0,
+                                 "phase": "calibration"}},
+            update_parameter=self.update_parameter,
         )
+
+    def update_parameter(self, name, value):
+        """Calibration target may change before production parameters are set."""
+        if name != "sigma0" or self.calibration:
+            raise ValueError("sigma0 is live-settable only during GaMD calibration")
+        value = float(value)
+        if not np.isfinite(value) or value <= 0:
+            raise ValueError("sigma0 must be finite and positive (kJ/mol)")
+        self.sigma0 = value
 
     def _finish(self, result) -> MethodResult:
         """End-of-run artifacts + the result drive() records."""
@@ -308,14 +322,12 @@ class GamdRun:
         integrator's own P globals, so calibration samples the exact
         quantity production boosts (method-side pure logic, not a kernel
         seam; ADR-0005 rejected integrator-side Welford windows)."""
-        samples: dict[str, list[float]] = {label: []
-                                           for label in self.channels}
-        n_chunks = max(1, self.calibration_steps // self.calibration_interval)
-        for chunk in range(n_chunks):
-            self.kernel.step(self.calibration_interval)
-            readings = self.kernel.boost_potentials()
-            for label in self.channels:
-                samples[label].append(float(readings[label].energy))
+        stage = GamdCalibration(self)
+        while not stage.done:
+            stage.advance(self.calibration_interval)
+
+    def complete_calibration(self, samples):
+        """Select and persist calibrated parameters from completed cMD samples."""
         calibration = {}
         for label, values in samples.items():
             params = _channel_params(np.asarray(values, dtype=np.float64),
@@ -368,6 +380,57 @@ class GamdRun:
         for label, params in self.calibration.items():
             self.kernel.set_boost_param(label, "threshold", params["threshold"])
             self.kernel.set_boost_param(label, "k", params["k"])
+
+
+class GamdCalibration:
+    """Bounded cMD preparation preserving the original sample boundaries."""
+
+    def __init__(self, run):
+        self.run = run
+        self.interval = run.calibration_interval
+        self.start_step = run.kernel.current_step
+        self.total = self.start_step + max(1, run.calibration_steps // self.interval) * self.interval
+        self.samples = {label: [] for label in run.channels}
+        self.sample_steps = []
+        if getattr(run.plan, "continue_md", False) and run.sink is not None:
+            data = json.loads(run.sink.read_bytes("gamd_preparation.json"))
+            self.start_step, self.total = data["start_step"], data["calibration_end"]
+            keep = [i for i, step in enumerate(data["sample_steps"])
+                    if step <= run.kernel.current_step]
+            self.sample_steps = [data["sample_steps"][i] for i in keep]
+            self.samples = {label: [data["samples"][label][i] for i in keep]
+                            for label in run.channels}
+        if run.sink is not None:
+            run.sink.write_bytes("gamd_preparation.json", json.dumps({
+                "sample_steps": self.sample_steps, "samples": self.samples,
+                "start_step": self.start_step, "calibration_end": self.total,
+            }, sort_keys=True).encode())
+
+    @property
+    def done(self):
+        return bool(self.run.calibration)
+
+    def advance(self, max_steps):
+        if max_steps < 1:
+            raise ValueError("max_steps must be positive")
+        cap = min(self.total, self.run.kernel.current_step + max_steps)
+        while self.run.kernel.current_step < cap:
+            now = self.run.kernel.current_step
+            target = min(cap, self.start_step + ((now - self.start_step) // self.interval + 1) * self.interval)
+            self.run.kernel.step(target - now)
+            if (target - self.start_step) % self.interval == 0:
+                readings = self.run.kernel.boost_potentials()
+                self.sample_steps.append(target)
+                for label in self.samples:
+                    self.samples[label].append(float(readings[label].energy))
+        if self.run.sink is not None:
+            self.run.sink.write_bytes("gamd_preparation.json", json.dumps({
+                "sample_steps": self.sample_steps, "samples": self.samples,
+                "start_step": self.start_step, "calibration_end": self.total,
+            }, sort_keys=True).encode())
+        if self.run.kernel.current_step >= self.total:
+            self.run.complete_calibration(self.samples)
+        return self.run.kernel.current_step
 
 
 # ---------------------------------------------------------------------------

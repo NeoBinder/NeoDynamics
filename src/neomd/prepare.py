@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Mapping, Protocol, runtime_checkable
 
 import numpy as np
@@ -34,6 +35,8 @@ __all__ = [
     "ForceFieldBuilder",
     "PlainForceFieldBuilder",
     "prepare_system",
+    "export_system_bundle",
+    "verify_prepared_system",
     "load_complex",
     "system_from_gromacs",
     "system_from_amber",
@@ -126,6 +129,10 @@ class ForceFieldBuilder(Protocol):
         ``(openmm System, used_ligand_templates)`` where the second element
         lists the ligand template identifiers the builder registered/used
         (empty for a protein-only build).
+
+        Particle indices follow topology atom indices, as in OpenMM
+        ``createSystem``. A builder must not silently permute physical
+        particles. Extra particles require explicit System virtual sites.
 
     ``openmm_forcefield(ff_kwargs, ligands=None)``
         The openmm ForceField object (ligand/GAFF template generators
@@ -375,7 +382,7 @@ def system_from_amber(config: Mapping):
 
 def _make_system(
     protein_config, ligands_config, forcefield_kwargs, sys_params,
-    additional_config, builder,
+    additional_config, builder, lineage=None,
 ):
     """Build the solvated system (see module docstring for the seams)."""
     _, app, unit, _ = _openmm()
@@ -389,6 +396,16 @@ def _make_system(
     # from ligands
     if protein_config:
         protein = load_complex(protein_config["path"])
+        if lineage is not None:
+            if (lineage.descriptors.get("protein", {}).get("kind") == "canonical_structure"
+                    and protein.getNumFrames() != 1):
+                from .prepared import _error, _raise
+
+                _raise([_error("protein.kind", "canonical_structure requires a single model/frame")])
+            _bind_source(lineage, protein.topology, protein.positions, input_key="protein",
+                         kind="structure", path=protein_config["path"],
+                         loader="openmm.PDBFile" if str(protein_config["path"]).endswith(".pdb")
+                         else "openmm.PDBxFile")
         if protein_config.get("custom_res_bonds"):
             custom_bonds(
                 protein.topology, protein.positions, protein_config["custom_res_bonds"]
@@ -411,23 +428,36 @@ def _make_system(
     forcefield_kwargs = dict(forcefield_kwargs or {})
 
     if ligands:
+        ligand_source_bytes = ([ligand.to_json().encode() for ligand in ligands]
+                               if lineage is not None else None)
         # give unique names for all atoms in the molecule, so that we don't
         # need to rename them when generating topology and template
         for ligand in ligands:
             ligand.generate_unique_atom_names(suffix="")
         for lig_i, ligand_mol in enumerate(ligands):
+            ligand_topology = ligand_mol.to_topology().to_openmm()
+            if lineage is not None:
+                info = (list(ligands_config.values())[lig_i]
+                        if isinstance(ligands_config, Mapping) else {})
+                _bind_source(lineage, ligand_topology, ligands_pos_opmm_unit[lig_i],
+                             input_key=f"ligand:{lig_i}", kind="ligand", path=info.get("path"),
+                             data=ligand_source_bytes[lig_i], loader="openff.Molecule.to_openmm")
             if modeller is None:
                 modeller = app.Modeller(
-                    ligand_mol.to_topology().to_openmm(),
+                    ligand_topology,
                     ligands_pos_opmm_unit[lig_i],
                 )
             else:
                 modeller.add(
-                    ligand_mol.to_topology().to_openmm(),
+                    ligand_topology,
                     ligands_pos_opmm_unit[lig_i],
                 )
             _res = [res for res in modeller.topology.residues()][-1]
             _res.name = ligand_mol.name
+
+    if lineage is not None:
+        lineage.bind_assembled(modeller.topology, modeller.positions.value_in_unit(unit.nanometer),
+                               allow_copied_atoms=True)
 
     # if didn't get box_vectors from protein, get it from ligands
     if modeller.getTopology().getPeriodicBoxVectors():
@@ -500,6 +530,10 @@ def _make_system(
                         else:
                             resname_ls[resid - 1] = resname
         resvariant = modeller.addHydrogens(variants=resname_ls)
+        if lineage is not None:
+            lineage.observe(modeller.topology, modeller.positions.value_in_unit(unit.nanometer),
+                            operation="add_hydrogens")
+            lineage.steps[-1]["residue_variants"] = resvariant
         for index, res in enumerate(modeller.topology.residues()):
             if resvariant[index] is None:
                 continue
@@ -516,12 +550,19 @@ def _make_system(
         move_vec = box_center_vec - modeller.positions.mean()
         for i in range(len(modeller.positions)):
             modeller.positions[i] += move_vec
+        if lineage is not None:
+            lineage.translate(modeller.positions.value_in_unit(unit.nanometer),
+                              move_vec.value_in_unit(unit.nanometer))
     if additional_config.get("add_solv_ions"):
         modeller.addSolvent(
             _need_forcefield(),
             boxVectors=box_vectors,
             ionicStrength=additional_config.get("ion_Strength") * unit.molar,
         )
+        if lineage is not None:
+            lineage.observe(modeller.topology, modeller.positions.value_in_unit(unit.nanometer),
+                            operation="add_solvent")
+            lineage.steps[-1]["ionic_strength_molar"] = additional_config.get("ion_Strength")
     sys_args = sys_params_from_config(sys_params)
     system, used_ligand_templates = builder.build(
         modeller.topology, modeller.positions, ligands,
@@ -535,7 +576,8 @@ def _make_system(
 
 
 def prepare_system(config: Mapping, *, forcefield: ForceFieldBuilder | None = None,
-                   gaff: Callable[[], Any] | None = None) -> SystemBundle:
+                   gaff: Callable[[], Any] | None = None,
+                   prepared_export: Mapping | None = None) -> SystemBundle:
     """Prepare a system and write it to ``config["output_dir"]``.
 
     ``config`` is the prepared config dict (a path is NOT accepted —
@@ -562,7 +604,10 @@ def prepare_system(config: Mapping, *, forcefield: ForceFieldBuilder | None = No
     mode reports without gating — strict mode raises
     :class:`~neomd.errors.StructureQualityError` after the report lands).
 
-    Returns the :class:`SystemBundle` pointing at the written files.
+    ``prepared_export={}`` additionally exports an immutable scientific bundle;
+    optional ``sources`` bind client UUIDs to verified loader input positions.
+    The returned bundle's ``prepared_manifest`` names its manifest. Omitting
+    this keyword preserves the existing preparation behavior and artifacts.
     """
     # lazy: system.py re-exports this module's names, so importing its
     # helpers at module level would be circular
@@ -573,6 +618,9 @@ def prepare_system(config: Mapping, *, forcefield: ForceFieldBuilder | None = No
         raise ConfigValueError(
             f"prepare config must be a mapping, got {type(config).__name__}")
     config = dict(config)
+    from .prepared import PreparationLineage
+
+    lineage = None if prepared_export is None else PreparationLineage(prepared_export)
     output_dir = config.get("output_dir")
     if not output_dir or not str(output_dir).strip():
         raise ConfigValueError(
@@ -583,9 +631,17 @@ def prepare_system(config: Mapping, *, forcefield: ForceFieldBuilder | None = No
     if config.get("from_gromacs"):
         top, pos, system, ligands = system_from_gromacs(config["from_gromacs"])
         used_ligand_templates = None
+        if lineage is not None:
+            _bind_source(lineage, top, pos, input_key="gromacs", kind="gromacs",
+                         path=config["from_gromacs"]["gro"],
+                         loader="openmm.GromacsTopFile+GromacsGroFile")
     elif config.get("from_amber"):
         top, pos, system, ligands = system_from_amber(config["from_amber"])
         used_ligand_templates = None
+        if lineage is not None:
+            _bind_source(lineage, top, pos, input_key="amber", kind="amber",
+                         path=config["from_amber"]["inpcrd"],
+                         loader="openmm.AmberPrmtopFile+AmberInpcrdFile")
     else:
         builder = forcefield if forcefield is not None \
             else _default_forcefield_builder(gaff)
@@ -599,6 +655,7 @@ def prepare_system(config: Mapping, *, forcefield: ForceFieldBuilder | None = No
             sys_params=config.get("system_params"),
             additional_config=config.get("additional"),
             builder=builder,
+            lineage=lineage,
         )
         top = modeller.topology
         pos = modeller.positions
@@ -647,4 +704,270 @@ def prepare_system(config: Mapping, *, forcefield: ForceFieldBuilder | None = No
         qc_config=config.get("qc"),
         output_dir=output_dir,
     )
+    if lineage is not None:
+        from dataclasses import replace
+
+        manifest = _publish_prepared(lineage, bundle, top, pos, system, config,
+                                     Path(output_dir) / "prepared")
+        bundle = replace(bundle, prepared_manifest=manifest)
     return bundle
+
+
+def _bind_source(lineage, topology, positions, *, input_key, kind, path=None,
+                 data=None, loader):
+    openmm, _, unit, _ = _openmm()
+    version = openmm.__version__
+    if loader.startswith("openff"):
+        from importlib.metadata import version as package_version
+
+        version = package_version("openff-toolkit")
+    lineage.append_source(topology, positions.value_in_unit(unit.nanometer),
+                          input_key=input_key, kind=kind, source_path=path, source_bytes=data,
+                          loader={"name": loader, "version": version,
+                                  "atom_order": "preparation_input"})
+
+
+def _particle_inventory(system, positions, topology_particle_indices=None):
+    """Export public System data and ask OpenMM to evaluate virtual positions.
+
+    A force-free scratch System computes virtual sites without changing the
+    prepared System, constructing its production integrator, or taking steps.
+    Extra particles must be declared virtual sites; topology order is the
+    documented OpenMM createSystem order unless the importer supplies a map.
+    """
+    openmm, _, unit, _ = _openmm()
+    from .prepared import _error, _raise
+
+    count = system.getNumParticles()
+    initial = np.asarray(positions.value_in_unit(unit.nanometer), dtype=np.float64)
+    mapping = list(range(len(initial))) if topology_particle_indices is None else list(topology_particle_indices)
+    if (len(mapping) != len(initial) or len(set(mapping)) != len(mapping)
+            or any(isinstance(i, bool) or not isinstance(i, int) or not 0 <= i < count for i in mapping)):
+        _raise([_error("topology_particle_indices", "must uniquely map each topology atom into the System")])
+    coords = np.zeros((count, 3), dtype=np.float64)
+    coords[mapping] = initial
+    mapped_indices = set(mapping)
+    inventory, clones = [], {}
+    for i in range(count):
+        item = {"mass_dalton": system.getParticleMass(i).value_in_unit(unit.dalton)}
+        if system.isVirtualSite(i):
+            site = system.getVirtualSite(i)
+            parents = [site.getParticle(j) for j in range(site.getNumParticles())]
+            desc = {"type": type(site).__name__, "parent_indices": parents}
+            if isinstance(site, (openmm.TwoParticleAverageSite, openmm.ThreeParticleAverageSite)):
+                weights = [site.getWeight(j) for j in range(site.getNumParticles())]
+                desc["weights"] = weights
+                clone = type(site)(*parents, *weights)
+            elif isinstance(site, openmm.OutOfPlaneSite):
+                weights = [site.getWeight12(), site.getWeight13(), site.getWeightCross()]
+                desc.update(weights=weights, cross_weight_unit="1/nm")
+                clone = openmm.OutOfPlaneSite(*parents, *weights)
+            elif isinstance(site, openmm.LocalCoordinatesSite):
+                origin, x, y = site.getOriginWeights(), site.getXWeights(), site.getYWeights()
+                local = site.getLocalPosition()
+                desc.update(origin_weights=list(origin), x_weights=list(x), y_weights=list(y),
+                            local_position_nm=list(local.value_in_unit(unit.nanometer)))
+                clone = openmm.LocalCoordinatesSite(parents, origin, x, y, local)
+            else:
+                _raise([_error(f"particles[{i}]", f"unsupported virtual-site class {type(site).__name__}")])
+            item["virtual_site"] = desc
+            clones[i] = clone
+        elif i not in mapped_indices:
+            _raise([_error(f"particles[{i}]", "non-virtual particle has no topology correspondence")])
+        inventory.append(item)
+    if clones:
+        scratch = openmm.System()
+        for i in range(count):
+            scratch.addParticle(0 if i in clones else 1)
+        for i, site in clones.items():
+            scratch.setVirtualSite(i, site)
+        integrator = openmm.VerletIntegrator(0.001 * unit.picosecond)
+        context = openmm.Context(scratch, integrator, openmm.Platform.getPlatformByName("Reference"))
+        try:
+            context.setPositions(coords * unit.nanometer)
+            context.computeVirtualSites()
+            coords = context.getState(getPositions=True).getPositions(asNumpy=True).value_in_unit(unit.nanometer)
+        finally:
+            del context, integrator
+    return inventory, coords
+
+
+def _publish_prepared(lineage, bundle, topology, positions, system, config, directory,
+                      topology_particle_indices=None):
+    _, _, unit, _ = _openmm()
+    from .prepared import file_digest
+
+    artifacts = {"system.xml": bundle.system_xml,
+                 "topology" + Path(bundle.topology_file).suffix: bundle.topology_file}
+    parent = Path(bundle.system_xml).parent
+    for name in ("ligand.json", "qc_report.json"):
+        if (parent / name).is_file():
+            artifacts[name] = parent / name
+
+    def normalize(value):
+        if isinstance(value, Mapping):
+            return {str(k): normalize(v) for k, v in value.items() if k != "output_dir"}
+        if isinstance(value, (list, tuple)):
+            return [normalize(v) for v in value]
+        if isinstance(value, (str, Path)):
+            path = Path(value)
+            try:
+                if path.is_file():
+                    name = f"inputs/{len(artifacts):04d}{path.suffix}"
+                    artifacts[name] = path
+                    return {"artifact": name, "sha256": file_digest(path)}
+                if path.is_dir():
+                    return {"external_directory_name": path.name,
+                            "coverage": "effective parameters captured in system.xml; directory bytes not captured"}
+            except OSError:
+                pass
+            return str(value)
+        if hasattr(value, "to_json"):
+            return json.loads(value.to_json())
+        return value
+
+    parameters = {"preparation": normalize(config), "system_modifications": bundle.modifications,
+                  "system_scope": "prepared System before runtime Plan modifications and method biases",
+                  "version_provenance": "export environment; imported files do not imply their original producer versions",
+                  "qc_report_artifact": "qc_report.json" if "qc_report.json" in artifacts else None,
+                  "particle_order_contract": "OpenMM topology order" if topology_particle_indices is None
+                  else "explicit importer topology_particle_indices",
+                  "system_constraints": system.getNumConstraints(),
+                  "force_types": [type(force).__name__ for force in system.getForces()]}
+    inventory, coords = _particle_inventory(system, positions, topology_particle_indices)
+    box = system.getDefaultPeriodicBoxVectors()
+    return lineage.publish(directory, topology=topology,
+                           positions_nm=positions.value_in_unit(unit.nanometer), particles=inventory,
+                           coordinates_nm=coords,
+                           box_vectors_nm=[list(v.value_in_unit(unit.nanometer)) for v in box]
+                           if system.usesPeriodicBoundaryConditions() else None,
+                           artifacts=artifacts, parameters=parameters,
+                           topology_particle_indices=topology_particle_indices)
+
+
+def export_system_bundle(bundle, directory, *, sources=None, topology_particle_indices=None):
+    """Export an existing prepared pair without inventing pre-preparation lineage.
+
+    Source indices belong to this prepared topology, not an earlier molecule.
+    Importers whose particle order differs from topology order must supply the
+    explicit map. Returns a new SystemBundle with ``prepared_manifest`` set.
+    """
+    from dataclasses import replace
+
+    from .prepared import PreparationLineage
+
+    _, _, _, serializer = _openmm()
+    structure = load_complex(str(bundle.topology_file))
+    system = serializer.deserialize(Path(bundle.system_xml).read_text())
+    lineage = PreparationLineage({"sources": [] if sources is None else sources})
+    _bind_source(lineage, structure.topology, structure.positions, input_key="prepared", kind="prepared",
+                 path=bundle.topology_file, loader="openmm.PDBFile" if str(bundle.topology_file).endswith(".pdb")
+                 else "openmm.PDBxFile")
+    manifest = _publish_prepared(lineage, bundle, structure.topology, structure.positions,
+                                 system, {}, directory, topology_particle_indices)
+    return replace(bundle, prepared_manifest=manifest)
+
+
+def verify_prepared_system(manifest_path, *, expected_sha256=None, profile=None):
+    """Verify actual System/topology correspondence after bundle byte validation.
+
+    For untrusted intake the caller MUST approve the XML force/type vocabulary
+    before calling: OpenMM deserializes it here. No plugin or service policy is
+    implemented by this generic engine API. Identity is positional through the
+    explicit topology map, never recovered from atom names. Coordinate checks
+    allow only the prepared PDB/PDBx writer's decimal quantization (0.000051 /
+    0.0000051 nm); masses/site parameters retain exact serialized float values.
+    Returns the verified manifest; physical stability still needs a Context/QC
+    gate and is not certified by this structural correspondence check.
+
+    ``profile=None`` retains generic verification. The explicit
+    ``canonical_protein_load_v1`` profile additionally verifies an unchanged
+    single canonical protein load in v2, not preparation or forcefield fitness.
+    ``canonical_protein_group_v1`` verifies only LOAD followed by deterministic
+    protein/source-water grouping, not repair or assembly-report semantics.
+    ``canonical_protein_repair_v1`` independently checks LOAD→GROUP→heavy repair
+    consistency, not proof of backend execution or physical fitness.
+    """
+    from .prepared import _error, _raise, read_prepared_bundle
+
+    if profile not in (None, "canonical_protein_load_v1", "canonical_protein_group_v1",
+                       "canonical_protein_repair_v1"):
+        _raise([_error("profile", "unsupported prepared verification profile")])
+    manifest = read_prepared_bundle(manifest_path, expected_sha256=expected_sha256)
+    root = Path(manifest_path).resolve().parent
+    names = [name for name in manifest["artifacts"] if name in {"topology.pdb", "topology.pdbx"}]
+    if len(names) != 1 or "system.xml" not in manifest["artifacts"]:
+        _raise([_error("artifacts", "exactly one topology and a System XML are required")])
+    _, _, unit, serializer = _openmm()
+    errors = []
+    try:
+        system = serializer.deserialize((root / "system.xml").read_text())
+        structure = load_complex(str(root / names[0]))
+    except Exception as error:
+        raise ValueError("prepared System or topology cannot be loaded") from error
+    if system.getNumParticles() != manifest["particle_count"]:
+        errors.append(_error("particle_count", "actual System particle count differs from manifest"))
+    atoms = list(structure.topology.atoms())
+    if len(atoms) != manifest["topology_atom_count"]:
+        errors.append(_error("topology_atom_count", "actual topology atom count differs from manifest"))
+    _raise(errors)  # Remaining row comparisons require matching dimensions.
+    mapping = manifest["topology_particle_indices"]
+    coords = np.fromfile(root / manifest["coordinates"]["artifact"], dtype="<f8").reshape((-1, 3))
+    inventory, evaluated = _particle_inventory(system, coords[mapping] * unit.nanometer, mapping)
+    for i, (actual, declared) in enumerate(zip(inventory, manifest["particles"])):
+        if actual["mass_dalton"] != declared["mass_dalton"]:
+            errors.append(_error(f"particles[{i}].mass_dalton", "actual System mass differs from manifest"))
+        actual_site = actual.get("virtual_site")
+        declared_site = declared.get("virtual_site")
+        if declared_site is not None:
+            declared_site = {key: value for key, value in declared_site.items() if key != "parent_ids"}
+        if actual_site != declared_site:
+            errors.append(_error(f"particles[{i}].virtual_site", "actual System virtual-site definition differs from manifest"))
+    if not np.allclose(evaluated, coords, rtol=0, atol=1e-12):
+        errors.append(_error("coordinates", "virtual-site positions disagree with the actual System"))
+    loaded_coords = np.asarray(structure.positions.value_in_unit(unit.nanometer), dtype=np.float64)
+    tolerance = 0.000051 if names[0].endswith(".pdb") else 0.0000051
+    if not np.allclose(loaded_coords, coords[mapping], rtol=0, atol=tolerance):
+        errors.append(_error("topology_particle_indices", "topology coordinates do not match declared System rows within writer precision"))
+    residues = {row["residue_id"]: row for row in manifest["residues"]}
+    actual_residues = {}
+    for i, (atom, declared) in enumerate(zip(atoms, manifest["atoms"])):
+        element = None if atom.element is None else atom.element.symbol
+        if element != declared["element"] or atom.name != declared["name"]:
+            errors.append(_error(f"atoms[{i}]", "topology element/name differs at this declared row"))
+        residue = residues[declared["residue_id"]]
+        if atom.residue.name != residue["name"]:
+            errors.append(_error(f"atoms[{i}].residue_id", "topology residue name differs at this declared row"))
+        actual_residues.setdefault(atom.residue.index, set()).add(declared["residue_id"])
+    if (any(len(ids) != 1 for ids in actual_residues.values())
+            or len({next(iter(ids)) for ids in actual_residues.values()}) != len(actual_residues)):
+        errors.append(_error("residues", "topology residue membership differs from manifest"))
+    ids = [row["atom_id"] for row in manifest["atoms"]]
+    actual_bonds = {frozenset((ids[a.index], ids[b.index])) for a, b in structure.topology.bonds()}
+    declared_bonds = {frozenset(row["atom_ids"]) for row in manifest["bonds"]}
+    if actual_bonds != declared_bonds:
+        errors.append(_error("bonds", "topology bond endpoints differ from manifest"))
+    parameters = manifest["parameters"]
+    if system.getNumConstraints() != parameters["system_constraints"]:
+        errors.append(_error("parameters.system_constraints", "actual constraint count differs from manifest"))
+    if [type(force).__name__ for force in system.getForces()] != parameters["force_types"]:
+        errors.append(_error("parameters.force_types", "actual force inventory differs from manifest"))
+    box = manifest["box_vectors_nm"]
+    actual_box = [list(v.value_in_unit(unit.nanometer)) for v in system.getDefaultPeriodicBoxVectors()]
+    if system.usesPeriodicBoundaryConditions() != (box is not None) or (
+            box is not None and not np.allclose(actual_box, box, rtol=0, atol=1e-12)):
+        errors.append(_error("box_vectors_nm", "actual periodic System box differs from manifest"))
+    _raise(errors)
+    if profile == "canonical_protein_load_v1":
+        from .prepared_protein import verify_canonical_protein_load
+
+        verify_canonical_protein_load(manifest, root, structure, coords)
+    elif profile == "canonical_protein_group_v1":
+        from .prepared_grouping import verify_canonical_protein_group
+
+        verify_canonical_protein_group(manifest, root, structure, coords)
+    elif profile == "canonical_protein_repair_v1":
+        from .prepared_repair import verify_repair_stage
+
+        verify_repair_stage(manifest, root, structure, coords)
+    return manifest

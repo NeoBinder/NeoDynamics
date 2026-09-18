@@ -1,0 +1,36 @@
+data_cell
+# Created with OpenMM 8.6, 2026-09-07
+#
+loop_
+_atom_site.group_PDB
+_atom_site.id
+_atom_site.type_symbol
+_atom_site.label_atom_id
+_atom_site.label_alt_id
+_atom_site.label_comp_id
+_atom_site.label_asym_id
+_atom_site.label_entity_id
+_atom_site.label_seq_id
+_atom_site.pdbx_PDB_ins_code
+_atom_site.Cartn_x
+_atom_site.Cartn_y
+_atom_site.Cartn_z
+_atom_site.occupancy
+_atom_site.B_iso_or_equiv
+_atom_site.Cartn_x_esd
+_atom_site.Cartn_y_esd
+_atom_site.Cartn_z_esd
+_atom_site.occupancy_esd
+_atom_site.B_iso_or_equiv_esd
+_atom_site.pdbx_formal_charge
+_atom_site.auth_seq_id
+_atom_site.auth_comp_id
+_atom_site.auth_asym_id
+_atom_site.auth_atom_id
+_atom_site.pdbx_PDB_model_num
+ATOM      1 O   O    . ALA  A ?    17 .    -4.3430     3.7540    -1.4900  0.0  0.0  ?  ?  ?  ?  ?  .     17  ALA A    O     1
+ATOM      2 C   C    . ALA  A ?    17 .    -3.6320     3.8530    -2.4900  0.0  0.0  ?  ?  ?  ?  ?  .     17  ALA A    C     1
+ATOM      3 C   CA   . ALA  A ?    17 .    -2.1260     3.5390    -2.4100  0.0  0.0  ?  ?  ?  ?  ?  .     17  ALA A   CA     1
+ATOM      4 N   N    . ALA  A ?    17 .    -1.8270     2.7100    -1.2420  0.0  0.0  ?  ?  ?  ?  ?  .     17  ALA A    N     1
+ATOM      5 C   CB   . ALA  A ?    17 .    -2.0061     5.0110    -1.3016  0.0  0.0  ?  ?  ?  ?  ?  .     17  ALA A   CB     1
+ATOM      6 O   OXT  . ALA  A ?    17 .    -4.5469     3.3020     0.5747  0.0  0.0  ?  ?  ?  ?  ?  .     17  ALA A  OXT     1

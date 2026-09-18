@@ -1,0 +1,270 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:neodyn:assembly-report:v1:report",
+  "title": "NeoDynamics explicit protein System assembly report",
+  "description": "Independently versioned System-only evidence inside a prepared bundle. The containing manifest binds this report; the report binds its prepared revision and every other artifact, never itself or the manifest. It does not certify preparation history, sequence completeness, producer authenticity or simulation readiness.",
+  "$comment": "Structural validation is not semantic verification. The runtime must require an exact integer version, finite numbers, safe artifact paths, complete bindings, matching counts and indices, approved resource bytes and actual System reconstruction in the qualified engine environment. JSON Schema uses standard JSON numerical equivalence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "report_type",
+    "scope",
+    "prepared_revision_id",
+    "bindings",
+    "engine",
+    "parameters",
+    "resources",
+    "effective"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "report_type": {
+      "const": "protein_system_assembly"
+    },
+    "scope": {
+      "const": "system_only"
+    },
+    "prepared_revision_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "bindings": {
+      "type": "object",
+      "description": "Exact descriptors of every non-report artifact in the containing prepared manifest, including all canonical sources. Source artifact names are defined by that manifest rather than inferred here.",
+      "required": [
+        "system.xml",
+        "topology.pdbx",
+        "mapping.json",
+        "coordinates.f64le",
+        "forcefield/protein.ff14SB.xml",
+        "forcefield/tip3p_standard.xml"
+      ],
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "not": {
+          "enum": ["assembly-report.json", "manifest.json"]
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/artifact"
+      }
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "const": "openmm"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "parameters": {
+      "$ref": "#/$defs/parameters"
+    },
+    "resources": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": false,
+      "prefixItems": [
+        {
+          "allOf": [
+            {"$ref": "#/$defs/resource"},
+            {
+              "properties": {
+                "role": {"const": "protein"},
+                "resource_id": {"const": "amber/protein.ff14SB.xml"},
+                "artifact": {"const": "forcefield/protein.ff14SB.xml"}
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/resource"},
+            {
+              "properties": {
+                "role": {"const": "water_and_ions"},
+                "resource_id": {"const": "amber/tip3p_standard.xml"},
+                "artifact": {"const": "forcefield/tip3p_standard.xml"}
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "effective": {
+      "$ref": "#/$defs/effective"
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "not": {"const": "00000000-0000-0000-0000-000000000000"}
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "size_bytes"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hydrogen_mass_amu",
+        "constraints",
+        "rigid_water",
+        "remove_cm_motion",
+        "nonbonded_method",
+        "nonbonded_cutoff_nm",
+        "ewald_error_tolerance",
+        "use_dispersion_correction",
+        "switch_distance_nm",
+        "exceptions_use_periodic_boundary_conditions",
+        "flexible_constraints"
+      ],
+      "properties": {
+        "hydrogen_mass_amu": {"type": "number", "const": 4.0},
+        "constraints": {"const": "HBonds"},
+        "rigid_water": {"const": true},
+        "remove_cm_motion": {"const": false},
+        "nonbonded_method": {"const": "pme"},
+        "nonbonded_cutoff_nm": {"type": "number", "const": 1.0},
+        "ewald_error_tolerance": {"type": "number", "const": 0.0005},
+        "use_dispersion_correction": {"const": true},
+        "switch_distance_nm": {"type": "null"},
+        "exceptions_use_periodic_boundary_conditions": {"const": false},
+        "flexible_constraints": {"const": false}
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role", "resource_id", "package", "package_version",
+        "sha256", "size_bytes", "artifact"
+      ],
+      "properties": {
+        "role": {"enum": ["protein", "water_and_ions"]},
+        "resource_id": {
+          "enum": ["amber/protein.ff14SB.xml", "amber/tip3p_standard.xml"]
+        },
+        "package": {"const": "openmmforcefields"},
+        "package_version": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "artifact": {
+          "enum": ["forcefield/protein.ff14SB.xml", "forcefield/tip3p_standard.xml"]
+        }
+      }
+    },
+    "xyz": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {"type": "number"}
+    },
+    "constraint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["particle_indices", "distance_nm"],
+      "properties": {
+        "particle_indices": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "distance_nm": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "effective": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "particle_count", "particle_masses_dalton", "total_mass_dalton",
+        "constraint_count", "constraints", "force_types", "box_vectors_nm",
+        "nonbonded"
+      ],
+      "properties": {
+        "particle_count": {"type": "integer", "minimum": 0},
+        "particle_masses_dalton": {
+          "type": "array",
+          "description": "Actual System particle order; HMR is not applied to rigid-water hydrogens.",
+          "items": {"type": "number", "minimum": 0}
+        },
+        "total_mass_dalton": {"type": "number", "minimum": 0},
+        "constraint_count": {"type": "integer", "minimum": 0},
+        "constraints": {
+          "type": "array",
+          "description": "Actual System constraint order, endpoints and distances.",
+          "items": {"$ref": "#/$defs/constraint"}
+        },
+        "force_types": {
+          "type": "array",
+          "description": "Actual System force order, not a sorted set.",
+          "minItems": 4,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "HarmonicBondForce", "HarmonicAngleForce",
+              "PeriodicTorsionForce", "NonbondedForce"
+            ]
+          }
+        },
+        "box_vectors_nm": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {"$ref": "#/$defs/xyz"}
+        },
+        "nonbonded": {"$ref": "#/$defs/nonbonded"}
+      }
+    },
+    "nonbonded": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "force_index", "method", "cutoff_nm", "ewald_error_tolerance",
+        "use_dispersion_correction", "use_switching_function",
+        "switching_distance_nm", "exceptions_use_periodic_boundary_conditions",
+        "exception_count"
+      ],
+      "properties": {
+        "force_index": {"type": "integer", "minimum": 0, "maximum": 3},
+        "method": {"const": "pme"},
+        "cutoff_nm": {"type": "number", "const": 1.0},
+        "ewald_error_tolerance": {"type": "number", "const": 0.0005},
+        "use_dispersion_correction": {"const": true},
+        "use_switching_function": {"const": false},
+        "switching_distance_nm": {
+          "type": "number",
+          "description": "Actual getter value, retained even while switching is disabled; not a requested active switch distance."
+        },
+        "exceptions_use_periodic_boundary_conditions": {"const": false},
+        "exception_count": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

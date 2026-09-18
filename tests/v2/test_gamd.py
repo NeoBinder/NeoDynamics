@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import replace
 
 # Determinism pin — BEFORE any openmm Context can exist in this process
 # (pytest imports test modules during collection; same rationale as
@@ -27,7 +28,7 @@ import pytest
 
 from neomd import registry
 from neomd.driver import drive
-from neomd.kernel import KernelSpec
+from neomd.kernel import KernelFactory, KernelSpec
 from neomd.kernel._bootstrap import ensure_adapters
 from neomd.kernel.fake import FakeKernel
 from neomd.kernel.port import BoostChannelIR, BoostOps, provides
@@ -405,12 +406,11 @@ def openmm_gamd_config(steps: int, mode: str, directory, **extra) -> dict:
 
 
 @pytest.mark.parametrize("mode", ["total", "dual"])
-@pytest.mark.cuda
 def test_openmm_gamd_ala2(tmp_path, mode):
     directory = tmp_path / mode
     started = time.perf_counter()
     outcome = drive(Plan.from_dict(openmm_gamd_config(160, mode, directory)),
-                    sink=LocalDirSink(directory))
+                    sink=LocalDirSink(directory), kernel_factory=lambda spec: KernelFactory.create(replace(spec, platform="cpu")))
     elapsed = time.perf_counter() - started
 
     assert elapsed < 30.0  # budget: small ala2 fixture, CPU platform
@@ -442,24 +442,22 @@ def test_openmm_gamd_ala2(tmp_path, mode):
     assert [epoch.reason for epoch in manifest.epochs] == ["start", "done:gamd"]
 
 
-@pytest.mark.cuda
 def test_openmm_same_seed_bit_identical_tape(tmp_path):
     def once(directory):
         drive(Plan.from_dict(openmm_gamd_config(140, "total", directory)),
-              sink=LocalDirSink(directory))
+              sink=LocalDirSink(directory), kernel_factory=lambda spec: KernelFactory.create(replace(spec, platform="cpu")))
         return (directory / TAPE_FILENAME).read_text()
 
     assert once(tmp_path / "a") == once(tmp_path / "b")
 
 
-@pytest.mark.cuda
 def test_openmm_dual_isolates_torsions_into_free_group(tmp_path):
     """The ala2 system ships PeriodicTorsionForce in group 0 (shared with
     bonds/angles/nonbonded): dual boost must isolate it — the dihedral
     channel's calibration energy is a plausible torsion energy (~tens of
     kJ/mol), not the total potential."""
     drive(Plan.from_dict(openmm_gamd_config(160, "dual", tmp_path)),
-         sink=LocalDirSink(tmp_path))
+         sink=LocalDirSink(tmp_path), kernel_factory=lambda spec: KernelFactory.create(replace(spec, platform="cpu")))
     cal = json.loads((tmp_path / CALIBRATION_FILENAME).read_text())["channels"]
     assert cal["dihedral"]["vmax"] > 0.0
     # ala2's total potential is deeply negative; a bare torsion sum is not

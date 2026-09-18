@@ -2,7 +2,10 @@
 
 NeoDynamics is the OpenMM molecular-dynamics SDK. New features belong in
 `src/neomd/`; `src/neomd_legacy/` is frozen to bug fixes for its deprecation
-release, including the `neomd2` alias.
+release, including the `neomd2` alias. The interactive service is
+`src/neomd_server/`: engine/CLI code never imports it; the service owns
+session policy, while reusable stepping, scientific preparation and qualified
+physical/method controls remain engine interfaces.
 
 ## Scientific boundaries
 
@@ -21,6 +24,9 @@ release, including the `neomd2` alias.
   Multi-leg orchestration is deferred to 2.x; neither is implicit refactor scope.
 - OpenMM upgrades explicitly update the dependency pin, private-API gate and
   golden recordings. Derive the package version from Git tags via versioningit.
+- All facade spellings compile to the same immutable Plan; validation collects
+  every error with key paths and did-you-mean. New-code tests cross public
+  interfaces (`md_run`, `compile`, `register`, port operations), not internals.
 
 ## Development
 
@@ -33,4 +39,6 @@ squashed PR, never a direct main push; reuse existing action authorization.
 Choose local checks from project tasks and `tests/AGENTS.md`. Update affected
 public docs with behavior changes; architecture rationale belongs in the
 relevant ADR, task notes in ignored `.agents/`. Root instructions have a
-3,000-word ceiling, subfolder instructions 1,000; prefer much less.
+3,000-word ceiling, subfolder instructions 1,000; prefer much less. Before
+deleting documents, present exact candidates/reasons and obtain explicit
+confirmation; preserve live references, rationale and unfinished decisions.

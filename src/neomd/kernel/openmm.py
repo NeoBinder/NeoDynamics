@@ -302,6 +302,21 @@ class OpenMMKernel:
         self.system = _deserialize_system(spec.system_xml)
         _apply_system_modifications(self.system, spec)
         self._structure = _load_structure(spec.topology_file)
+        self._initial_positions = self._structure.positions
+        if spec.initial_positions_nm is not None:
+            positions = np.asarray(spec.initial_positions_nm, dtype=np.float64)
+            if positions.shape != (self.system.getNumParticles(), 3) or not np.isfinite(positions).all():
+                raise ValueError("initial_positions_nm must contain one finite xyz row per System particle")
+            self._initial_positions = positions * unit.nanometer
+        self._topology_particle_indices = spec.topology_particle_indices
+        if self._topology_particle_indices is not None:
+            indices = self._topology_particle_indices
+            if (len(indices) != self._structure.topology.getNumAtoms() or len(set(indices)) != len(indices)
+                    or any(isinstance(i, bool) or not isinstance(i, int)
+                           or not 0 <= i < self.system.getNumParticles() for i in indices)):
+                raise ValueError("topology_particle_indices must map each topology atom to a unique System particle")
+            if spec.ml_region and tuple(indices) != tuple(range(self.system.getNumParticles())):
+                raise ValueError("ML/MM requires a complete identity topology-particle mapping")
         if spec.ml_region:
             # ML/MM (ADR-0004): mechanical embedding + NNP force, pre-Context.
             # The structure is loaded first — the mock NNP's tethers anchor to
@@ -310,7 +325,7 @@ class OpenMMKernel:
             # round-trip); everything downstream (contexts, install_bias group
             # allocation) sees the assembled one.
             self.system = _assemble_ml_region(
-                self.system, spec, self._structure.positions,
+                self.system, spec, self._initial_positions,
                 self._structure.topology)
         # eager validation of integrator/platform without creating a Context
         self._integrator = _make_integrator(spec)
@@ -320,6 +335,8 @@ class OpenMMKernel:
         #: label -> (CustomCVForce, tabulated function, widths, limits)
         self._tables: dict[str, tuple] = {}
         self._dof_cache: int | None = None
+        self._interaction_force = None
+        self._interaction_particles = set()
         self._simulation: app.Simulation | None = None
         #: molecule connectivity (MoleculeGroups capability), from topology
         #: bonds; derived once on first ask
@@ -395,7 +412,7 @@ class OpenMMKernel:
             elif state:
                 simulation.loadState(state)
             else:
-                simulation.context.setPositions(self._structure.positions)
+                simulation.context.setPositions(self._initial_positions)
                 simulation.context.setVelocitiesToTemperature(
                     self.spec.temperature, self.spec.seed)
             self._simulation = simulation
@@ -501,6 +518,44 @@ class OpenMMKernel:
     # ------------------------------------------------------------------
     # dynamics
     # ------------------------------------------------------------------
+
+    def reserve_interactions(self) -> None:
+        """Reserve one zero-strength force before the Context is created."""
+        if self._interaction_force is not None:
+            return
+        if self._simulation is not None or self._boost:
+            raise RuntimeError("reserve interactions before Context/boost creation")
+        force = openmm.CustomExternalForce(
+            "-fx*x-fy*y-fz*z+0.5*k*((x-x0)^2+(y-y0)^2+(z-z0)^2)+offset")
+        for name in ("fx", "fy", "fz", "x0", "y0", "z0", "k", "offset"):
+            force.addPerParticleParameter(name)
+        for index in range(self.num_particles):
+            force.addParticle(index, [0.0] * 8)
+        group = self._pick_force_group()
+        force.setForceGroup(group)
+        self.system.addForce(force)
+        self._installed.append((group, force))
+        self._interaction_force = force
+
+    def set_interactions(self, particles) -> None:
+        if self._interaction_force is None:
+            raise RuntimeError("reserve_interactions must be called first")
+        normalized = {}
+        for index, values in particles.items():
+            values = np.asarray(values, dtype=float)
+            if values.shape == (7,):
+                values = np.append(values, 0.0)
+            if (isinstance(index, bool) or not isinstance(index, int)
+                    or not 0 <= index < self.num_particles or values.shape != (8,)
+                    or not np.isfinite(values).all() or values[6] < 0):
+                raise ValueError("invalid particle interaction index/parameters")
+            normalized[index] = values.tolist()
+        for index in self._interaction_particles | set(normalized):
+            self._interaction_force.setParticleParameters(
+                index, index, normalized.get(index, [0.0] * 8))
+        self._interaction_particles = set(normalized)
+        if self._simulation is not None:
+            self._interaction_force.updateParametersInContext(self._simulation.context)
 
     def minimize(self, tolerance: float = 10.0, max_iterations: int = 10000) -> None:
         self.simulation.minimizeEnergy(
@@ -1029,6 +1084,9 @@ class OpenMMKernel:
         """
         state = self.simulation.context.getState(getPositions=True)
         positions = state.getPositions()
+        if self._topology_particle_indices is not None:
+            positions = np.asarray(positions.value_in_unit(unit.nanometer))[
+                list(self._topology_particle_indices)] * unit.nanometer
         if self.system.usesPeriodicBoundaryConditions():
             # periodic systems: carry the RUNTIME box into the header.
             # Vacuum systems keep the input

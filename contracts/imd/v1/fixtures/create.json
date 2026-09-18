@@ -1,0 +1,15 @@
+{
+  "request_id": "00000000-0000-4000-8000-000000000003",
+  "session_id": "00000000-0000-4000-8000-000000000004",
+  "payload": {
+    "prepared": {
+      "bundle_id": "00000000-0000-4000-8000-000000000001",
+      "prepared_revision_id": "00000000-0000-4000-8000-000000000002",
+      "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mapping_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "protocol_id": "00000000-0000-4000-8000-000000000005",
+    "method": "md"
+  },
+  "payload_sha256": "91811336843c355f2d7facebfa4b53b6bd7ce037d3a5f170bf307b5240d2f17e"
+}

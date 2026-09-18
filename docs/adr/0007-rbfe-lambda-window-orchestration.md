@@ -4,7 +4,7 @@
 - 决策者：项目维护者
 - 关联：[ADR-0003](0003-rbfe-technology-selection.md)（RBFE 选型，本文的母决策）、
   [issue #8](https://github.com/NeoBinder/NeoDynamics/issues/8)、
-  AGENTS.md §Settled decisions（#5 双轨、#8 多腿编排、#9 fake 不证物理）
+  [架构约束](../architecture.md#settled-decisions)（双轨、多腿编排边界、fake 不证物理）
 - 前置：`neomd.analysis`、Boresch restraint triple
 
 ## 背景
@@ -15,7 +15,7 @@ Context 全局参数、BAR/MBAR 落 analysis）。RBFE 实装时剩下三个必�
 
 1. du 值（同一构型在相邻 λ 下的势能）怎么从 kernel 拿出来；
 2. du 带的 artifact 形状（BAR/MBAR 的输入，要能 resume）；
-3. λ 阶梯（N 个窗口）怎么编——多腿编排（settled decision #8）的第一个
+3. λ 阶梯（N 个窗口）怎么编——多腿编排（多腿编排边界决策）的第一个
    真实 revisit 该长什么样。
 
 ## 决策
@@ -51,7 +51,7 @@ colvar/smd 带同一所有者。势能含全部项（alchemical、boresch 锚…
 
 ### 3. `neomd.rbfe.run_ladder` —— 受控的薄编排，不是通用多腿
 
-settled decision #8（min→eq→prod 推到 2.x）的**最小受控 revisit**，
+多腿编排边界决策（min→eq→prod 推到 2.x）的**最小受控 revisit**，
 形状刻意收窄：
 
 - 输入一个 `method: "rbfe"` 的 Plan（含 `alchemical.ladder`），输出
@@ -72,7 +72,7 @@ fake kernel 没有非键物理可 alchemify，窗口 plan 携带
 `alchemical.mock_bias`（两原子组 + 力常数 + 平衡距离）：
 `lambda_alchemical*(k/2)*(d - r0)^2`，λ 是该窗口参数值。
 CI 用它证明编排/resume/du 带/BAR-MBAR 管线的确定性；softcore 物理由
-openmm + 基准负责（decision #9 的 alchemical 版代价）。
+openmm + 基准负责（金样仅证行为原则的 alchemical 版代价）。
 
 ### 5. 分析 —— BAR/MBAR 双估计器，numpy-only，pymbar 只作 gated 对拍
 

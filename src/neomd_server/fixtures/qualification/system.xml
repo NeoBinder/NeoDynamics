@@ -1,0 +1,41 @@
+<?xml version="1.0" ?>
+<System openmmVersion="8.6" type="System" version="1">
+	<PeriodicBoxVectors>
+		<A x="2" y="0" z="0"/>
+		<B x="0" y="2" z="0"/>
+		<C x="0" y="0" z="2"/>
+	</PeriodicBoxVectors>
+	<Particles>
+		<Particle mass="39.9"/>
+		<Particle mass="39.9"/>
+		<Particle mass="39.9"/>
+		<Particle mass="39.9"/>
+		<Particle mass="39.9"/>
+		<Particle mass="39.9"/>
+	</Particles>
+	<Constraints/>
+	<Forces>
+		<Force energy="lambda_sterics*0.5*k*(r-r0)^2" forceGroup="0" name="CustomBondForce" type="CustomBondForce" usesPeriodic="0" version="3">
+			<PerBondParameters>
+				<Parameter name="k"/>
+				<Parameter name="r0"/>
+			</PerBondParameters>
+			<GlobalParameters>
+				<Parameter default="1" name="lambda_sterics"/>
+			</GlobalParameters>
+			<EnergyParameterDerivatives/>
+			<Bonds>
+				<Bond p1="0" p2="1" param1="100" param2=".3"/>
+				<Bond p1="1" p2="2" param1="100" param2=".3"/>
+				<Bond p1="2" p2="3" param1="100" param2=".3"/>
+				<Bond p1="3" p2="4" param1="100" param2=".33166247903553997"/>
+				<Bond p1="4" p2="5" param1="100" param2=".24494897427831783"/>
+			</Bonds>
+		</Force>
+		<Force forceGroup="0" name="PeriodicTorsionForce" type="PeriodicTorsionForce" usesPeriodic="0" version="2">
+			<Torsions>
+				<Torsion k=".1" p1="0" p2="1" p3="2" p4="3" periodicity="1" phase="0"/>
+			</Torsions>
+		</Force>
+	</Forces>
+</System>

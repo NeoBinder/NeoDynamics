@@ -314,7 +314,6 @@ def test_mock_forces_take_groups_from_the_one_allocator(tiny):
                                                      rel=1e-9)
 
 
-@pytest.mark.cuda
 def test_mock_ml_region_runs_minimizes_and_survives_md_run(tiny, tmp_path):
     mixed = KernelFactory.create(openmm_spec(
         *tiny, seed=7, ml_region={"indices": [0, 1], "model": {"type": "mock",
@@ -337,7 +336,7 @@ def test_mock_ml_region_runs_minimizes_and_survives_md_run(tiny, tmp_path):
         "input_files": {"complex": pdb, "system": system_xml},
         "output": {"output_dir": str(tmp_path / "out"), "report_interval": 1},
         "ml_region": {"indices": [0, 1], "model": {"type": "mock", **TINY_MOCK}},
-    })
+    }, platform="cpu")
     assert outcome.results[0].steps_done == 3
     assert outcome.results[0].final_energy == outcome.results[0].final_energy
 

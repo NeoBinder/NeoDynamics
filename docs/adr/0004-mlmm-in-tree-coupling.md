@@ -2,7 +2,7 @@
 
 - 状态：已确认（2026-09-03，issue #12 ML/MM 部分）
 - 决策者：项目维护者
-- 关联：[issue #12](https://github.com/NeoBinder/NeoDynamics/issues/12)（ML/MM，含 openmm-ml 评估）；[AGENTS.md](https://github.com/NeoBinder/NeoDynamics/blob/main/AGENTS.md) 固定决策 #2（物理逐字移植）、#7（双适配器纪律）、#10（openmm 版本 pin 纪律）；ADR-0001
+- 关联：[issue #12](https://github.com/NeoBinder/NeoDynamics/issues/12)（ML/MM，含 openmm-ml 评估）；[科学约束](../architecture.md#settled-decisions)与[版本验证门禁](../development.md#numerical-and-hardware-gates)（物理逐字移植、双适配器纪律、OpenMM 显式升级）；ADR-0001
 
 ## 背景
 
@@ -26,7 +26,7 @@ churn 恰集中在注册表层。真正绕不开的底座是 openmm-torch（Torc
    知识，不满足插件的判据。
 
 2. **自研轻量耦合模块 `src/neomd/ml/`，openmm-ml 不进依赖。** 机械嵌入
-   （mechanical embedding）自 openmm-ml **逐字移植**（固定决策 #2 的纪律）：
+   （mechanical embedding）自 openmm-ml **逐字移植**（物理逐字移植纪律）：
    `embeddings/mechanicalembedding.py`（非插值路径）+ `embeddings/utilities.py`
    的 `removeBonds` / `addCustomNonbondedExclusions`，MIT，文件头带 attribution
    与源 commit。模型侧是**通用 TorchScript 加载器**（openmm-torch
@@ -77,7 +77,7 @@ ml_region:
 - 验证走 collect-all（yaml key path + did-you-mean），`neomd validate
   --check-files` 额外做 indices 界内与 path 存在性检查。
 
-## 两适配器纪律（固定决策 #7 的 ML 版）
+## 两适配器纪律（双适配器纪律的 ML 版）
 
 - 生产 = openmm 适配器 + openmm-torch TorchForce + 用户自有/公开 TorchScript 模型；
 - CI（默认门）= 同一 openmm 适配器 + mock NNP——**无 torch 装机**即可走通
@@ -95,7 +95,7 @@ ml_region:
 - **结论**：`ml` 环境临时 pin `openmm = "8.5.*"` + `openmm-torch = "1.5.*"` +
   `pytorch = "2.12.*"`（solve-group `ml`，与 default/test/dev 的 8.6 隔离；
   ml 门只跑 `tests/v2/test_mlmm.py`，不触 openmm_privates 的 8.6 门）。固定
-  决策 #10 纪律照记：这是 pyproject.toml [tool.pixi] 里的显式 pin；conda-forge 出 tracking
+  OpenMM 显式升级纪律照记：这是 pyproject.toml [tool.pixi] 里的显式 pin；conda-forge 出 tracking
   8.6 的 openmm-torch 构建后，升级该 pin 是一次显式事件。
 - 默认门（`pixi run test`）保持 **torch-free**：真实 torch 测试全部
   `pytest.importorskip("torch")` / `importorskip("openmmtorch")` /

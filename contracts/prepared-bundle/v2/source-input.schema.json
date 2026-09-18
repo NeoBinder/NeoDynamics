@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:neodyn:prepared-bundle:v2:source-input",
+  "title": "Optional canonical source bindings for preparation",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "$ref": "urn:neodyn:prepared-bundle:v2:manifest#/$defs/sourceBinding"
+      },
+      "minItems": 1
+    }
+  },
+  "required": [
+    "schema_version",
+    "sources"
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "schema_version": 2,
+  "sources": [
+    {
+      "input_key": "protein",
+      "kind": "canonical_structure",
+      "source_id": "47782711-2a4d-488a-b052-977ca6d6342f",
+      "client_revision_id": "54e2e337-c34d-46f3-b5f2-87f006996ed1",
+      "content_sha256": "29c219045dd5c7e959799024239fe4edfbe7e1063a6889b59ccf24c19cc0d14b",
+      "loader": {
+        "name": "openmm.PDBxFile",
+        "version": "8.6",
+        "atom_order": "preparation_input"
+      },
+      "atom_bindings": [
+        {
+          "input_atom_index": 0,
+          "source_atom_id": "6c4d8604-e9d8-4a68-a1b7-0bc19f56a722",
+          "source_residue_id": "1bf1a357-c76c-437b-9995-11e80deb7412",
+          "element": "O",
+          "position_nm": [
+            -0.4343,
+            0.3754,
+            -0.149
+          ],
+          "atom_name": "O",
+          "formal_charge": null
+        },
+        {
+          "input_atom_index": 1,
+          "source_atom_id": "aff06862-b8c2-4bfe-a1ac-a8ad750da7b3",
+          "source_residue_id": "1bf1a357-c76c-437b-9995-11e80deb7412",
+          "element": "C",
+          "position_nm": [
+            -0.3632,
+            0.38530000000000003,
+            -0.24900000000000003
+          ],
+          "atom_name": "C",
+          "formal_charge": null
+        },
+        {
+          "input_atom_index": 2,
+          "source_atom_id": "6f41ce06-7710-431c-b4bc-1000e8f9a743",
+          "source_residue_id": "1bf1a357-c76c-437b-9995-11e80deb7412",
+          "element": "C",
+          "position_nm": [
+            -0.2126,
+            0.35390000000000005,
+            -0.24100000000000002
+          ],
+          "atom_name": "CA",
+          "formal_charge": null
+        },
+        {
+          "input_atom_index": 3,
+          "source_atom_id": "7787776f-adb2-4948-8eba-d7944fbab09b",
+          "source_residue_id": "1bf1a357-c76c-437b-9995-11e80deb7412",
+          "element": "N",
+          "position_nm": [
+            -0.1827,
+            0.271,
+            -0.1242
+          ],
+          "atom_name": "N",
+          "formal_charge": null
+        }
+      ],
+      "residue_bindings": [
+        {
+          "source_residue_id": "1bf1a357-c76c-437b-9995-11e80deb7412",
+          "input_residue_index": 0,
+          "input_chain_index": 0,
+          "name": "ALA",
+          "sequence_label": "17",
+          "insertion_code": ""
+        }
+      ],
+      "bonds": [
+        {
+          "source_bond_id": "7c3fdf74-89db-49f7-8a68-1f83c365437e",
+          "atom_ids": [
+            "aff06862-b8c2-4bfe-a1ac-a8ad750da7b3",
+            "6f41ce06-7710-431c-b4bc-1000e8f9a743"
+          ],
+          "order": null,
+          "aromatic": null
+        },
+        {
+          "source_bond_id": "c6128cf8-7245-4cc7-9200-e35e11175ea8",
+          "atom_ids": [
+            "aff06862-b8c2-4bfe-a1ac-a8ad750da7b3",
+            "6c4d8604-e9d8-4a68-a1b7-0bc19f56a722"
+          ],
+          "order": null,
+          "aromatic": null
+        },
+        {
+          "source_bond_id": "2e52ff5a-6ae4-4ad8-90f9-dc0c482d0ac6",
+          "atom_ids": [
+            "6f41ce06-7710-431c-b4bc-1000e8f9a743",
+            "7787776f-adb2-4948-8eba-d7944fbab09b"
+          ],
+          "order": null,
+          "aromatic": null
+        }
+      ],
+      "polymer_sequences": [
+        {
+          "input_chain_index": 0,
+          "evidence": "unknown",
+          "residue_names": null,
+          "residue_bindings": []
+        }
+      ]
+    }
+  ]
+}
