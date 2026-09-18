@@ -101,7 +101,7 @@ python-box = ">=7.3.2"
 numpy = "*"
 
 [tool.pixi.pypi-options]
-index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+index-url = "https://pypi.org/simple"
 
 [tool.pixi.dependencies]
 python = "3.12.*"
