@@ -1,4 +1,10 @@
-# SDK boundaries
+# src/neomd — SDK boundaries
+
+The active v2 package. Deeper guides: `kernel/AGENTS.md` (KernelPort,
+adapters, force-group model), `methods/AGENTS.md` (dispatch
+contract, smd/opes/gamd), `ml/AGENTS.md` (ML/MM), `mlcv/AGENTS.md` (ML-CV),
+`analysis/AGENTS.md` (post-run analysis). Docstring content policy
+(issue #17): `docs/AGENTS.md`.
 
 - Facade spellings compile to the same immutable, fingerprinted Plan. Compile
   and direct drive share kernel-spec construction. Validation collects all
@@ -8,15 +14,24 @@
   plugin is an error, not a fallback. See ADR-0002 for namespace changes.
 - `resume.py` owns restore and trimming every tape to the checkpoint. Probes
   do not independently choose append/truncate. Coordinate output may wrap
-  molecules; checkpoints never wrap because resume must remain bit-exact.
+  molecules by default via the `MoleculeGroups` capability; checkpoints never
+  wrap because resume must remain bit-exact.
 - Keep artifact writes in probes/sinks, OpenMM access behind the kernel seam,
-  private API access in `openmm_privates.py`, and torch/openmmtorch imports in
-  `ml/` or `mlcv/`. Preserve the source-scan checks for these boundaries.
+  private API access in `openmm_privates.py` behind its pinned-version gate,
+  and torch/openmmtorch imports in `ml/` or `mlcv/`. Preserve the
+  source-scan checks for these boundaries.
 - `SystemBundle` and geometry QC remain OpenMM-free. QC collects findings before
   a strict-mode failure. External tools use isolated subprocess directories,
   never process-wide `os.chdir`.
 - Schema, force expression and observables have one definition per registered
-  restraint/CV/method; preserve numpy/kernel parity and registry validation.
+  restraint/CV/method (currently 10 restraint types — `distances` packs N pairs
+  into one force per side, `boresch` packs orientation restraint over 3+3
+  anchor atoms — and 9 CVs: 5 expression-driven plus the kind-driven
+  `rmsd`/`coordination`/`path_s`/`path_z`); preserve numpy/kernel parity and
+  registry validation.
+- Run output rides the `neomd` logger at INFO (`console.py`): start/end
+  banners, same-line periodic progress via `InlineProgressHandler`, explicit
+  levels win.
 
 ## Easy-to-miss state and model seams
 

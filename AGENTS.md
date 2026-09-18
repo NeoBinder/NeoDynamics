@@ -28,6 +28,28 @@ physical/method controls remain engine interfaces.
   every error with key paths and did-you-mean. New-code tests cross public
   interfaces (`md_run`, `compile`, `register`, port operations), not internals.
 
+## Commands
+
+```bash
+pixi run test
+pixi run test-golden
+pixi run test-legacy
+pixi run -e ml test-ml
+pixi run -e server test-server
+uvx ruff check .
+pixi run docs-gen
+pixi run docs-build
+neomd run|prepare|migrate|validate|version
+```
+
+Semantics, tolerances and CI detail: `tests/AGENTS.md` and `docs/AGENTS.md`.
+
+## Working discipline
+
+- Deletion test: for each module, ask "if I deleted it, where would the
+  complexity go?" A module that fails this is a candidate for merging.
+- Version is derived by versioningit from git tags — do not hardcode.
+
 ## Development
 
 In NeoEvolutionMatrix, follow workspace-root `AGENTS.md` for worktrees,
