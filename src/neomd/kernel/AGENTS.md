@@ -1,14 +1,29 @@
-# KernelPort
+# src/neomd/kernel — KernelPort, adapters, force groups
 
-Optional capabilities are negotiated through `provides()`. The production
-adapter owns core OpenMM imports; fake stays deterministic and OpenMM-free;
-replay must be registered before factory use.
+**KernelPort** (`port.py`): closed operation surface at the physics seam,
+plus optional capability protocols (`BiasOps`, `BiasParamOps`,
+`GroupEnergy`, `StructureWriter`, `MoleculeGroups` — topology-bond
+connectivity for `output.wrap_coordinates`, via the openmm-free `wrap.py`;
+`BoostOps` — GaMD-style energy-dependent force scaling, ADR-0005, with the
+duck-typed dual-boost companion `torsion_force_groups()`) negotiated via
+`provides()`. Three adapters: `openmm` (production, the only core file
+importing openmm), `fake` (deterministic textbook Langevin, the CI
+workhorse), `replay` (golden-tape playback; must be imported before
+factory use).
 
-Allocate force groups through `port.pick_free_force_group`. Restraints and SMD
-pulls each share one group per category and report category-total energy;
-`independent_force_group` opts an entry into its own group and energy column.
-Keep categories separate and the meta/OPES table bias in its own group.
+**Force groups**: ids come from the one allocator
+`port.pick_free_force_group`; user-added forces install under the
+SHARED-force-group policy, one shared group per CATEGORY — every
+`restraint:` entry's forces in one group (restraint.tsv reports one
+`shared_restraints__energy` total column), every `smd:` entry's pull
+forces in one group (smd.tsv: one `shared_smd__energy` total column) —
+unless the entry opts out with `independent_force_group: true` (one
+dedicated group, its own `{name}__energy` column; install_bias takes the
+shared id back as an explicit `group=`). The categories' groups are
+distinct (restraint energies never include pull energies). The meta/OPES
+table bias is a single method-side force and keeps its own group.
 
-Bias/CV installation respects native system periodicity captured before any
-installation. A restraint flag must not make a nonperiodic system periodic.
-For boost capability changes consult ADR-0005 under project-root `docs/adr/`.
+**Install semantics**: Bias/CV forces are clamped to the system's NATIVE
+periodicity (snapshotted before any install): a periodic restraint flag
+cannot flip a non-periodic system — wrap/volume stay off where no force
+applies PBC.
