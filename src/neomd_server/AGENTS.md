@@ -87,7 +87,7 @@ interactive RBFE window orchestration; reusable science stays in the engine.
   coordinator (`publication_runtime.py`): activation requires parsed
   `PublicationSettings` (`NEOMD_SERVER_PUBLICATION_*`); absent settings leave
   publication disabled. Exchanges run only in bounded joined child processes
-  with query-first recovery and lease-expiry takeover. Remote publication
+  with query-first recovery after proven prior-uploader closure. Remote publication
   qualification, rollout/GPU evidence and receipt-guarded cleanup against
   real OSS remain separate work; CPU/local tests do not prove rollout or GPU
   qualification. Large synthetic metadata/finalization tests do not prove

@@ -294,13 +294,8 @@ def test_uncertain_create_is_resent_after_definitive_not_stored(database_dsn, tm
     asyncio.run(scenario())
 
 
-def test_dead_drive_lease_expiry_reclaims_and_completes(database_dsn, tmp_path):
-    """B07-3 D1: a drive that dies holding its lease cannot wedge the job.
-
-    The dead owner never closes; after bounded lease expiry the coordinator's
-    claim takes the fenced takeover, queries first (never replaying the
-    uncertain create blindly) and completes the publication.
-    """
+def test_expired_owner_blocks_until_joined_then_recovers(database_dsn, tmp_path):
+    """Expiry cannot replace closure; a joined old owner permits query-first recovery."""
     async def scenario():
         shared = settings()
         remote = FakeRemote()
@@ -337,6 +332,14 @@ def test_dead_drive_lease_expiry_reclaims_and_completes(database_dsn, tmp_path):
             assert await old.record_exchange(grant, message['response'], ClosedExchange.after_join(grant))
             await asyncio.sleep(1.2)  # lease expires; no closure proof exists
             await coordinator.start()
+            async def blocked():
+                return any(entry['reason'] == 'closure_required' for entry in coordinator.blocked)
+            assert await settle(blocked, seconds=10)
+            refs = await old.jobs()
+            assert refs.entries[0].owner == stale_lease
+            assert refs.entries[0].active_reserved
+            # The test transport has actually returned; attest its joined work.
+            await old.close(stale_lease, ClosedUploader.after_join(stale_lease))
             assert await settle(completed_state(coordinator, scope, finalization), seconds=45)
             final = await coordinator.journal.get(scope, finalization)
             assert final.publication_id == json.loads(message['response'].data_bytes)['publication_id']

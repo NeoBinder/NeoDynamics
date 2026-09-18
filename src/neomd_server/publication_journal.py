@@ -561,14 +561,7 @@ class PublicationJournal:
                 return lease
             if not row['owner_closed']:
                 previous = JournalLease(scope_id, original.journal_id, str(row['owner_id']), str(row['lease_id']), row['fence'])
-                expired = row['lease_expires_at'] is not None and row['lease_expires_at'] <= now
-                if expired:
-                    # Bounded lease-expiry takeover: a dead uploader cannot wedge
-                    # its job forever. The takeover below bumps the fence, clears
-                    # any unproven exchange and forces query_required, so the new
-                    # owner can never blindly replay an uncertain mutation.
-                    pass
-                elif not isinstance(prior_closed, ClosedUploader) or prior_closed.lease != previous:
+                if not isinstance(prior_closed, ClosedUploader) or prior_closed.lease != previous:
                     raise JournalError('closure_required')
             counts = await self._counts(connection)
             if counts['active'] - int(row['active_reserved']) >= self.max_active:
@@ -835,10 +828,13 @@ class PublicationJournal:
                 await connection.execute('''UPDATE neomd_service.publication_jobs SET exchange_id=NULL,exchange_bytes=NULL
                     WHERE journal_id=$1''', row['journal_id'])
 
-    async def record_exchange(self, grant, response, closed_exchange):
-        """Persist known evidence first; only the exact live owner may advance it."""
+    async def record_exchange(self, grant, response, closed_exchange, *, closed_uploader=None):
+        """Persist evidence; optionally close joined uploader work atomically on completion."""
         if (not isinstance(response, AuthenticatedResponse) or response.grant != grant
                 or not isinstance(closed_exchange, ClosedExchange) or closed_exchange.grant != grant):
+            raise JournalError('closure_required')
+        if closed_uploader is not None and (
+                not isinstance(closed_uploader, ClosedUploader) or closed_uploader.lease != grant.lease):
             raise JournalError('closure_required')
         data = json.loads(response.data_bytes)
         compact = self._compact(grant, data)
@@ -949,6 +945,13 @@ class PublicationJournal:
             await self._live(connection, row, grant.lease)
             if await connection.fetchval('SELECT clock_timestamp()') >= grant.deadline:
                 raise JournalError('lease_expired')
+            if closed_uploader is not None:
+                # The host has joined all uploader work and will issue no more
+                # exchanges after completion. Never leave a committed receipt
+                # holding capacity if the host dies before its next iteration.
+                await connection.execute('''UPDATE neomd_service.publication_jobs
+                    SET owner_closed=true,active_reserved=false,pending_reserved=false
+                    WHERE journal_id=$1 AND state='complete' ''', row['journal_id'])
         return True
 
     async def _witness(self, connection, row, selected, data, compact):

@@ -274,6 +274,14 @@ coordinator (`NEOMD_SERVER_PUBLICATION_*` settings; absent settings disable
 publication entirely). Its exchanges execute in bounded joined child processes
 with query-first recovery, and its guarded cleanup deletes only the exact
 owned sealed output set after verified receipts and writer/uploader closure.
+Lease renewal continues during exchanges; lease expiry alone never authorizes
+takeover. Timed-out or cancelled children are killed and joined before their
+tracking or capacity is released. Unknown child lifetimes retain capacity.
+The coordinator reads all operation pages and resumes unsent completion actions
+under their original identities. After all uploader work joins, it commits the
+complete receipt and publication-capacity release together, so a crash before
+local cleanup cannot strand a completed job's capacity. Output storage remains
+reserved independently.
 The runtime never labels local files as uploaded without that receipt proof
 and never deletes completed output to make space.
 

@@ -191,8 +191,8 @@ def test_owner_transfer_requires_closure_and_query_first_before_expiry(database_
     asyncio.run(scenario())
 
 
-def test_expired_lease_takeover_is_fenced_and_query_first(database_dsn):
-    """B07-3 D1: a dead uploader's expired lease cannot wedge its job forever."""
+def test_expired_lease_still_requires_joined_uploader_before_takeover(database_dsn):
+    """An expired lease cannot prove that a possible HTTP send has stopped."""
     async def scenario():
         async with repository(database_dsn) as ledger:
             journal, _, record, lease = await begin(ledger)
@@ -204,7 +204,10 @@ def test_expired_lease_takeover_is_fenced_and_query_first(database_dsn):
             async with ledger.pool.acquire() as connection:
                 await connection.execute("UPDATE neomd_service.publication_jobs SET lease_expires_at=clock_timestamp() - interval '1 second' WHERE journal_id=$1",
                     UUID(record.journal_id))
-            revived = await journal.claim(record.scope_id, record.finalization_id, owner_id=uid(), lease_id=uid(), lease_ms=30000)
+            with pytest.raises(JournalError, match='closure_required'):
+                await journal.claim(record.scope_id, record.finalization_id, owner_id=uid(), lease_id=uid(), lease_ms=30000)
+            revived = await journal.claim(record.scope_id, record.finalization_id, owner_id=uid(), lease_id=uid(), lease_ms=30000,
+                prior_closed=ClosedUploader.after_join(lease))
             assert revived.fence == lease.fence + 1
             with pytest.raises(JournalError, match='generation_fenced'):
                 await journal.renew(lease, lease_ms=30000)
@@ -282,9 +285,11 @@ def test_durable_pending_active_limits_require_uploader_closure(database_dsn):
             await asyncio.sleep(.15)
             with pytest.raises(JournalError, match='capacity_exceeded'):
                 await journal.claim(first.scope_id, first.finalization_id, owner_id=uid(), lease_id=uid(), lease_ms=30000)
-            # B07-3: the expired lease is reclaimed through the fenced takeover
-            # (no closure proof exists), and the dead owner stays fenced.
-            revived = await journal.claim(second.scope_id, second.finalization_id, owner_id=uid(), lease_id=uid(), lease_ms=30000)
+            # Expiry retains the slot until the previous uploader is joined.
+            with pytest.raises(JournalError, match='closure_required'):
+                await journal.claim(second.scope_id, second.finalization_id, owner_id=uid(), lease_id=uid(), lease_ms=30000)
+            revived = await journal.claim(second.scope_id, second.finalization_id, owner_id=uid(), lease_id=uid(), lease_ms=30000,
+                prior_closed=ClosedUploader.after_join(short))
             assert revived.fence == short.fence + 1
             with pytest.raises(JournalError, match='generation_fenced'):
                 await journal.close(short, ClosedUploader.after_join(short))
@@ -399,7 +404,8 @@ def test_part_query_not_stored_resets_send_and_action_requires_all_parts(databas
     asyncio.run(scenario())
 
 
-def test_receipt_lock_wait_expiry_rolls_back_before_completion(database_dsn):
+@pytest.mark.parametrize('close_uploader', [False, True])
+def test_receipt_lock_wait_expiry_rolls_back_before_completion(database_dsn, close_uploader):
     async def scenario():
         async with repository(database_dsn) as ledger:
             journal, _, record, lease = await begin(ledger)
@@ -410,7 +416,8 @@ def test_receipt_lock_wait_expiry_rolls_back_before_completion(database_dsn):
                 transaction = blocker.transaction()
                 await transaction.start()
                 await blocker.execute('LOCK TABLE neomd_service.publication_uploads IN SHARE MODE')
-                task = asyncio.create_task(journal.record_exchange(query, known, ClosedExchange.after_join(query)))
+                task = asyncio.create_task(journal.record_exchange(query, known, ClosedExchange.after_join(query),
+                    closed_uploader=ClosedUploader.after_join(lease) if close_uploader else None))
                 try:
                     async with asyncio.timeout(2):
                         while not await blocker.fetchval("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE relation='neomd_service.publication_uploads'::regclass AND NOT granted)"):
@@ -423,6 +430,8 @@ def test_receipt_lock_wait_expiry_rolls_back_before_completion(database_dsn):
                     await asyncio.wait_for(task, 2)
             after = await journal.get(record.scope_id, record.finalization_id)
             assert after.state == 'pending' and after.receipt_bytes is None
+            ref = (await journal.jobs()).entries[0]
+            assert ref.active_reserved and ref.pending_reserved and not ref.owner_closed
             # The observed response is retained by its host and can be recorded
             # as stale evidence; it cannot be applied after the exchange deadline.
             assert not await journal.record_exchange(query, known, ClosedExchange.after_join(query))

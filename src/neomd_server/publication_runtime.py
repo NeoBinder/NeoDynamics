@@ -247,6 +247,9 @@ class PublicationCoordinator:
         while len(active) < self.settings.max_active:
             page = await self.journal.jobs(after=after)
             for ref in page.entries:
+                drive = self.drives.get(ref.finalization_id)
+                if drive is not None and not drive.done():
+                    continue
                 if ref.state != "pending" or len(active) >= self.settings.max_active:
                     continue
                 try:
@@ -270,21 +273,39 @@ class PublicationCoordinator:
 
     async def _release(self, lease, finalization_id):
         """Return capacity with a real closure proof; fences stay authoritative."""
+        if self._drive_children.get(finalization_id):
+            return
         try:
             await self.journal.close(lease, ClosedUploader.after_join(lease))
         except JournalError:
-            # A superseded or fenced lease is recovered by bounded lease expiry.
+            # A superseded or fenced lease cannot be released by this owner.
             pass
         finally:
             self._held.pop(finalization_id, None)
 
     async def _drive(self, lease, finalization_id):
-        renewed = time.monotonic()
+        heartbeat = asyncio.create_task(self._renew(lease))
+        try:
+            await self._drive_owned(lease, finalization_id)
+        finally:
+            heartbeat.cancel()
+            await asyncio.gather(heartbeat, return_exceptions=True)
+
+    async def _renew(self, lease):
+        try:
+            while True:
+                await asyncio.sleep(self.settings.lease_ms / 3000)
+                await self.journal.renew(lease, lease_ms=self.settings.lease_ms)
+        except JournalError:
+            # Completion closes the lease atomically. Otherwise the drive's
+            # next journal operation observes the expired or fenced ownership.
+            return
+        except Exception:
+            self.faulted = True
+
+    async def _drive_owned(self, lease, finalization_id):
         try:
             while not self.closing and not self.faulted:
-                if time.monotonic() - renewed >= self.settings.lease_ms / 3000:
-                    await self.journal.renew(lease, lease_ms=self.settings.lease_ms)
-                    renewed = time.monotonic()
                 record = await self.journal.get(lease.scope_id, finalization_id)
                 if record.state == "complete":
                     await self._complete(lease, record)
@@ -307,7 +328,7 @@ class PublicationCoordinator:
         except JournalError as error:
             self._note(lease.scope_id, finalization_id, error.code)
             # A known journal failure leaves only joined work behind: return the
-            # capacity now instead of wedging the job until lease expiry.
+            # capacity now, without relying on lease expiry as closure evidence.
             if not self._drive_children.get(finalization_id):
                 await self._release(lease, finalization_id)
         except Exception:
@@ -318,8 +339,14 @@ class PublicationCoordinator:
         """Choose one exchange; query first whenever uncertainty is flagged."""
         if record.query_required:
             return await self._query(lease, QuerySelector("publication"))
-        operations = await self.journal.operations(lease.scope_id, record.finalization_id)
-        for operation in operations.operations:
+        operations, after = [], None
+        while True:
+            page = await self.journal.operations(lease.scope_id, record.finalization_id, after=after)
+            operations.extend(page.operations)
+            if page.next_after is None:
+                break
+            after = page.next_after
+        for operation in operations:
             if operation.kind == "create" and operation.state == "unsent":
                 return await self._possible(lease, operation.operation_id)
         if record.publication_id is None:
@@ -335,7 +362,7 @@ class PublicationCoordinator:
         upload_states = []
         for upload in uploads:
             verified, failed = False, False
-            for operation in operations.operations:
+            for operation in operations:
                 if operation.upload_id != upload.upload_id:
                     continue
                 if operation.kind == "action" and operation.outcome_bytes is not None:
@@ -347,7 +374,7 @@ class PublicationCoordinator:
                 # A failed terminal action retains every local artifact.
                 raise JournalError("publication_failed")
             accepted_parts = sum(
-                1 for operation in operations.operations
+                1 for operation in operations
                 if operation.kind == "part"
                 and operation.upload_id == upload.upload_id
                 and operation.state == "accepted" and operation.conflict_bytes is None)
@@ -356,7 +383,7 @@ class PublicationCoordinator:
         # completing action, so an empty artifact cannot starve larger ones.
         for upload, verified, accepted_parts in upload_states:
             if not verified and accepted_parts < upload.part_count:
-                pending = sorted((op for op in operations.operations
+                pending = sorted((op for op in operations
                                   if op.kind == "part" and op.upload_id == upload.upload_id
                                   and op.state == "possible"), key=lambda op: op.operation_id)
                 if pending:
@@ -371,15 +398,17 @@ class PublicationCoordinator:
                     return await self._possible(lease, operation.operation_id)
         for upload, verified, accepted_parts in upload_states:
             if not verified and accepted_parts >= upload.part_count:
-                pending = sorted((op for op in operations.operations
+                pending = sorted((op for op in operations
                                   if op.kind == "action" and op.upload_id == upload.upload_id
                                   and op.state == "possible"), key=lambda op: op.operation_id)
                 if pending:
                     return await self._query(lease, QuerySelector("action", pending[0].operation_id))
-                action_staged = any(
-                    op.kind == "action" and op.upload_id == upload.upload_id
-                    for op in operations.operations)
-                if action_staged:
+                actions = [op for op in operations
+                           if op.kind == "action" and op.upload_id == upload.upload_id]
+                unsent = next((op for op in actions if op.state == "unsent"), None)
+                if unsent is not None:
+                    return await self._possible(lease, unsent.operation_id)
+                if actions:
                     continue
                 action = await self.journal.stage_action(
                     lease, ActionIntent(upload.upload_id, str(uuid4()), "complete"))
@@ -460,7 +489,9 @@ class PublicationCoordinator:
         if response is None:
             await self.journal.record_uncertain(grant, ClosedExchange.after_join(grant))
             return
-        await self.journal.record_exchange(grant, response, ClosedExchange.after_join(grant))
+        proof = None if self._drive_children.get(finalization_id) else ClosedUploader.after_join(lease)
+        await self.journal.record_exchange(
+            grant, response, ClosedExchange.after_join(grant), closed_uploader=proof)
 
     async def _exchange_in_child(self, grant, part):
         """Spawn, bound and join one child; restore evidence only after real exit."""
@@ -495,29 +526,46 @@ class PublicationCoordinator:
 
         def run():
             try:
-                payload = parent.recv_bytes() if parent.poll(deadline - time.monotonic()) else None
-            except (EOFError, OSError):
-                payload = None
-            process.join(max(0.0, deadline - time.monotonic()))
-            try:
+                try:
+                    payload = parent.recv_bytes() if parent.poll(max(0.0, deadline - time.monotonic())) else None
+                except (EOFError, OSError):
+                    payload = None
+                process.join(max(0.0, deadline - time.monotonic()))
+                if process.exitcode is None:
+                    process.kill()
+                    process.join(_JOIN_GRACE_SECONDS)
+                return payload
+            finally:
                 parent.close()
-            except OSError:
-                pass
-            return payload
 
+        waiter = asyncio.create_task(asyncio.to_thread(run))
         try:
+            # Shield the thread: cancelling an asyncio wrapper cannot stop its
+            # receive/join, and it must finish before this drive loses ownership.
             payload = await asyncio.wait_for(
-                asyncio.to_thread(run), timeout=max(0.1, deadline - time.monotonic()) + _JOIN_GRACE_SECONDS)
-        except TimeoutError:
-            process.kill()
-            process.join(_JOIN_GRACE_SECONDS)
+                asyncio.shield(waiter), timeout=max(0.1, deadline - time.monotonic()) + _JOIN_GRACE_SECONDS)
+        except (TimeoutError, asyncio.CancelledError) as error:
+            if process.exitcode is None:
+                process.kill()
+            while not waiter.done():
+                try:
+                    await asyncio.shield(waiter)
+                except asyncio.CancelledError:
+                    continue
+            waiter.result()
+            if isinstance(error, asyncio.CancelledError):
+                raise
             return None
         finally:
-            self._children.discard(process.pid)
-            if drive is not None:
-                children = self._drive_children.get(drive)
-                if children is not None:
-                    children.discard(process.pid)
+            if waiter.done() and process.exitcode is not None:
+                self._children.discard(process.pid)
+                if drive is not None:
+                    children = self._drive_children.get(drive)
+                    if children is not None:
+                        children.discard(process.pid)
+            else:
+                # Even a failed kill/join leaves ownership and capacity held.
+                self.faulted = True
         if process.exitcode != 0 or payload is None:
             return None
         return payload
@@ -587,21 +635,20 @@ class PublicationCoordinator:
                 self.faulted = True
             self.task = None
         drives = [task for task in self.drives.values() if not task.done()]
-        cancelled = False
         if drives:
             _, pending = await asyncio.wait(set(drives), timeout=self.shutdown_timeout_seconds)
             if pending:
                 self.faulted = True
-                cancelled = True
                 for task in pending:
                     task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
         self.drives.clear()
         # Graceful shutdown must not leave held leases open: every drive above
         # finished (its joined children are the only work its lease owned), so
-        # those leases return capacity now. Drives cancelled mid-exchange keep
-        # their leases held — their transport state is unknown — and bounded
-        # lease expiry on the next start reclaims them via the fenced takeover.
-        if self._held and not self._children and not cancelled:
+        # those leases return capacity now. Cancelled drives have also awaited
+        # child exit; their uncertain operations still require query-first
+        # recovery. Unconfirmed child exits retain tracking and capacity.
+        if self._held and not self._children:
             for finalization_id, lease in list(self._held.items()):
                 await self._release(lease, finalization_id)
-        self._drive_children.clear()
+        self._drive_children = {key: children for key, children in self._drive_children.items() if children}

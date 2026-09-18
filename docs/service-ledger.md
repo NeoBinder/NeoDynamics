@@ -193,8 +193,14 @@ The first terminal identity and bounded conflicting evidence are retained;
 contradictions hold the job. A terminal action's nested current upload state may
 legitimately change, so it is excluded from the immutable terminal fingerprint.
 The exact full receipt is stored once after all source and target checks. Both
-pending and active journal capacity remain until explicit uploader closure;
-neither receipt nor closure retires artifacts or releases output reservations.
+pending and active journal capacity remain until explicit uploader closure.
+`record_exchange(..., closed_uploader=proof)` accepts an exact joined-uploader
+proof and releases both reservations in the same transaction only if the
+observation completes the publication. The resident coordinator uses this path
+after joining its sequential exchange children, eliminating a crash window
+between receipt persistence and capacity release. Standalone journal callers
+without that proof still close their exact lease explicitly, including after
+completion. Neither receipt nor closure retires artifacts or releases output reservations.
 Final-result archiving and subsequent historical-checkpoint cleanup require
 separate transport and cleanup integration.
 
