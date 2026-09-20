@@ -1,0 +1,79 @@
+{
+  "artifacts": [
+    {
+      "artifact_id": "10000000-0000-4000-8000-000000000060",
+      "path": "manifest.json",
+      "role": "manifest",
+      "sha256": "04301a775c8857402a2324d9a35928d57d4484deedc302c817f69774572b1514",
+      "size_bytes": 48210
+    },
+    {
+      "artifact_id": "10000000-0000-4000-8000-000000000061",
+      "path": "topology.pdbx",
+      "role": "topology",
+      "sha256": "d5b3050b62d030584c1661c11f4342f0b0335337920a3def49615a71fd797439",
+      "size_bytes": 2518
+    },
+    {
+      "artifact_id": "10000000-0000-4000-8000-000000000062",
+      "path": "system.xml",
+      "role": "system",
+      "sha256": "80dfec58b0f19645ffe8bb028b490f6e457a45b038ce0c61c96da685dc2e7be2",
+      "size_bytes": 198244
+    },
+    {
+      "artifact_id": "10000000-0000-4000-8000-000000000063",
+      "path": "coordinates.f64le",
+      "role": "coordinates",
+      "sha256": "39665283083958ed0fa6f7c25b0e7c8bf92f6893d1762f0834ce06bff7fa6ed2",
+      "size_bytes": 264
+    },
+    {
+      "artifact_id": "10000000-0000-4000-8000-000000000064",
+      "path": "mapping.json",
+      "role": "mapping",
+      "sha256": "29591b8c01aa02b81f2414aba1deadff60258dd1bb8e69b2e0ab1ecddecde262",
+      "size_bytes": 12414
+    },
+    {
+      "artifact_id": "10000000-0000-4000-8000-000000000065",
+      "path": "assembly-report.json",
+      "role": "report",
+      "sha256": "394269ced5fcdfccccbf44e501e0e50d3509af81e081d4231278a69d2865c2f1",
+      "size_bytes": 12033
+    },
+    {
+      "artifact_id": "10000000-0000-4000-8000-000000000066",
+      "path": "sources/0000.pdb",
+      "role": "source",
+      "sha256": "920c41ea2c14006cc0aa1587f1116f01a829ad45710870951e3dd452f74defd5",
+      "size_bytes": 671
+    },
+    {
+      "artifact_id": "10000000-0000-4000-8000-000000000067",
+      "path": "forcefield/protein.ff14SB.xml",
+      "role": "forcefield",
+      "sha256": "2098af5eb8262b83fc2c609efcc840057f130e0c803178993c320e505f6d71ad",
+      "size_bytes": 2451811
+    },
+    {
+      "artifact_id": "10000000-0000-4000-8000-000000000068",
+      "path": "forcefield/tip3p_standard.xml",
+      "role": "forcefield",
+      "sha256": "ce2224822dafc9a1ed4749563acfe1af18922c8aa5a87ab21973e92bc66dea3a",
+      "size_bytes": 3210
+    },
+    {
+      "artifact_id": "10000000-0000-4000-8000-000000000069",
+      "path": "preparation.log",
+      "role": "log",
+      "sha256": "e7e82e9053d9e17751c9d0b07874d12592536c608ce3994b2466c2282283b6ac",
+      "size_bytes": 1820
+    }
+  ],
+  "operation_id": "10000000-0000-4000-8000-000000000021",
+  "prepared_revision_id": "10000000-0000-4000-8000-000000000023",
+  "receipt_id": "10000000-0000-4000-8000-000000000022",
+  "schema_version": 1,
+  "total_size_bytes": 2731195
+}

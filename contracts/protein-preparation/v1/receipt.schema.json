@@ -1,0 +1,406 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:neodyn:protein-preparation:v1:receipt",
+  "title": "Immutable preparation receipt binding source, preset, provenance and independent verification",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "operation_id",
+    "request_id",
+    "owner_scope",
+    "backend",
+    "source",
+    "preset",
+    "parameters",
+    "provenance",
+    "verification",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "receipt_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "operation_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "request_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "owner_scope": {
+      "$ref": "#/$defs/uuid"
+    },
+    "backend": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "pool_id"
+      ],
+      "properties": {
+        "provider": {
+          "const": "neodynamics"
+        },
+        "pool_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "canonical_bytes_sha256",
+        "size_bytes",
+        "identity"
+      ],
+      "properties": {
+        "format": {
+          "const": "pdbx"
+        },
+        "canonical_bytes_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "project_id",
+            "complex_id",
+            "revision_id",
+            "revision_content_sha256"
+          ],
+          "properties": {
+            "project_id": {
+              "$ref": "#/$defs/uuid"
+            },
+            "complex_id": {
+              "$ref": "#/$defs/uuid"
+            },
+            "revision_id": {
+              "$ref": "#/$defs/uuid"
+            },
+            "revision_content_sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        }
+      }
+    },
+    "preset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preset_id",
+        "preset_revision_sha256"
+      ],
+      "properties": {
+        "preset_id": {
+          "const": "protein.ff14sb.tip3p"
+        },
+        "preset_revision_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "water_geometry",
+        "positive_ion",
+        "negative_ion",
+        "ionic_strength_mol_per_l",
+        "neutralize",
+        "box_shape",
+        "padding_nm",
+        "ph",
+        "existing_water",
+        "hydrogen_mass_amu",
+        "constraints",
+        "rigid_water",
+        "remove_cm_motion",
+        "nonbonded_method",
+        "nonbonded_cutoff_nm",
+        "ewald_error_tolerance",
+        "use_dispersion_correction",
+        "switch_distance_nm",
+        "exceptions_use_periodic_boundary_conditions",
+        "flexible_constraints"
+      ],
+      "properties": {
+        "water_geometry": {
+          "const": "tip3p"
+        },
+        "positive_ion": {
+          "const": "Na+"
+        },
+        "negative_ion": {
+          "const": "Cl-"
+        },
+        "ionic_strength_mol_per_l": {
+          "type": "number",
+          "minimum": 0
+        },
+        "neutralize": {
+          "const": true
+        },
+        "box_shape": {
+          "const": "cubic"
+        },
+        "padding_nm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "ph": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 14
+        },
+        "existing_water": {
+          "const": "retain_and_solvate"
+        },
+        "hydrogen_mass_amu": {
+          "const": 4.0
+        },
+        "constraints": {
+          "const": "HBonds"
+        },
+        "rigid_water": {
+          "const": true
+        },
+        "remove_cm_motion": {
+          "const": false
+        },
+        "nonbonded_method": {
+          "const": "pme"
+        },
+        "nonbonded_cutoff_nm": {
+          "const": 1.0
+        },
+        "ewald_error_tolerance": {
+          "const": 0.0005
+        },
+        "use_dispersion_correction": {
+          "const": true
+        },
+        "switch_distance_nm": {
+          "const": null
+        },
+        "exceptions_use_periodic_boundary_conditions": {
+          "const": false
+        },
+        "flexible_constraints": {
+          "const": false
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "versions",
+        "openmm_build",
+        "platform",
+        "preparation_seed",
+        "resources",
+        "wall_time_seconds",
+        "limits_applied"
+      ],
+      "properties": {
+        "versions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "NeoDynamics",
+            "numpy",
+            "openff-toolkit",
+            "openmm",
+            "openmmforcefields",
+            "pdbfixer"
+          ],
+          "properties": {
+            "NeoDynamics": {
+              "type": "string",
+              "minLength": 1
+            },
+            "numpy": {
+              "type": "string",
+              "minLength": 1
+            },
+            "openff-toolkit": {
+              "type": "string",
+              "minLength": 1
+            },
+            "openmm": {
+              "type": "string",
+              "minLength": 1
+            },
+            "openmmforcefields": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pdbfixer": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "openmm_build": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "type": "string",
+          "minLength": 1
+        },
+        "preparation_seed": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "resources": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "role",
+              "resource_id",
+              "package",
+              "package_version",
+              "sha256",
+              "size_bytes"
+            ],
+            "properties": {
+              "role": {
+                "enum": [
+                  "protein",
+                  "water_and_ions"
+                ]
+              },
+              "resource_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "package": {
+                "const": "openmmforcefields"
+              },
+              "package_version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "size_bytes": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        "wall_time_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "limits_applied": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max_source_bytes",
+            "max_result_bytes",
+            "time_limit_seconds",
+            "memory_limit_bytes"
+          ],
+          "properties": {
+            "max_source_bytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "max_result_bytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "time_limit_seconds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "memory_limit_bytes": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "verifier",
+        "prepared_revision_id",
+        "manifest_sha256",
+        "mapping_sha256",
+        "assembly_report_sha256",
+        "verified_at"
+      ],
+      "properties": {
+        "profile": {
+          "const": "canonical_protein_full_preparation_v1"
+        },
+        "verifier": {
+          "const": "neomd.prepared_pipeline.verify_protein_preparation"
+        },
+        "prepared_revision_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "mapping_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "assembly_report_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "verified_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "not": {
+        "const": "00000000-0000-0000-0000-000000000000"
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:neodyn:protein-preparation:v1:qc",
+  "title": "Preparation QC summary derived from the independently verified manifest and assembly report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "operation_id",
+    "receipt_id",
+    "outcome",
+    "summary",
+    "box_vectors_nm",
+    "parameter_sources",
+    "blockers"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "operation_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "receipt_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "outcome": {
+      "enum": [
+        "passed",
+        "failed"
+      ]
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_atom_count",
+        "retained_source_atom_count",
+        "generated_heavy_atom_count",
+        "generated_hydrogen_count",
+        "retained_water_count",
+        "generated_water_count",
+        "salt_pair_count",
+        "neutralizing_ion_count",
+        "positive_ion_count",
+        "negative_ion_count",
+        "solute_charge_e",
+        "residue_variant_count",
+        "added_bond_count",
+        "removed_bond_count",
+        "particle_count"
+      ],
+      "properties": {
+        "source_atom_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "retained_source_atom_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "generated_heavy_atom_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "generated_hydrogen_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "retained_water_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "generated_water_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "salt_pair_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "neutralizing_ion_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "positive_ion_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "negative_ion_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "solute_charge_e": {
+          "type": "integer"
+        },
+        "residue_variant_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "added_bond_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "removed_bond_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 0
+        },
+        "particle_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "box_vectors_nm": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "number"
+            }
+          }
+        }
+      ]
+    },
+    "parameter_sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ph",
+        "ionic_strength_mol_per_l",
+        "padding_nm"
+      ],
+      "properties": {
+        "ph": {
+          "enum": [
+            "preset_default",
+            "request_override"
+          ]
+        },
+        "ionic_strength_mol_per_l": {
+          "enum": [
+            "preset_default",
+            "request_override"
+          ]
+        },
+        "padding_nm": {
+          "enum": [
+            "preset_default",
+            "request_override"
+          ]
+        }
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "detail"
+        ],
+        "properties": {
+          "code": {
+            "enum": [
+              "unsupported_structure",
+              "evidence_mismatch",
+              "protonation_conflict",
+              "verification_failed",
+              "missing_stretch",
+              "nonstandard_residue",
+              "unsupported_terminus"
+            ]
+          },
+          "detail": {
+            "type": "string",
+            "maxLength": 512
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "passed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "blockers": {
+            "maxItems": 0
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "not": {
+        "const": "00000000-0000-0000-0000-000000000000"
+      }
+    }
+  }
+}

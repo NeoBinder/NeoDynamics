@@ -121,7 +121,12 @@
             "admission_full",
             "service_unavailable",
             "worker_lost",
-            "running_time_limit_exceeded"
+            "running_time_limit_exceeded",
+            "request_conflict",
+            "preset_revision_mismatch",
+            "preparation_terminal",
+            "unsupported_structure",
+            "evidence_mismatch"
           ]
         },
         "message": {

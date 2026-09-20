@@ -1,0 +1,253 @@
+{
+  "created_at": "2026-09-20T16:39:00Z",
+  "error": null,
+  "kind": "protein_preparation",
+  "operation_id": "10000000-0000-4000-8000-000000000021",
+  "receipt": null,
+  "request": {
+    "parameters": {
+      "ionic_strength_mol_per_l": 0.15,
+      "padding_nm": 1.0,
+      "ph": 7.0
+    },
+    "preset_id": "protein.ff14sb.tip3p",
+    "preset_revision_sha256": "376a4b2138ed3289f024c44d7f7ac3d6e47e7e3bf1be8b225d709d289f1f4fbf",
+    "request_id": "10000000-0000-4000-8000-000000000020",
+    "schema_version": 1,
+    "source": {
+      "canonical_bytes_sha256": "82318021df2106495203e46d4483c991bb4e4894e2515672bf2ea86b26455752",
+      "descriptor": {
+        "schema_version": 2,
+        "sources": [
+          {
+            "atom_bindings": [
+              {
+                "atom_name": "N",
+                "element": "N",
+                "formal_charge": 0,
+                "input_atom_index": 0,
+                "position_nm": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "source_atom_id": "10000000-0000-4000-8000-000000000030",
+                "source_residue_id": "10000000-0000-4000-8000-000000000025"
+              },
+              {
+                "atom_name": "CA",
+                "element": "C",
+                "formal_charge": 0,
+                "input_atom_index": 1,
+                "position_nm": [
+                  0.145,
+                  0.0,
+                  0.0
+                ],
+                "source_atom_id": "10000000-0000-4000-8000-000000000031",
+                "source_residue_id": "10000000-0000-4000-8000-000000000025"
+              },
+              {
+                "atom_name": "C",
+                "element": "C",
+                "formal_charge": 0,
+                "input_atom_index": 2,
+                "position_nm": [
+                  0.2,
+                  0.14,
+                  0.0
+                ],
+                "source_atom_id": "10000000-0000-4000-8000-000000000032",
+                "source_residue_id": "10000000-0000-4000-8000-000000000025"
+              },
+              {
+                "atom_name": "O",
+                "element": "O",
+                "formal_charge": 0,
+                "input_atom_index": 3,
+                "position_nm": [
+                  0.13,
+                  0.235,
+                  0.0
+                ],
+                "source_atom_id": "10000000-0000-4000-8000-000000000033",
+                "source_residue_id": "10000000-0000-4000-8000-000000000025"
+              },
+              {
+                "atom_name": "CB",
+                "element": "C",
+                "formal_charge": 0,
+                "input_atom_index": 4,
+                "position_nm": [
+                  0.2,
+                  -0.09,
+                  0.11
+                ],
+                "source_atom_id": "10000000-0000-4000-8000-000000000034",
+                "source_residue_id": "10000000-0000-4000-8000-000000000025"
+              },
+              {
+                "atom_name": "O_w",
+                "element": "O",
+                "formal_charge": 0,
+                "input_atom_index": 5,
+                "position_nm": [
+                  0.5,
+                  0.5,
+                  0.5
+                ],
+                "source_atom_id": "10000000-0000-4000-8000-000000000035",
+                "source_residue_id": "10000000-0000-4000-8000-000000000026"
+              },
+              {
+                "atom_name": "H1_w",
+                "element": "H",
+                "formal_charge": 0,
+                "input_atom_index": 6,
+                "position_nm": [
+                  0.58,
+                  0.54,
+                  0.5
+                ],
+                "source_atom_id": "10000000-0000-4000-8000-000000000036",
+                "source_residue_id": "10000000-0000-4000-8000-000000000026"
+              },
+              {
+                "atom_name": "H2_w",
+                "element": "H",
+                "formal_charge": 0,
+                "input_atom_index": 7,
+                "position_nm": [
+                  0.46,
+                  0.53,
+                  0.58
+                ],
+                "source_atom_id": "10000000-0000-4000-8000-000000000037",
+                "source_residue_id": "10000000-0000-4000-8000-000000000026"
+              }
+            ],
+            "bonds": [
+              {
+                "aromatic": null,
+                "atom_ids": [
+                  "10000000-0000-4000-8000-000000000030",
+                  "10000000-0000-4000-8000-000000000031"
+                ],
+                "order": 1,
+                "source_bond_id": "10000000-0000-4000-8000-000000000040"
+              },
+              {
+                "aromatic": null,
+                "atom_ids": [
+                  "10000000-0000-4000-8000-000000000031",
+                  "10000000-0000-4000-8000-000000000032"
+                ],
+                "order": 1,
+                "source_bond_id": "10000000-0000-4000-8000-000000000041"
+              },
+              {
+                "aromatic": null,
+                "atom_ids": [
+                  "10000000-0000-4000-8000-000000000032",
+                  "10000000-0000-4000-8000-000000000033"
+                ],
+                "order": 2,
+                "source_bond_id": "10000000-0000-4000-8000-000000000042"
+              },
+              {
+                "aromatic": null,
+                "atom_ids": [
+                  "10000000-0000-4000-8000-000000000031",
+                  "10000000-0000-4000-8000-000000000034"
+                ],
+                "order": 1,
+                "source_bond_id": "10000000-0000-4000-8000-000000000043"
+              },
+              {
+                "aromatic": null,
+                "atom_ids": [
+                  "10000000-0000-4000-8000-000000000035",
+                  "10000000-0000-4000-8000-000000000036"
+                ],
+                "order": 1,
+                "source_bond_id": "10000000-0000-4000-8000-000000000044"
+              },
+              {
+                "aromatic": null,
+                "atom_ids": [
+                  "10000000-0000-4000-8000-000000000035",
+                  "10000000-0000-4000-8000-000000000037"
+                ],
+                "order": 1,
+                "source_bond_id": "10000000-0000-4000-8000-000000000045"
+              }
+            ],
+            "client_revision_id": "10000000-0000-4000-8000-000000000019",
+            "content_sha256": "82318021df2106495203e46d4483c991bb4e4894e2515672bf2ea86b26455752",
+            "input_key": "protein",
+            "kind": "canonical_structure",
+            "loader": {
+              "atom_order": "preparation_input",
+              "name": "openmm.app.pdbfile",
+              "version": "8.6.0"
+            },
+            "polymer_sequences": [
+              {
+                "evidence": "client_declared",
+                "input_chain_index": 0,
+                "residue_bindings": [
+                  {
+                    "sequence_index": 0,
+                    "source_residue_id": "10000000-0000-4000-8000-000000000025"
+                  },
+                  {
+                    "sequence_index": 1,
+                    "source_residue_id": "10000000-0000-4000-8000-000000000026"
+                  }
+                ],
+                "residue_names": [
+                  "ALA",
+                  "HOH"
+                ]
+              }
+            ],
+            "residue_bindings": [
+              {
+                "input_chain_index": 0,
+                "input_residue_index": 0,
+                "insertion_code": "",
+                "name": "ALA",
+                "sequence_label": "1",
+                "source_residue_id": "10000000-0000-4000-8000-000000000025"
+              },
+              {
+                "input_chain_index": 0,
+                "input_residue_index": 1,
+                "insertion_code": "",
+                "name": "HOH",
+                "sequence_label": "2",
+                "source_residue_id": "10000000-0000-4000-8000-000000000026"
+              }
+            ],
+            "source_id": "10000000-0000-4000-8000-000000000024"
+          }
+        ]
+      },
+      "format": "pdbx",
+      "identity": {
+        "complex_id": "10000000-0000-4000-8000-000000000018",
+        "project_id": "10000000-0000-4000-8000-000000000017",
+        "revision_content_sha256": "23f4692ffd324126fb779be0ac046b9999d085a31621666e231b9414b6780e61",
+        "revision_id": "10000000-0000-4000-8000-000000000019"
+      },
+      "size_bytes": 671,
+      "source_upload_id": "10000000-0000-4000-8000-000000000027"
+    }
+  },
+  "request_id": "10000000-0000-4000-8000-000000000020",
+  "request_sha256": "d97502d7fd355e42366b37b0e6743c42788b40b01136396d40cccfbe3cd5a298",
+  "revision": 2,
+  "schema_version": 1,
+  "state": "running",
+  "updated_at": "2026-09-20T16:39:05Z"
+}

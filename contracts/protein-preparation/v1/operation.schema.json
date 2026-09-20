@@ -1,0 +1,419 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:neodyn:protein-preparation:v1:operation",
+  "title": "Durable protein preparation operation; immutable request and terminal receipt",
+  "type": "object",
+  "$ref": "#/$defs/PreparationOperation",
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "not": {
+        "const": "00000000-0000-0000-0000-000000000000"
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "Error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid_request",
+            "authentication_required",
+            "forbidden",
+            "not_found",
+            "idempotency_conflict",
+            "request_conflict",
+            "preset_revision_mismatch",
+            "preparation_terminal",
+            "unsupported_structure",
+            "evidence_mismatch",
+            "protonation_conflict",
+            "verification_failed",
+            "preparation_time_limit_exceeded",
+            "preparation_memory_limit_exceeded",
+            "result_too_large",
+            "outcome_indeterminate",
+            "payload_too_large",
+            "admission_full",
+            "service_unavailable",
+            "worker_lost"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "request_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "SourceIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id",
+        "complex_id",
+        "revision_id",
+        "revision_content_sha256"
+      ],
+      "properties": {
+        "project_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "complex_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "revision_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "revision_content_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "PreparationSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_upload_id",
+        "format",
+        "canonical_bytes_sha256",
+        "size_bytes",
+        "identity",
+        "descriptor"
+      ],
+      "properties": {
+        "source_upload_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "format": {
+          "const": "pdbx"
+        },
+        "canonical_bytes_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "identity": {
+          "$ref": "#/$defs/SourceIdentity"
+        },
+        "descriptor": {
+          "$ref": "urn:neodyn:prepared-bundle:v2:source-input"
+        }
+      }
+    },
+    "PreparationParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ph",
+        "ionic_strength_mol_per_l",
+        "padding_nm"
+      ],
+      "properties": {
+        "ph": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 14
+        },
+        "ionic_strength_mol_per_l": {
+          "type": "number",
+          "minimum": 0
+        },
+        "padding_nm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "PreparationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "request_id",
+        "source",
+        "preset_id",
+        "preset_revision_sha256",
+        "parameters"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "request_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "source": {
+          "$ref": "#/$defs/PreparationSource"
+        },
+        "preset_id": {
+          "const": "protein.ff14sb.tip3p"
+        },
+        "preset_revision_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "parameters": {
+          "$ref": "#/$defs/PreparationParameters"
+        }
+      }
+    },
+    "SourceUploadBeginRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "request_id",
+        "format",
+        "canonical_bytes_sha256",
+        "size_bytes"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "request_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "format": {
+          "const": "pdbx"
+        },
+        "canonical_bytes_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "SourceUploadReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "upload_id",
+        "request_id",
+        "format",
+        "canonical_bytes_sha256",
+        "size_bytes",
+        "state",
+        "created_at"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "upload_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "request_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "format": {
+          "const": "pdbx"
+        },
+        "canonical_bytes_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "state": {
+          "enum": [
+            "registered",
+            "stored"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "PreparationOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "operation_id",
+        "request_id",
+        "kind",
+        "revision",
+        "state",
+        "request",
+        "request_sha256",
+        "receipt",
+        "error",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "operation_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "request_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "kind": {
+          "const": "protein_preparation"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "state": {
+          "enum": [
+            "queued",
+            "running",
+            "succeeded",
+            "failed",
+            "cancelled",
+            "interrupted"
+          ]
+        },
+        "request": {
+          "$ref": "#/$defs/PreparationRequest"
+        },
+        "request_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "receipt": {
+          "oneOf": [
+            {
+              "$ref": "urn:neodyn:protein-preparation:v1:receipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Error"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "succeeded"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "receipt": {
+                "$ref": "urn:neodyn:protein-preparation:v1:receipt"
+              },
+              "error": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "queued",
+                  "running"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "receipt": {
+                "type": "null"
+              },
+              "error": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "failed",
+                  "interrupted"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "receipt": {
+                "type": "null"
+              },
+              "error": {
+                "$ref": "#/$defs/Error"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "cancelled"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "receipt": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

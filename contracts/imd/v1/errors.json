@@ -25,7 +25,12 @@
     "admission_full": 429,
     "service_unavailable": 503,
     "worker_lost": 503,
-    "running_time_limit_exceeded": 409
+    "running_time_limit_exceeded": 409,
+    "request_conflict": 409,
+    "preset_revision_mismatch": 409,
+    "preparation_terminal": 409,
+    "unsupported_structure": 422,
+    "evidence_mismatch": 422
   },
   "message_policy": "Public-safe fixed descriptions only; local paths, exception strings, credentials and provider details are not forwarded."
 }

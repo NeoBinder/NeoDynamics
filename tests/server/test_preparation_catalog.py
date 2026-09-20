@@ -27,7 +27,15 @@ def test_catalog_matches_exact_resource_bytes_and_declares_incomplete_assembly()
     material = {key: value for key, value in preset.items() if key != "preset_revision_sha256"}
     encoded = json.dumps(material, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
     assert hashlib.sha256(encoded).hexdigest() == preset["preset_revision_sha256"]
-    assert catalog["system_assembly_available"] is False
+    assert catalog["system_assembly_available"] is True
+    assert catalog["limits"] == {
+        "max_source_bytes": 67108864,
+        "max_result_bytes": 536870912,
+        "time_limit_seconds": 3600,
+        "memory_limit_bytes": 4294967296,
+        "max_concurrent_operations": 1,
+        "max_queued_per_owner": 8,
+    }
     assert catalog["unresolved_parameters"] == []
     assert "hydrogen_mass" not in catalog["unresolved_parameters"]
     assert catalog["presets"][0]["accepted_parameters"]["hydrogen_mass_amu"] == 4.0
