@@ -42,5 +42,11 @@ def preparation_catalog():
                          "ligands_metals_nucleic_acids": "block"}}
     encoded = json.dumps(preset, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
     preset["preset_revision_sha256"] = hashlib.sha256(encoded).hexdigest()
-    return {"schema_version": 1, "presets": [preset], "system_assembly_available": False,
-            "unresolved_parameters": []}
+    limits = {"max_source_bytes": 67108864, "max_result_bytes": 536870912,
+              "time_limit_seconds": 3600, "memory_limit_bytes": 4294967296,
+              "max_concurrent_operations": 1, "max_queued_per_owner": 8}
+    # Qualified by tests/server/test_preparation_operations.py: real repair, H
+    # completion, retained input water, solvent/ions, System assembly and
+    # independent verification all pass through the isolated executor.
+    return {"schema_version": 1, "presets": [preset], "system_assembly_available": True,
+            "limits": limits, "unresolved_parameters": []}

@@ -235,10 +235,10 @@ async def _chunks(request, limit, settings):
         raise LedgerError("invalid_request")
 
 
-async def _body(request, schema, settings):
+async def _body(request, schema, settings, limit=CONTROL_LIMIT):
     _content_type(request, "application/json")
     data = bytearray()
-    async for chunk in _chunks(request, CONTROL_LIMIT, settings):
+    async for chunk in _chunks(request, limit, settings):
         data.extend(chunk)
     value = _parse_json(data)
     validate(schema, value)
@@ -256,7 +256,7 @@ def _encoded(schema, value, limit=CONTROL_LIMIT):
     return data
 
 
-def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings):
+def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings, *, preparations=None):
     """Assemble transport from owned async ports; lifespan owns the supervisor."""
     settings, statuses = transport_settings, _error_statuses()
     capacity = _Capacity(settings.max_connections)
@@ -299,12 +299,12 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
     async def liveness():
         return {"status": "ok"}
 
-    def route(method, path, schema, result_schema, operation, status=200):
+    def route(method, path, schema, result_schema, operation, status=200, limit=CONTROL_LIMIT):
         async def endpoint(request: Request):
             params = {key: value if key == "kind" else _canonical_id(value) for key, value in request.path_params.items()}
-            body = await _body(request, schema, settings) if schema else None
+            body = await _body(request, schema, settings, limit) if schema else None
             result = await operation(request.state.owner_scope, params, body, request)
-            return Response(_encoded(result_schema, result), status_code=status,
+            return Response(_encoded(result_schema, result, limit), status_code=status,
                             media_type="application/json", headers={"Cache-Control": "no-store"})
         app.add_api_route(PREFIX + path, endpoint, methods=[method], name=f"{method} {path}")
 
@@ -386,6 +386,65 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
     route("GET", "/coordinate-references/uploads/{upload_id}", None, "CoordinateUploadReceipt", lambda s, p, b, r: inputs.coordinate_upload(s, p["upload_id"]))
     route("POST", "/coordinate-references/uploads/{upload_id}/commit", "CommitInputRequest", "InputOperation", lambda s, p, b, r: inputs.commit_coordinates(s, p["upload_id"], b), 202)
     route("GET", "/coordinate-references/{reference_id}", None, "CoordinateAsset", lambda s, p, b, r: inputs.coordinate(s, p["reference_id"]))
+
+    PREPARATION = "urn:neodyn:protein-preparation:v1"
+    PREPARATION_LIMIT = 8388608 + 65536
+
+    def preparing(operation):
+        async def guarded(scope, params, body, request):
+            if preparations is None:
+                raise LedgerError("service_unavailable")
+            return await operation(scope, params, body, request)
+        return guarded
+
+    route("GET", "/preparations/catalog", None, f"{PREPARATION}:catalog",
+          preparing(lambda s, p, b, r: preparations.catalog(s)))
+    route("POST", "/preparations/source-uploads", f"{PREPARATION}:operation#/$defs/SourceUploadBeginRequest",
+          f"{PREPARATION}:operation#/$defs/SourceUploadReceipt",
+          preparing(lambda s, p, b, r: preparations.begin_source(s, b)))
+    route("GET", "/preparations/source-uploads/by-request/{request_id}", None,
+          f"{PREPARATION}:operation#/$defs/SourceUploadReceipt",
+          preparing(lambda s, p, b, r: preparations.source_upload_by_request(s, p["request_id"])))
+    route("GET", "/preparations/source-uploads/{upload_id}", None,
+          f"{PREPARATION}:operation#/$defs/SourceUploadReceipt",
+          preparing(lambda s, p, b, r: preparations.source_upload(s, p["upload_id"])))
+    route("POST", "/preparations", f"{PREPARATION}:operation#/$defs/PreparationRequest",
+          f"{PREPARATION}:operation", preparing(lambda s, p, b, r: preparations.submit(s, b)), 202,
+          PREPARATION_LIMIT)
+    route("GET", "/preparations/by-request/{request_id}", None, f"{PREPARATION}:operation",
+          preparing(lambda s, p, b, r: preparations.by_request(s, p["request_id"])), 200,
+          PREPARATION_LIMIT)
+    route("GET", "/preparations/{operation_id}/inventory", None, f"{PREPARATION}:inventory",
+          preparing(lambda s, p, b, r: preparations.inventory(s, p["operation_id"])))
+    route("GET", "/preparations/{operation_id}/qc", None, f"{PREPARATION}:qc",
+          preparing(lambda s, p, b, r: preparations.qc(s, p["operation_id"])))
+    route("POST", "/preparations/{operation_id}/cancel", None, f"{PREPARATION}:operation",
+          preparing(lambda s, p, b, r: preparations.cancel(s, p["operation_id"])), 200,
+          PREPARATION_LIMIT)
+    route("GET", "/preparations/{operation_id}", None, f"{PREPARATION}:operation",
+          preparing(lambda s, p, b, r: preparations.get(s, p["operation_id"])), 200,
+          PREPARATION_LIMIT)
+
+    @app.put(PREFIX + "/preparations/source-uploads/{upload_id}/content")
+    async def upload_preparation_source(request: Request):
+        _content_type(request, "application/octet-stream")
+        if preparations is None:
+            raise LedgerError("service_unavailable")
+        upload_id = _canonical_id(request.path_params["upload_id"])
+        limit = preparations.limits.max_source_bytes if preparations.limits else CONTROL_LIMIT
+        await preparations.put_source_content(request.state.owner_scope, upload_id,
+                                              _chunks(request, limit, settings))
+        return Response(status_code=200, headers={"Cache-Control": "no-store"})
+
+    @app.get(PREFIX + "/preparations/{operation_id}/artifacts/{artifact_id}/content")
+    async def preparation_artifact_content(request: Request):
+        if preparations is None:
+            raise LedgerError("service_unavailable")
+        params = {key: _canonical_id(value) for key, value in request.path_params.items()}
+        data = await preparations.artifact_content(request.state.owner_scope, params["operation_id"],
+                                                   params["artifact_id"])
+        return Response(data, media_type="application/octet-stream",
+                        headers={"Cache-Control": "no-store"})
 
     def topology_response(data, limit):
         # InputStore serves its exact verified BYTEA and hash. Do not parse large

@@ -64,8 +64,12 @@ interactive RBFE window orchestration; reusable science stays in the engine.
   preserve worker cadence/lossy IPC. Identity comes from the bound prepared
   projection, never particle count alone. Idle stream disconnect releases its
   subscription without an engine command.
-- Preparation presets and unavailable assembly are separate from protocol
-  compilation. Before changing either, read `docs/protein-preparation.md` and
+- Preparation presets, the durable preparation executor (migration `010`,
+  `preparation_operations.py`) and assembly availability are separate from
+  protocol compilation. The single-executor preparation lane reuses the staged
+  upload/child-isolation/restart-fence rules above; it never restarts scientific
+  work and private artifact reads never re-verify. Before changing any of them,
+  read `docs/protein-preparation.md` and
   `docs/scientific-protocol.md`; engine preparation rules are in
   `src/neomd/AGENTS.md`.
 

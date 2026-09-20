@@ -3,8 +3,9 @@
 The SDK can validate a canonical protein source, group protein/source water and
 perform bounded standard heavy-atom repair while retaining scientific identities.
 The explicit full SDK path below connects repair, retained-H completion, retained-water
-solvation and an independently verified System bundle. It does not expose a
-preparation HTTP endpoint or select simulation protocols.
+solvation and an independently verified System bundle. The interactive service
+exposes this exact path as a durable preparation operation; it still selects no
+simulation protocols.
 
 ```python
 from neomd.preparation import (
@@ -505,12 +506,39 @@ choices are now complete; later integrator, thermostat and protocol settings
 remain separate decisions.
 The HMR parameter does not assert that every hydrogen in
 the final System has that mass.
-The catalog's unresolved-parameter list is empty, but its remote preparation
-operation remains unavailable. SDK completion does not automatically qualify
-service/native intake or enable a request. The heavy-only SDK function still
-adds no H; the explicit full pipeline handles hydrogen completion separately.
-Existing SDK constraint or nonbonded defaults are not silently inherited by
-a new service request.
+The catalog's unresolved-parameter list is empty, and the service preparation
+operation is qualified (`system_assembly_available=true`). The heavy-only SDK
+function still adds no H; the explicit full pipeline handles hydrogen completion
+separately. Existing SDK constraint or nonbonded defaults are not silently
+inherited by a new service request; the executor passes the full explicit
+parameter set.
+
+## Service preparation operation
+
+`/internal/md/v1/preparations` is a durable, single-executor operation family
+(`src/neomd_server/preparation_operations.py`, migration `010`). Canonical
+source bytes travel through a staged upload lane (`source-uploads` begin,
+binary `content` PUT, exact SHA256/size verification, idempotent replay);
+operations reference the stored `source_upload_id`. Submit re-checks the preset
+revision, descriptor-evidence consistency and per-owner admission, then runs a
+killable isolated validation child before the operation becomes visible;
+rejected submissions return 422 without leaving an operation.
+
+Execution runs the real SDK pipeline in a spawned, parent-death-armed child
+with the catalog's wall-clock/memory/result limits, then independently verifies
+the staged bundle with `verify_protein_preparation` in a second child before
+publishing immutable artifacts and the receipt/inventory/QC DTOs. Cancellation
+is idempotent through the state machine (queued operations close immediately;
+a running operation's child is killed). Restart reconciliation fences every
+non-terminal operation as `interrupted` (`worker_lost`) and never restarts
+scientific work. Failed/cancelled operations retain only their bounded
+`preparation.log` artifact. Private artifact reads do not re-verify.
+
+The canonical source format is `pdbx` (loader `openmm.PDBxFile`). `.pdb` intake
+is out of contract scope: blank insertion codes decode as `' '` through
+`openmm.PDBFile`, which the qualified pipeline's lossless PDBx round-trip gate
+correctly rejects. Qualification evidence is ala2-scale CPU execution; catalog
+limits are contract ceilings, not scale or throughput claims.
 
 ## Verification boundary
 

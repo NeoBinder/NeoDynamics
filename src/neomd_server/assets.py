@@ -555,7 +555,7 @@ class InputStore:
                     raise LedgerError("idempotency_conflict")
                 return existing["receipt"]
             used = await connection.fetchval(
-                "SELECT (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.asset_uploads WHERE pool_id=$1) + (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.output_reservations WHERE pool_id=$1)",
+                "SELECT (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.asset_uploads WHERE pool_id=$1) + (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.output_reservations WHERE pool_id=$1) + (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.preparation_source_uploads WHERE pool_id=$1) + (SELECT coalesce(sum(pa.size_bytes),0) FROM neomd_service.preparation_artifacts pa JOIN neomd_service.preparation_operations po ON po.operation_id=pa.operation_id WHERE po.pool_id=$1)",
                 self.pool_id,
             )
             if total > capacity - used:
@@ -979,7 +979,7 @@ class InputStore:
                     raise LedgerError("idempotency_conflict")
                 return existing["receipt"]
             used = await connection.fetchval(
-                "SELECT (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.asset_uploads WHERE pool_id=$1) + (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.output_reservations WHERE pool_id=$1)",
+                "SELECT (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.asset_uploads WHERE pool_id=$1) + (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.output_reservations WHERE pool_id=$1) + (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.preparation_source_uploads WHERE pool_id=$1) + (SELECT coalesce(sum(pa.size_bytes),0) FROM neomd_service.preparation_artifacts pa JOIN neomd_service.preparation_operations po ON po.operation_id=pa.operation_id WHERE po.pool_id=$1)",
                 self.pool_id,
             )
             if metadata["size_bytes"] > capacity - used:
