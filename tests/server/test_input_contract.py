@@ -67,6 +67,6 @@ def test_migration005_preserves_unqualified_historical_projection(database_dsn):
                 assert rows[0]["particle_identity_sha256"] is None
                 assert rows[0]["preview_projection_sha256"] is None
                 assert await connection.fetchval("SELECT count(*) FROM neomd_service.input_operations") == 0
-                assert await connection.fetchval("SELECT max(version) FROM neomd_service.migrations") == 9
+                assert await connection.fetchval("SELECT max(version) FROM neomd_service.migrations") == 10
 
     asyncio.run(scenario())
