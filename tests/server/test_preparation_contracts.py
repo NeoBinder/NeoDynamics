@@ -8,6 +8,8 @@ import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 from referencing import Registry, Resource
 
+from neomd_server.contract import content_hash
+
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACTS = ROOT / "contracts"
 FIXTURES = CONTRACTS / "protein-preparation/v1/fixtures"
@@ -117,6 +119,10 @@ def test_fixtures_share_one_consistent_identity_chain():
         operation = _fixture(f"operation-{state}.json")
         assert operation["request"] == succeeded["request"]
         assert operation["request_sha256"] == succeeded["request_sha256"]
+        # The digest pins the actual immutable body, not just cross-fixture equality.
+        assert operation["request_sha256"] == content_hash(operation["request"])
+    conflict = _fixture("error-request-conflict.json")
+    assert conflict["details"]["request_sha256"] == succeeded["request_sha256"]
 
 
 def test_catalog_fixture_limits_match_live_catalog_shape():
