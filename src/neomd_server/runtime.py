@@ -264,11 +264,7 @@ async def serve(settings):
             access_log=False,
             timeout_graceful_shutdown=settings.execution.shutdown_timeout_seconds,
         )
-        try:
-            await preparations.initialize()
-            await uvicorn.Server(config).serve()
-        finally:
-            await preparations.close()
+        await uvicorn.Server(config).serve()
     finally:
         await ledger.close()
 

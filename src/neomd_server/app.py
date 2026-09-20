@@ -275,8 +275,13 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
     async def lifespan(_):
         try:
             await supervisor.start()
+            # Admission/storage policy rows exist only after supervisor.start().
+            if preparations is not None:
+                await preparations.initialize()
             yield
         finally:
+            if preparations is not None:
+                await preparations.close()
             await supervisor.close()
 
     app = FastAPI(lifespan=lifespan, openapi_url=None, docs_url=None, redoc_url=None,
