@@ -1,19 +1,41 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
  "$id": "urn:neodyn:protein-preparation:v1:catalog",
- "title": "Accepted protein preparation catalog; System assembly unavailable",
+ "title": "Accepted protein preparation catalog",
  "type": "object",
  "additionalProperties": false,
  "required": [
   "schema_version",
   "presets",
   "system_assembly_available",
+  "loader",
   "limits",
   "unresolved_parameters"
  ],
  "properties": {
   "schema_version": {
    "const": 1
+  },
+  "loader": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "name",
+    "version",
+    "atom_order"
+   ],
+   "properties": {
+    "name": {
+     "const": "openmm.PDBxFile"
+    },
+    "version": {
+     "type": "string",
+     "minLength": 1
+    },
+    "atom_order": {
+     "const": "preparation_input"
+    }
+   }
   },
   "presets": {
    "type": "array",

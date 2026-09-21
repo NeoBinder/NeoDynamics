@@ -473,6 +473,14 @@ sizes, SHA256 hashes and package version. The preset revision is SHA256 of
 sorted compact UTF-8 JSON for that preset without its revision field or a trailing
 newline; this digest is separate from any protocol-registration hash.
 
+The catalog also publishes the exact source `loader` identity
+(`openmm.PDBxFile`, the service OpenMM version and the
+`preparation_input` atom order) that source descriptors must pin; capture-side
+producers read it from the catalog rather than hardcoding a version. Sources
+carrying `chem_comp_bond` records load with typed bonds that the qualified
+export round-trip cannot preserve, so accepted capture profiles emit
+`atom_site` plus `struct_conn` (disulf) only.
+
 The catalog records the accepted TIP3P geometry, 0.15 mol/L NaCl with
 neutralization, cubic padding of 1.0 nm and pH 7.0. Salt concentration, padding and pH are editable
 parameters. Existing input water is retained before adding the surrounding water

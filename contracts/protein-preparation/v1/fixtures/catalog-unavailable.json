@@ -7,6 +7,11 @@
   "memory_limit_bytes": 4294967296,
   "time_limit_seconds": 3600
  },
+ "loader": {
+  "name": "openmm.PDBxFile",
+  "version": "8.6",
+  "atom_order": "preparation_input"
+ },
  "presets": [
   {
    "accepted_parameters": {

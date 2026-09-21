@@ -61,7 +61,16 @@ state machine, returning the current operation. An `interrupted` operation is
 never restarted; retries use a new `request_id`. The canonical source format is
 `pdbx` with loader `openmm.PDBxFile`: `.pdb` intake cannot pass the qualified
 pipeline's lossless PDBx round-trip gate (blank insertion codes decode as `' '`
-via `openmm.PDBFile`), so it is deliberately out of contract scope.
+via `openmm.PDBFile`), so it is deliberately out of contract scope. The catalog
+publishes the exact `loader` identity (`name`, `version`, `atom_order`) that
+source descriptors must pin, so capture-side producers discover the service
+OpenMM version instead of hardcoding it. Sources carrying `chem_comp_bond`
+records (e.g. official RCSB mmCIF) load with typed bonds that the qualified
+export round-trip cannot preserve; capture profiles emit `atom_site` plus
+`struct_conn` (disulf) only. `tools/pdbx_standard_graph.py` emits the
+loader-canonical graph (chains, residues, atoms, complete typeless bond graph)
+for any PDBx file so descriptor producers can diff their evidence against the
+OpenMM 8.6 template inference exactly.
 
 `receipt.schema.json` binds the source identity and bytes, preset revision, the
 full actual parameter set, engine/resource provenance (package versions, full

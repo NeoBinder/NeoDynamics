@@ -138,3 +138,55 @@ def test_catalog_fixture_limits_match_live_catalog_shape():
     assert catalog["system_assembly_available"] is True
     assert "unavailable" not in catalog
     assert _fixture("catalog-unavailable.json")["unavailable"]["reason"] == "executor_unavailable"
+    # Clients pin this exact loader identity in source descriptors; it must
+    # match the live producer and the OpenMM build performing the load.
+    import openmm
+
+    from neomd_server.preparation import preparation_catalog
+    expected_loader = {"name": "openmm.PDBxFile", "version": openmm.__version__,
+                       "atom_order": "preparation_input"}
+    assert catalog["loader"] == expected_loader
+    assert preparation_catalog()["loader"] == expected_loader
+    assert _fixture("catalog-unavailable.json")["loader"] == expected_loader
+
+
+def test_reference_graph_tool_matches_descriptor_evidence(tmp_path):
+    """The canova-facing reference tool must mirror real descriptor semantics."""
+    import importlib.util
+    import sys
+
+    from openmm import app, unit
+
+    tool_path = (Path(__file__).resolve().parents[2]
+                 / "contracts/protein-preparation/v1/tools/pdbx_standard_graph.py")
+    spec = importlib.util.spec_from_file_location("pdbx_standard_graph", tool_path)
+    tool = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = tool
+    spec.loader.exec_module(tool)
+
+    from tests.v2.test_protein_preparation import descriptor
+    from tests.v2.test_protein_solvent import partial_h_source
+
+    (tmp_path / "s").mkdir()
+    source = partial_h_source(tmp_path / "s", missing_cb=True)
+    path = tmp_path / "raw.pdbx"
+    with path.open("w") as handle:
+        app.PDBxFile.writeFile(source.topology, source.positions_nm * unit.nanometer,
+                               handle, keepIds=True)
+    loaded = app.PDBxFile(str(path))
+    evidence = descriptor(path, loaded)
+    graph = tool.standard_graph(path)
+
+    assert graph["loader"] == evidence["loader"]
+    assert [r["name"] for r in graph["residues"]] == [r["name"] for r in evidence["residue_bindings"]]
+    assert [r["input_chain_index"] for r in graph["residues"]] == [
+        r["input_chain_index"] for r in evidence["residue_bindings"]]
+    assert [a["atom_name"] for a in graph["atoms"]] == [a["atom_name"] for a in evidence["atom_bindings"]]
+    assert [a["element"] for a in graph["atoms"]] == [a["element"] for a in evidence["atom_bindings"]]
+    id_by_index = {a["input_atom_index"]: a["source_atom_id"] for a in evidence["atom_bindings"]}
+    evidence_bonds = {(tuple(sorted((b["atom_ids"][0], b["atom_ids"][1]))),
+                       b["order"], b["aromatic"]) for b in evidence["bonds"]}
+    tool_bonds = {(tuple(sorted((id_by_index[b["atom_indices"][0]],
+                                 id_by_index[b["atom_indices"][1]]))),
+                   b["order"], b["aromatic"]) for b in graph["bonds"]}
+    assert tool_bonds == evidence_bonds
