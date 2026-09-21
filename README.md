@@ -260,6 +260,16 @@ charge fitting), `ligand` (RDKit/openff processing), `convert`, `fix_protein`
 `openmm_privates.py` behind a pinned-version gate (openmm 8.6.x) that raises
 `UpstreamVersionError` otherwise.
 
+To inspect the prepared force field, `bin/inspect_ff_params.py` reads
+`solv.pdbx` + `system.xml` and prints parameter tables for a user-selected
+atom set — selection keywords (`chain`, `resid`, `resname`, `name`,
+`index`, `resindex`, `element`, `distance`) combine AND inside one
+`--select` group and OR across repeated groups; `--params` picks from the
+types actually present in the XML (bonds/angles/dihedrals/nonbonded/mass)
+and `--mode any|all` decides whether a bonded term is shown when it touches
+the selection or only when it sits fully inside it. The same logic is
+importable as `inspect_params(...)` for Python use.
+
 ## ML/MM coupling
 
 One plan section turns a region into an ML-potential region. Two region
