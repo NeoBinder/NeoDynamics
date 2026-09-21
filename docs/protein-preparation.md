@@ -41,6 +41,16 @@ clients bind the coordinates represented by the canonical bytes, including any
 serialization rounding. Raw row numbers, atom serials and GPU indices are not
 scientific identity.
 
+Adjacent source waters with the same chain, non-dot residue label and insertion
+code are ambiguous to the pinned PDBx loader: it merges their residue records,
+even when `label_seq_id` differs. A descriptor preserving the original separate
+residue identities rejects at load validation. Rebuilding the descriptor from the
+merged load does not make this acceptable: grouping rejects a water residue with
+multiple oxygens. Preparation never silently drops or renumbers these waters.
+Capture producers must preserve a loader-unambiguous residue representation or
+report the unsupported labeling before preparation. Distinctly labeled input
+waters are retained separately through full preparation and independent verification.
+
 Residue bindings include canonical residue and chain indices plus names and
 labels. A complete source bond graph includes source bond UUIDs, endpoint UUIDs,
 order and aromaticity; explicit unknown bond metadata remains null. Validation
@@ -530,17 +540,44 @@ binary `content` PUT, exact SHA256/size verification, idempotent replay);
 operations reference the stored `source_upload_id`. Submit re-checks the preset
 revision, descriptor-evidence consistency and per-owner admission, then runs a
 killable isolated validation child before the operation becomes visible;
-rejected submissions return 422 without leaving an operation.
+rejected submissions return 422 without leaving an operation. Source validation has
+one admission slot, separate from the single preparation executor; overlapping
+submissions receive `admission_full`. No intent is visible or claimable until the
+validator has exited cleanly and upload, identity and capacity have been rechecked.
+Migration `011` reserves `max_result_bytes` at admission under the same storage
+pool lock used by uploads and session output admission. Every shared-capacity
+reader counts this reservation. Success converts it to exact published artifact
+bytes atomically; controlled failure/cancellation releases it only after confirmed
+child exit and owned staging cleanup. Never-claimed queued cancellation releases
+immediately. Restart interrupts running work but retains its reservation and files:
+a lease fence cannot prove writer closure or authorize storage reclamation.
 
 Execution runs the real SDK pipeline in a spawned, parent-death-armed child
 with the catalog's wall-clock/memory/result limits, then independently verifies
 the staged bundle with `verify_protein_preparation` in a second child before
-publishing immutable artifacts and the receipt/inventory/QC DTOs. Cancellation
+publishing immutable artifacts and the receipt/inventory/QC DTOs. Publication
+rechecks cancellation and deadline under the operation row lock before committing
+success; cancellation before that commit publishes no result. Cancellation
 is idempotent through the state machine (queued operations close immediately;
 a running operation's child is killed). Restart reconciliation fences every
 non-terminal operation as `interrupted` (`worker_lost`) and never restarts
 scientific work. Failed/cancelled operations retain only their bounded
 `preparation.log` artifact. Private artifact reads do not re-verify.
+
+A desktop-accepted result enters the existing prepared upload/commit lane using
+its unchanged manifest and all manifest artifacts. The only additional accepted
+artifact paths are `assembly-report.json`, `forcefield/protein.ff14SB.xml` and
+`forcefield/tip3p_standard.xml`; the preparation log is not a manifest artifact.
+The service admits the full profile only when a succeeded preparation in the
+same owner scope and provider pool binds the exact manifest SHA256 and every
+artifact path, size and SHA256. Its receipt and complete inventory are pinned in
+the durable input-operation snapshot and checked again before registration.
+The isolated child still performs independent full preparation verification;
+the receipt alone cannot replace scientific verification. Successful commit
+publishes the existing prepared binding and topology projection for protocol and
+session use. Ordinary uploaded full histories, another owner's result and changed
+bytes remain rejected by the existing LOAD-only or integrity gates. No new public
+route or automatic mutation replay is introduced.
 
 The canonical source format is `pdbx` (loader `openmm.PDBxFile`). `.pdb` intake
 is out of contract scope: blank insertion codes decode as `' '` through

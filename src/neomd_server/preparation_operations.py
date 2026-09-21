@@ -123,6 +123,7 @@ class PreparationStore:
         self.closing = False
         self.faulted = False
         self._children = set()
+        self._submission_slot = asyncio.Lock()
         self._initialized = False
         catalog = preparation_catalog()
         self._preset = catalog["presets"][0]
@@ -179,9 +180,8 @@ class PreparationStore:
                 await self._write(connection, row, "interrupted", code="worker_lost",
                                   message="Service restart fenced the non-terminal operation; "
                                           "retry requires a new request_id.")
-        for row in rows:
-            # Fenced executions never publish partial staging into final storage.
-            await asyncio.to_thread(shutil.rmtree, self._staging(row["operation_id"]), True)
+        # Interrupted running writers retain their reservation and files. A
+        # restart/lease fence is not proof of their exit or storage reclamation.
 
     async def close(self):
         self.closing = True
@@ -226,6 +226,7 @@ class PreparationStore:
             """SELECT (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.asset_uploads WHERE pool_id=$1)
             + (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.output_reservations WHERE pool_id=$1)
             + (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.preparation_source_uploads WHERE pool_id=$1)
+            + (SELECT coalesce(sum(reserved_output_bytes),0) FROM neomd_service.preparation_operations WHERE pool_id=$1)
             + (SELECT coalesce(sum(pa.size_bytes),0) FROM neomd_service.preparation_artifacts pa
                JOIN neomd_service.preparation_operations po ON po.operation_id=pa.operation_id
                WHERE po.pool_id=$1)""",
@@ -350,6 +351,13 @@ class PreparationStore:
     # --- operation submission and queries --------------------------------------
 
     async def submit(self, scope_id, request):
+        # Bound validation admission before retaining requests or spawning children.
+        if self._submission_slot.locked():
+            raise LedgerError("admission_full")
+        async with self._submission_slot:
+            return await self._submit(scope_id, request, validated=False)
+
+    async def _submit(self, scope_id, request, *, validated):
         validate(PREPARATION_REQUEST, request)
         if self.closing or self.faulted or not self._initialized:
             raise LedgerError("service_unavailable")
@@ -362,6 +370,12 @@ class PreparationStore:
         scope = _uuid(scope_id)
         digest = content_hash(request)
         async with self.ledger.pool.acquire() as connection, connection.transaction():
+            capacity = await connection.fetchval(
+                "SELECT capacity_bytes FROM neomd_service.storage_capacity WHERE pool_id=$1 FOR UPDATE",
+                self.pool_id,
+            )
+            if capacity is None:
+                raise LedgerError("service_unavailable")
             existing = await connection.fetchrow(
                 """SELECT request_sha256,snapshot FROM neomd_service.preparation_operations
                 WHERE scope_id=$1 AND kind=$2 AND request_id=$3""",
@@ -397,6 +411,8 @@ class PreparationStore:
             )
             if count >= self.limits.max_queued_per_owner:
                 raise LedgerError("admission_full")
+            if self.limits.max_result_bytes > capacity - await self._used_capacity(connection):
+                raise LedgerError("admission_full")
             descriptor = source["descriptor"]
             binding = descriptor["sources"][0]
             if len(descriptor["sources"]) != 1 or binding["content_sha256"] != source["canonical_bytes_sha256"]:
@@ -420,30 +436,29 @@ class PreparationStore:
             validate(SCHEMA, operation)
             seed = secrets.randbelow(2147483647) + 1
             deadline = now + timedelta(seconds=self.limits.time_limit_seconds)
-            await connection.execute(
-                """INSERT INTO neomd_service.preparation_operations
-                (operation_id,scope_id,request_id,pool_id,kind,request_sha256,request,snapshot,
-                source_upload_id,preparation_seed,state,revision,owner_id,deadline_at)
-                VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'queued',1,$11,$12)""",
-                operation_id, scope, _uuid(request["request_id"]), self.pool_id, KIND, digest,
-                request, operation, _uuid(source["source_upload_id"]), seed,
-                self.owner_id, deadline,
-            )
-        # F1/F2 pre-check: the isolated validator parses the exact stored bytes.
-        # A rejection removes the intent row, so a 422 never leaves a visible operation.
+            if validated:
+                await connection.execute(
+                    """INSERT INTO neomd_service.preparation_operations
+                    (operation_id,scope_id,request_id,pool_id,kind,request_sha256,request,snapshot,
+                    source_upload_id,preparation_seed,state,revision,owner_id,deadline_at,reserved_output_bytes)
+                    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'queued',1,$11,$12,$13)""",
+                    operation_id, scope, _uuid(request["request_id"]), self.pool_id, KIND, digest,
+                    request, operation, _uuid(source["source_upload_id"]), seed,
+                    self.owner_id, deadline, self.limits.max_result_bytes,
+                )
+        if validated:
+            self.signal.set()
+            return operation
+        # No visible/claimable intent exists until isolated validation completes.
+        # Recheck upload, owner, admission and request identity before insertion.
         job = {
             "root": str(self.root), "upload_id": source["source_upload_id"],
             "format": source["format"],
             "canonical_bytes_sha256": source["canonical_bytes_sha256"],
             "binding": binding, "memory_limit_bytes": self.limits.memory_limit_bytes,
         }
-        try:
-            await self._validate_source(job, time.monotonic() + min(self.limits.time_limit_seconds, 600))
-        except LedgerError:
-            await self._discard_intent(operation_id)
-            raise
-        self.signal.set()
-        return operation
+        await self._validate_source(job, time.monotonic() + min(self.limits.time_limit_seconds, 600))
+        return await self._submit(scope_id, request, validated=True)
 
     async def _validate_source(self, job, deadline):
         outcome = await self._run_child(_validate_source_process, job, deadline)
@@ -451,14 +466,6 @@ class PreparationStore:
             raise LedgerError(outcome["error"])
         if not outcome.get("ok"):
             raise LedgerError("unsupported_structure")
-
-    async def _discard_intent(self, operation_id):
-        async with self.ledger.pool.acquire() as connection, connection.transaction():
-            await connection.execute(
-                """DELETE FROM neomd_service.preparation_operations
-                WHERE operation_id=$1 AND state='queued'""",
-                operation_id,
-            )
 
     async def get(self, scope_id, operation_id):
         if self.faulted:
@@ -564,6 +571,12 @@ class PreparationStore:
                 "request_id": snapshot["request_id"],
             }
         validate(SCHEMA, snapshot)
+        if row["state"] == "queued" and state not in PENDING:
+            # A never-claimed operation owns no output writer or staging files.
+            await connection.execute(
+                "UPDATE neomd_service.preparation_operations SET reserved_output_bytes=0 WHERE operation_id=$1",
+                row["operation_id"],
+            )
         await connection.execute(
             """UPDATE neomd_service.preparation_operations
             SET state=$2,revision=$3,snapshot=$4,updated_at=$5 WHERE operation_id=$1""",
@@ -603,6 +616,8 @@ class PreparationStore:
             return dict(row, lease_id=lease_id, snapshot=snapshot, revision=snapshot["revision"])
 
     async def _run_child(self, target, job, deadline, *, cancel_check=None):
+        if self.closing or self.faulted:
+            raise LedgerError("service_unavailable")
         context = multiprocessing.get_context("spawn")
         result, child_result = Channel.pair(max_message_bytes=1048576)
         process = context.Process(target=target, args=(job, child_result, os.getpid()))
@@ -646,8 +661,8 @@ class PreparationStore:
                     raise LedgerError("preparation_time_limit_exceeded")
                 await asyncio.sleep(0.05)
             if process.is_alive():
-                await asyncio.to_thread(process.join, 1)
-            if received is None:
+                await asyncio.to_thread(process.join, min(1, max(0, deadline - time.monotonic())))
+            if received is None or process.is_alive() or process.exitcode != 0:
                 raise LedgerError("worker_lost")
             return received
         finally:
@@ -666,7 +681,7 @@ class PreparationStore:
             )
 
     async def _finish(self, claimed, state, *, code=None, message=None, receipt=None,
-                      inventory=None, qc=None, artifacts=()):
+                      inventory=None, qc=None, artifacts=(), release_reservation=False):
         async with self.ledger.pool.acquire() as connection, connection.transaction():
             row = await connection.fetchrow(
                 "SELECT * FROM neomd_service.preparation_operations WHERE operation_id=$1 FOR UPDATE",
@@ -676,6 +691,18 @@ class PreparationStore:
                 raise LedgerError("lease_expired")
             if row["state"] not in PENDING:
                 return row["snapshot"]
+            if state == "succeeded":
+                if row["cancel_requested"]:
+                    raise LedgerError("preparation_terminal")
+                if row["deadline_at"] <= await connection.fetchval("SELECT clock_timestamp()"):
+                    raise LedgerError("preparation_time_limit_exceeded")
+            if sum(artifact["size_bytes"] for artifact in artifacts) > row["reserved_output_bytes"]:
+                raise LedgerError("result_too_large")
+            if release_reservation:
+                await connection.execute(
+                    "UPDATE neomd_service.preparation_operations SET reserved_output_bytes=0 WHERE operation_id=$1",
+                    row["operation_id"],
+                )
             for artifact in artifacts:
                 await connection.execute(
                     """INSERT INTO neomd_service.preparation_artifacts
@@ -785,7 +812,12 @@ class PreparationStore:
             artifacts = await self._salvage_log(claimed, staging)
         except LedgerError:
             artifacts = []
-        await self._finish(claimed, state, code=code, message=message, artifacts=artifacts)
+        # Release only after the child has exited and owned staging is removed.
+        if staging.exists():
+            await asyncio.to_thread(shutil.rmtree, staging)
+        release = bool(artifacts) or not self._final(claimed["operation_id"]).exists()
+        await self._finish(claimed, state, code=code, message=message, artifacts=artifacts,
+                           release_reservation=release)
 
     async def _publish(self, claimed, prepared, verified, staging):
         operation_id = claimed["operation_id"]
@@ -808,6 +840,8 @@ class PreparationStore:
                 "size_bytes": (await asyncio.to_thread(log_source.lstat)).st_size,
                 "role": "log", "artifact_id": str(uuid4()),
             })
+        if sum(item["size_bytes"] for item in artifacts) > claimed["reserved_output_bytes"]:
+            raise LedgerError("result_too_large")
         await asyncio.to_thread(self.root.joinpath("preparations").mkdir, exist_ok=True)
         await asyncio.to_thread(os.rename, bundle, final)
         if log_source.is_file():
@@ -827,8 +861,15 @@ class PreparationStore:
         }
         validate(INVENTORY, inventory)
         qc = self._qc(claimed, receipt, verified)
-        await self._finish(claimed, "succeeded", receipt=receipt, inventory=inventory, qc=qc,
-                           artifacts=artifacts)
+        await asyncio.to_thread(shutil.rmtree, staging)
+        try:
+            await self._finish(claimed, "succeeded", receipt=receipt, inventory=inventory, qc=qc,
+                               artifacts=artifacts, release_reservation=True)
+        except LedgerError as error:
+            if error.code in {"preparation_terminal", "preparation_time_limit_exceeded"}:
+                # No database publication occurred; only this operation owns final.
+                await asyncio.to_thread(shutil.rmtree, final)
+            raise
 
     def _receipt(self, claimed, prepared, verified):
         request = claimed["request"]

@@ -38,7 +38,7 @@ PRESET_SHA = preparation_catalog()["presets"][0]["preset_revision_sha256"]
 
 
 class store:
-    def __init__(self, dsn, root, *, limits=LIMITS, capacity=10**9, start=True, reconcile=True):
+    def __init__(self, dsn, root, *, limits=LIMITS, capacity=10**10, start=True, reconcile=True):
         self.dsn, self.root = dsn, root
         self.limits, self.capacity = limits, capacity
         self.start, self.reconcile = start, reconcile
@@ -506,4 +506,97 @@ def test_http_surface_runs_real_operation(database_dsn, tmp_path, raw_source):
                 assert cancel.json()["code"] == "preparation_terminal"
                 assert (await client.get(PREFIX + "/preparations/catalog")).status_code == 200
 
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("loader_derived_descriptor", [False, True])
+def test_merged_water_residues_reject_without_publishing_operation(
+    database_dsn, tmp_path, loader_derived_descriptor,
+):
+    from tests.v2.test_protein_preparation import descriptor
+    from tests.v2.test_protein_water_identity import two_water_source
+
+    path, binding = two_water_source(tmp_path, repeated_label=True)
+    if loader_derived_descriptor:
+        binding = descriptor(path, app.PDBxFile(str(path)))
+    data = path.read_bytes()
+    raw = {"bytes": data, "sha256": hashlib.sha256(data).hexdigest(),
+           "descriptor": {"schema_version": 2, "sources": [binding]}}
+
+    async def scenario():
+        scope = str(uuid4())
+        async with store(database_dsn, tmp_path / "service") as preparations:
+            receipt = await begin_and_upload(preparations, scope, raw)
+            error = "unsupported_structure" if loader_derived_descriptor else "evidence_mismatch"
+            with pytest.raises(LedgerError, match=error):
+                await preparations.submit(scope, preparation_request(raw, receipt))
+            async with preparations.ledger.pool.acquire() as connection:
+                assert await connection.fetchval(
+                    "SELECT count(*) FROM neomd_service.preparation_operations") == 0
+                assert await connection.fetchval(
+                    "SELECT count(*) FROM neomd_service.prepared_assets") == 0
+    asyncio.run(scenario())
+    assert path.read_bytes() == data
+
+
+def test_validation_is_bounded_and_never_exposes_a_claimable_intent(
+    database_dsn, tmp_path, raw_source, monkeypatch,
+):
+    async def scenario():
+        scope = str(uuid4())
+        async with store(database_dsn, tmp_path) as preparations:
+            receipt = await begin_and_upload(preparations, scope, raw_source)
+            request = preparation_request(raw_source, receipt)
+            entered, release = asyncio.Event(), asyncio.Event()
+
+            async def reject_after_barrier(job, deadline):
+                entered.set()
+                await release.wait()
+                raise LedgerError("unsupported_structure")
+
+            monkeypatch.setattr(preparations, "_validate_source", reject_after_barrier)
+            pending = asyncio.create_task(preparations.submit(scope, request))
+            await entered.wait()
+            try:
+                assert await preparations._claim() is None
+                with pytest.raises(LedgerError, match="not_found"):
+                    await preparations.by_request(scope, request["request_id"])
+                with pytest.raises(LedgerError, match="admission_full"):
+                    await preparations.submit(scope, request)
+                assert not preparations._children
+            finally:
+                release.set()
+            with pytest.raises(LedgerError, match="unsupported_structure"):
+                await pending
+            assert await preparations._claim() is None
+    asyncio.run(scenario())
+
+
+def test_cancellation_during_publication_cannot_publish_success(
+    database_dsn, tmp_path, raw_source, monkeypatch,
+):
+    async def scenario():
+        scope = str(uuid4())
+        async with store(database_dsn, tmp_path) as preparations:
+            finish = preparations._finish
+            cancelled = []
+
+            async def cancel_before_finish(claimed, state, **kwargs):
+                if state == "succeeded":
+                    cancelled.append(await preparations.cancel(scope, str(claimed["operation_id"])))
+                return await finish(claimed, state, **kwargs)
+
+            monkeypatch.setattr(preparations, "_finish", cancel_before_finish)
+            receipt = await begin_and_upload(preparations, scope, raw_source)
+            operation = await preparations.submit(scope, preparation_request(raw_source, receipt))
+            done = await terminal(preparations, scope, operation["operation_id"])
+            assert cancelled and done["state"] == "cancelled"
+            assert done["receipt"] is None
+            for read in (preparations.inventory, preparations.qc):
+                with pytest.raises(LedgerError, match="not_found"):
+                    await read(scope, operation["operation_id"])
+            assert not preparations._final(operation["operation_id"]).exists()
+            async with preparations.ledger.pool.acquire() as connection:
+                assert await connection.fetchval(
+                    "SELECT count(*) FROM neomd_service.preparation_artifacts") == 0
     asyncio.run(scenario())

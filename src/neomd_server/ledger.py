@@ -232,9 +232,9 @@ class Ledger:
                 if exists
                 else None
             )
-            if version is not None and version not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}:
+            if version is not None and version not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}:
                 raise RuntimeError("unsupported service ledger schema version")
-            for number in range((version or 0) + 1, 11):
+            for number in range((version or 0) + 1, 12):
                 script = (Path(__file__).parent / f"migrations/{number:03d}.sql").read_text()
                 await connection.execute(script)
 
@@ -600,6 +600,7 @@ class Ledger:
                     (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.asset_uploads WHERE pool_id=$1) +
                     (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.output_reservations WHERE pool_id=$1) +
                     (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.preparation_source_uploads WHERE pool_id=$1) +
+                    (SELECT coalesce(sum(reserved_output_bytes),0) FROM neomd_service.preparation_operations WHERE pool_id=$1) +
                     (SELECT coalesce(sum(pa.size_bytes),0) FROM neomd_service.preparation_artifacts pa JOIN neomd_service.preparation_operations po ON po.operation_id=pa.operation_id WHERE po.pool_id=$1)""",
                     pool_id,
                 )

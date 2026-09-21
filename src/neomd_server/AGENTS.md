@@ -40,9 +40,10 @@ interactive RBFE window orchestration; reusable science stays in the engine.
 - Upload commit keeps full DOM/schema/System/PVC work in a killable verifier,
   outside the asyncio host and SQL transaction. A compact exact-upload receipt
   plus confirmed clean exit precedes a final scoped live-upload recheck.
-  Every v2 intake must select SDK `canonical_protein_load_v1`: one independently
-  verified, unchanged canonical load. Repair/other histories remain unsupported;
-  generic schema/hash verification cannot substitute for this profile.
+  External v2 intake selects SDK `canonical_protein_load_v1`. Exact successful
+  service-preparation results may use independent full verification only with
+  same-owner/provider receipt and inventory pinned in the durable snapshot;
+  see `docs/protein-preparation.md`. Generic schema/hash checks confer no authority.
 - Migration `005` owns fenced asynchronous input operations, explicit commit
   request IDs and required `NEOMD_SERVER_MAX_PENDING_INPUT_OPERATIONS`.
   The coordinator survives HTTP disconnect and atomically registers verified
