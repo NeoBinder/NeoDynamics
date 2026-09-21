@@ -8,7 +8,6 @@ artifact bytes stay in host-owned staging directories and never enter IPC.
 from __future__ import annotations
 
 import hashlib
-import json
 import time
 from pathlib import Path
 

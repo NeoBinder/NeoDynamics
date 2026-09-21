@@ -6,9 +6,7 @@ the disposable PostgreSQL fixture; nothing is mocked.
 
 import asyncio
 import hashlib
-import io
 import json
-from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -429,7 +427,7 @@ def test_time_limit_and_result_size_exhaustion(database_dsn, tmp_path, raw_sourc
 
 def test_http_surface_runs_real_operation(database_dsn, tmp_path, raw_source):
     import httpx
-    from test_http import HEADERS, PREFIX, SCOPE, Ports
+    from test_http import HEADERS, PREFIX, Ports
 
     from neomd_server.app import TransportSettings, create_app
 

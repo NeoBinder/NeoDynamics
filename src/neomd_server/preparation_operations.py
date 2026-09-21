@@ -439,7 +439,7 @@ class PreparationStore:
         }
         try:
             await self._validate_source(job, time.monotonic() + min(self.limits.time_limit_seconds, 600))
-        except LedgerError as error:
+        except LedgerError:
             await self._discard_intent(operation_id)
             raise
         self.signal.set()
