@@ -16,6 +16,8 @@ from .assets import InputStore, UploadLimits
 from .ledger import AdmissionLimits, Ledger
 from .preparation_operations import PreparationLimits, PreparationStore
 from .protocols import ScientificLimits
+from .publication_config import PublicationSettings
+from .publication_runtime import PublicationCoordinator
 from .supervisor import ExecutionLimits, Supervisor
 
 _TOKEN = re.compile(r"[A-Za-z0-9._~-]{32,512}\Z", re.ASCII)
@@ -209,6 +211,17 @@ class RuntimeSettings:
         )
 
 
+def publication_coordinator(ledger, inputs, storage_directory, *, pool_id, shutdown_timeout_seconds):
+    """Explicit activation only: absent publication settings leave it disabled."""
+    publication = PublicationSettings.from_env()
+    if publication is None:
+        return None
+    return PublicationCoordinator(
+        ledger, inputs, pool_id=pool_id, settings=publication,
+        shutdown_timeout_seconds=shutdown_timeout_seconds,
+    )
+
+
 async def serve(settings):
     import uvicorn
 
@@ -240,6 +253,9 @@ async def serve(settings):
             max_auth_staleness_seconds=int(
                 transport.auth_interval_seconds + transport.auth_timeout_seconds
             ),
+            publication=publication_coordinator(
+                ledger, inputs, settings.storage_directory, pool_id=settings.pool_id,
+                shutdown_timeout_seconds=settings.execution.shutdown_timeout_seconds),
         )
         preparations = PreparationStore(
             ledger,

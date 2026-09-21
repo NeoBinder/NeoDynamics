@@ -165,10 +165,12 @@ class Supervisor:
         max_auth_staleness_seconds,
         worker_target=session_process,
         finalizer_target=finalization_process,
+        publication=None,
     ):
         self.ledger, self.inputs, self.pool_id = ledger, inputs, pool_id
         self.admission, self.execution = admission, execution
         self.max_auth_staleness_seconds = max_auth_staleness_seconds
+        self.publication = publication
         self.worker_target = worker_target
         self.finalizer_target = finalizer_target
         self.worker_id = str(uuid4())
@@ -191,6 +193,9 @@ class Supervisor:
             self.pool_id, self.admission, max_running_seconds=self.execution.max_running_seconds
         )
         await self.inputs.initialize()
+        if self.publication is not None:
+            # Reverse publication activates only from explicit host configuration.
+            await self.publication.start()
         await self._qualify()
         self.closing = False
         self.task = asyncio.create_task(self._run())
@@ -920,4 +925,6 @@ class Supervisor:
             await self.task
             self.task = None
         await asyncio.gather(*(child.task for child in (*tuple(self.children.values()), *tuple(self.finalizers.values()))))
+        if self.publication is not None:
+            await self.publication.close()
         await self.inputs.close()

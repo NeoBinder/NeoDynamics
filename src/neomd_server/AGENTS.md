@@ -88,9 +88,13 @@ interactive RBFE window orchestration; reusable science stays in the engine.
   storage. Cleanup needs its own exact-receipt and writer/uploader closure
   guards plus complete directory/inode/link inventory; shared inputs remain
   outside historical checkpoint cleanup.
-- The journal is not activated by the resident runtime. Uploader integration,
-  recovery coordination, remote publication qualification and receipt-guarded
-  cleanup remain separate work; CPU/local tests do not prove rollout or GPU
+- The resident runtime wires the journal through the explicit publication
+  coordinator (`publication_runtime.py`): activation requires parsed
+  `PublicationSettings` (`NEOMD_SERVER_PUBLICATION_*`); absent settings leave
+  publication disabled. Exchanges run only in bounded joined child processes
+  with query-first recovery after proven prior-uploader closure. Remote publication
+  qualification, rollout/GPU evidence and receipt-guarded cleanup against
+  real OSS remain separate work; CPU/local tests do not prove rollout or GPU
   qualification. Large synthetic metadata/finalization tests do not prove
   large-system scientific throughput or OSS publication.
 
