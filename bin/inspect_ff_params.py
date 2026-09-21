@@ -28,22 +28,22 @@ Python example::
                              # is selected
     )
 
-Selection language (inside one ``--select`` group; several groups are OR-ed):
+Selection language (inside one ``--select`` group; several groups are OR-ed;
+precedence NOT > AND > OR):
 
-    ``;``            separates keyword terms, all terms are AND-ed
-    ``,``            lists several values of ONE keyword
-    ``not (...)``    negates a parenthesised sub-selection
+    AND       ``;``  or  ``and``  or  ``&``     (all equivalent)
+    OR        ``or``  or  ``|``                 (a second --select is also OR)
+    NOT       ``not (...)``  or  ``!(...)``
+    ``,``     lists several values of ONE keyword:  ``element=C,N,O``
     ``distance=C:(...)``
-                     atoms within C angstrom (suffix "nm" for nanometers)
-                     of every atom matched by the parenthesised selection;
-                     the reference atoms themselves are NOT included unless
-                     they also match the other terms of the group — OR them
-                     in with a second ``--select`` group
+              atoms within C angstrom (suffix "nm" for nanometers) of any
+              atom matched by the parenthesised selection; the reference
+              atoms themselves are NOT included unless they also match the
+              rest of the expression — OR them in explicitly
 
     chain=A;element=C,N,O;distance=5:(resname=JZ4);not (name=H,HA)
-        = chain A AND element in {C, N, O} AND within 5 A of JZ4
-          AND NOT named H or HA
-
+    chain=A and (element=C,N,O or resname=JZ4) and not (distance=3:(resname=HOH))
+    chain=A & element=C,N,O | resname=JZ4 & !(name=H,HA)
     com0;distance=5:(com1);com2   = com0 AND (within 5 of com1) AND com2
     com1;not (com2;com3);com4     = com1 AND !(com2 AND com3) AND com4
 
@@ -133,84 +133,133 @@ def _match_string_tokens(tokens, values):
     return mask
 
 
+def _tokenize(spec):
+    """Split a selection string into operator / paren / term-chunk tokens."""
+    toks = []
+    i = 0
+    while i < len(spec):
+        c = spec[i]
+        if c in " \t":
+            i += 1
+        elif c in "();&|!":
+            toks.append(c)
+            i += 1
+        else:
+            j = i
+            while j < len(spec) and spec[j] not in " \t();&|!":
+                j += 1
+            toks.append(spec[i:j])
+            i = j
+    return toks
+
+
 class _SelectParser:
     """Recursive-descent parser for the selection mini-language.
 
-    Grammar::
+    Grammar (precedence: NOT > AND > OR)::
 
-        group    := term (";" term)*            # ";" = AND
-        term     := "not" "(" group ")"         # negation
-                  | "distance" "=" CUTOFF ":(" group ")"
-                  | KEY "=" value ("," value)*  # "," lists values of one KEY
-        CUTOFF   := number, angstrom by default, "nm" suffix for nanometers
+        expr    := and_expr (("or" | "|") and_expr)*
+        and_expr:= unary (("and" | "&" | ";") unary)*
+        unary   := ("not" | "!") unary | primary
+        primary := "(" expr ")"
+                 | "distance" "=" CUTOFF ":(" expr ")"
+                 | KEY "=" value ("," value)*   # "," lists values of one KEY
+        CUTOFF  := number, angstrom by default, "nm" suffix for nanometers
 
-    Example:  ``chain=A;element=C,N,O;distance=5:(resname=JZ4);not (name=H)``
+    All of these are equivalent AND/OR/NOT spellings:
+
+        com1;com2          com1 and com2          com1 & com2
+        com1 or com2       com1 | com2            (two --select groups)
+        not (com1)         !(com1)                ! (com1)
+
+    Example:  ``chain=A and (element=C,N,O or resname=JZ4) and
+    not (distance=3:(resname=HOH))``
     """
 
     def __init__(self, text):
         self.text = text
+        self.toks = _tokenize(text)
         self.i = 0
 
-    def _ws(self):
-        while self.i < len(self.text) and self.text[self.i] in " \t":
-            self.i += 1
+    def _peek(self):
+        return self.toks[self.i] if self.i < len(self.toks) else None
+
+    def _next(self):
+        tok = self._peek()
+        self.i += 1
+        return tok
 
     def _expect(self, char):
-        self._ws()
-        if self.i >= len(self.text) or self.text[self.i] != char:
+        tok = self._next()
+        if tok != char:
             raise ValueError(
-                f"expected {char!r} at position {self.i} in {self.text!r}"
+                f"expected {char!r} but found {tok!r} in {self.text!r}"
             )
-        self.i += 1
 
-    def parse_group(self):
-        terms = [self.parse_term()]
-        while True:
-            self._ws()
-            if self.i < len(self.text) and self.text[self.i] == ";":
-                self.i += 1
-                terms.append(self.parse_term())
-            else:
-                break
-        return ("and", terms)
+    @staticmethod
+    def _is_op(tok, *words):
+        return tok is not None and "=" not in tok and tok.lower() in words
 
-    def parse_term(self):
-        self._ws()
-        if self.text.startswith("not", self.i) and (
-            self.i + 3 >= len(self.text) or self.text[self.i + 3] in " \t("
-        ):
-            self.i += 3
-            self._expect("(")
-            node = self.parse_group()
+    def parse_expr(self):
+        node = self.parse_and()
+        while self._is_op(self._peek(), "or", "|"):
+            self.i += 1
+            rhs = self.parse_and()
+            terms = node[1] if node[0] == "or" else [node]
+            terms = terms + (rhs[1] if rhs[0] == "or" else [rhs])
+            node = ("or", terms)
+        return node
+
+    def parse_and(self):
+        node = self.parse_unary()
+        while self._is_op(self._peek(), "and", "&", ";"):
+            self.i += 1
+            rhs = self.parse_unary()
+            terms = node[1] if node[0] == "and" else [node]
+            terms = terms + (rhs[1] if rhs[0] == "and" else [rhs])
+            node = ("and", terms)
+        return node
+
+    def parse_unary(self):
+        if self._is_op(self._peek(), "not", "!"):
+            self.i += 1
+            return ("not", self.parse_unary())
+        return self.parse_primary()
+
+    def parse_primary(self):
+        tok = self._peek()
+        if tok is None:
+            raise ValueError(f"unexpected end of selection {self.text!r}")
+        if tok == "(":
+            self.i += 1
+            node = self.parse_expr()
             self._expect(")")
-            return ("not", node)
+            return node
+        return self._parse_chunk(self._next())
 
-        eq = self.text.find("=", self.i)
-        if eq == -1:
+    def _parse_chunk(self, chunk):
+        if "=" not in chunk:
             raise ValueError(
-                f"expected key=value at position {self.i} in {self.text!r}"
+                f"expected key=value but found {chunk!r} in {self.text!r}"
             )
-        key = self.text[self.i:eq].strip().lower()
-        self.i = eq + 1
+        key, value = chunk.split("=", 1)
+        key = key.strip().lower()
         if key == "atname":
             key = "name"
 
         if key == "distance":
-            self._ws()
-            colon = self.text.find(":(", self.i)
-            if colon == -1:
+            if not value.endswith(":"):
                 raise ValueError(
                     "distance needs a parenthesised reference selection: "
                     "'distance=5:(resname=JZ4)'"
                 )
-            cutoff_s = self.text[self.i:colon].strip()
-            self.i = colon + 1  # at '('
+            cutoff_s = value[:-1].strip()
             if cutoff_s.endswith("nm"):
                 cutoff_nm = float(cutoff_s[:-2])
             else:  # angstrom by default
                 cutoff_nm = float(cutoff_s.rstrip("Aa")) / 10.0
             self._expect("(")
-            ref = self.parse_group()
+            ref = self.parse_expr()
             self._expect(")")
             return ("distance", cutoff_nm, ref)
 
@@ -219,17 +268,15 @@ class _SelectParser:
                 f"unknown selection keyword {key!r}; "
                 f"supported: {', '.join(_SELECT_KEYS)}, distance, not"
             )
-        start = self.i
-        while self.i < len(self.text) and self.text[self.i] not in ";)":
-            self.i += 1
-        tokens = _parse_tokens(self.text[start:self.i])
+        tokens = _parse_tokens(value)
         if not tokens:
             raise ValueError(f"keyword {key!r} needs at least one value")
         for tok in tokens:
             if "=" in tok:
                 raise ValueError(
-                    f"value {tok!r} contains '='; use ';' to separate "
-                    f"keywords (',' only lists values of one keyword)"
+                    f"value {tok!r} contains '='; use ';' (or 'and', '&') "
+                    f"to separate keywords (',' only lists values of one "
+                    f"keyword)"
                 )
         return ("key", key, tokens)
 
@@ -237,11 +284,10 @@ class _SelectParser:
 def parse_select_string(spec):
     """Parse a selection string into an AST (see :class:`_SelectParser`)."""
     parser = _SelectParser(spec)
-    node = parser.parse_group()
-    parser._ws()
-    if parser.i != len(parser.text):
+    node = parser.parse_expr()
+    if parser.i != len(parser.toks):
         raise ValueError(
-            f"unexpected trailing text {parser.text[parser.i:]!r} "
+            f"unexpected trailing text near {parser.toks[parser.i]!r} "
             f"in selection {spec!r}"
         )
     return node
@@ -264,6 +310,11 @@ def eval_select(node, atom_df, positions_nm):
         mask = np.ones(len(atom_df), dtype=bool)
         for term in node[1]:
             mask &= eval_select(term, atom_df, positions_nm)
+        return mask
+    if kind == "or":
+        mask = np.zeros(len(atom_df), dtype=bool)
+        for term in node[1]:
+            mask |= eval_select(term, atom_df, positions_nm)
         return mask
     if kind == "not":
         return ~eval_select(node[1], atom_df, positions_nm)
