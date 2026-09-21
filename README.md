@@ -262,11 +262,15 @@ charge fitting), `ligand` (RDKit/openff processing), `convert`, `fix_protein`
 
 To inspect the prepared force field, `bin/inspect_ff_params.py` reads
 `solv.pdbx` + `system.xml` and prints parameter tables for a user-selected
-atom set — selection keywords (`chain`, `resid`, `resname`, `name`,
-`index`, `resindex`, `element`, `distance`) combine AND inside one
-`--select` group and OR across repeated groups; `--params` picks from the
-types actually present in the XML (bonds/angles/dihedrals/nonbonded/mass)
-and `--mode any|all` decides whether a bonded term is shown when it touches
+atom set. Selection keywords (`chain`, `resid`, `resname`, `name`,
+`index`, `resindex`, `element`, `distance`) form a small language: `;`
+separates AND-ed terms, `,` lists values of one keyword, `not (...)`
+negates, and `distance=5:(...)` keeps atoms within 5 angstrom of a
+parenthesised sub-selection — e.g.
+`chain=A;element=C,N,O;distance=5:(resname=JZ4);not (name=H)`. Repeated
+`--select` groups are OR-ed. `--params` picks from the types actually
+present in the XML (bonds/angles/dihedrals/nonbonded/mass) and
+`--mode any|all` decides whether a bonded term is shown when it touches
 the selection or only when it sits fully inside it. The same logic is
 importable as `inspect_params(...)` for Python use.
 

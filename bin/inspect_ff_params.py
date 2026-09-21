@@ -10,8 +10,8 @@ Shell example::
 
     python bin/inspect_ff_params.py \
         --topology solv.pdbx --system system.xml \
-        --select "chain=A,resname=ALA,resid=10-20" \
-        --select "distance=5.0:chain=B,resname=JZ4" \
+        --select "chain=A;resname=ALA;resid=10-20" \
+        --select "distance=5:(chain=B;resname=JZ4)" \
         --params bonds,angles,dihedrals,nonbonded,mass \
         --mode any
 
@@ -21,15 +21,33 @@ Python example::
     tables = inspect_params(
         topology_file="solv.pdbx",
         system_file="system.xml",
-        selects=["chain=A,resname=ALA", "distance=5.0:resname=JZ4"],
+        selects=["chain=A;resname=ALA", "distance=5:(resname=JZ4)"],
         params=["bonds", "nonbonded"],
         mode="any",          # "any": term shown if it touches >=1 selected
                              # atom; "all": only when every atom of the term
                              # is selected
     )
 
-Selection keywords (comma-separated inside one ``--select``; all keywords
-in one group are AND-ed, several ``--select`` groups are OR-ed):
+Selection language (inside one ``--select`` group; several groups are OR-ed):
+
+    ``;``            separates keyword terms, all terms are AND-ed
+    ``,``            lists several values of ONE keyword
+    ``not (...)``    negates a parenthesised sub-selection
+    ``distance=C:(...)``
+                     atoms within C angstrom (suffix "nm" for nanometers)
+                     of every atom matched by the parenthesised selection;
+                     the reference atoms themselves are NOT included unless
+                     they also match the other terms of the group — OR them
+                     in with a second ``--select`` group
+
+    chain=A;element=C,N,O;distance=5:(resname=JZ4);not (name=H,HA)
+        = chain A AND element in {C, N, O} AND within 5 A of JZ4
+          AND NOT named H or HA
+
+    com0;distance=5:(com1);com2   = com0 AND (within 5 of com1) AND com2
+    com1;not (com2;com3);com4     = com1 AND !(com2 AND com3) AND com4
+
+Keywords:
 
     chain     chain id list:                chain=A,B
     resid     residue id (PDB id):          resid=100-110,215
@@ -38,12 +56,6 @@ in one group are AND-ed, several ``--select`` groups are OR-ed):
     index     atom index (0-based):         index=0-50,128
     resindex  residue index (0-based):      resindex=5-9
     element   element symbol list:          element=C,N,O
-    distance  atoms within CUTOFF of the atoms matched by REFSPEC:
-              distance=5.0:chain=B,resname=JZ4
-              (CUTOFF in angstrom by default; suffix "nm" for nanometers.
-              The reference atoms themselves are NOT included unless they
-              also match the other keywords of the same group — use a
-              second --select group to add them.)
 
 Parameter types are discovered from the forces actually present in the
 system file, so different ``system.xml`` files may offer different types.
@@ -94,7 +106,7 @@ def build_atom_table(topology):
 # ---------------------------------------------------------------------------
 
 _SELECT_KEYS = ("chain", "resid", "resname", "name", "index", "resindex",
-                "element", "distance")
+                "element")
 
 
 def _parse_tokens(value):
@@ -121,102 +133,159 @@ def _match_string_tokens(tokens, values):
     return mask
 
 
-def _split_spec_groups(spec):
-    """Split a selection string on top-level commas.
+class _SelectParser:
+    """Recursive-descent parser for the selection mini-language.
 
-    A ``distance=CUTOFF:REFSPEC`` term may itself contain commas inside
-    REFSPEC, so once a distance term opens it consumes the REST of the
-    group (convention: write ``distance`` last in a selection group, or
-    give it its own ``--select``).
+    Grammar::
+
+        group    := term (";" term)*            # ";" = AND
+        term     := "not" "(" group ")"         # negation
+                  | "distance" "=" CUTOFF ":(" group ")"
+                  | KEY "=" value ("," value)*  # "," lists values of one KEY
+        CUTOFF   := number, angstrom by default, "nm" suffix for nanometers
+
+    Example:  ``chain=A;element=C,N,O;distance=5:(resname=JZ4);not (name=H)``
     """
-    raw = [p.strip() for p in spec.split(",") if p.strip()]
-    parts = []
-    i = 0
-    while i < len(raw):
-        part = raw[i]
-        if part.lower().startswith("distance=") and ":" in part:
-            parts.append(",".join(raw[i:]))
-            break
-        parts.append(part)
-        i += 1
-    return parts
 
+    def __init__(self, text):
+        self.text = text
+        self.i = 0
 
-def parse_select_string(spec):
-    """Parse a selection string into {keyword: tokens}.
+    def _ws(self):
+        while self.i < len(self.text) and self.text[self.i] in " \t":
+            self.i += 1
 
-    ``distance`` maps to ``(cutoff_nm, ref_spec_dict)``.  A bare token
-    (no ``=``) continues the previous term's value, so ``chain=A,B`` is
-    ``chain in {A, B}``.
-    """
-    out = {}
-    last_key = None
-    for part in _split_spec_groups(spec):
-        if "=" not in part:
-            if last_key is None or last_key == "distance":
-                raise ValueError(
-                    f"bad selection term {part!r} (expected key=value)"
-                )
-            out[last_key].extend(_parse_tokens(part))
-            continue
-        key, value = part.split("=", 1)
-        key = key.strip().lower()
+    def _expect(self, char):
+        self._ws()
+        if self.i >= len(self.text) or self.text[self.i] != char:
+            raise ValueError(
+                f"expected {char!r} at position {self.i} in {self.text!r}"
+            )
+        self.i += 1
+
+    def parse_group(self):
+        terms = [self.parse_term()]
+        while True:
+            self._ws()
+            if self.i < len(self.text) and self.text[self.i] == ";":
+                self.i += 1
+                terms.append(self.parse_term())
+            else:
+                break
+        return ("and", terms)
+
+    def parse_term(self):
+        self._ws()
+        if self.text.startswith("not", self.i) and (
+            self.i + 3 >= len(self.text) or self.text[self.i + 3] in " \t("
+        ):
+            self.i += 3
+            self._expect("(")
+            node = self.parse_group()
+            self._expect(")")
+            return ("not", node)
+
+        eq = self.text.find("=", self.i)
+        if eq == -1:
+            raise ValueError(
+                f"expected key=value at position {self.i} in {self.text!r}"
+            )
+        key = self.text[self.i:eq].strip().lower()
+        self.i = eq + 1
         if key == "atname":
             key = "name"
+
         if key == "distance":
-            cutoff_s, _, ref = value.partition(":")
-            if not ref:
+            self._ws()
+            colon = self.text.find(":(", self.i)
+            if colon == -1:
                 raise ValueError(
-                    "distance needs a reference selection: "
-                    "'distance=5.0:chain=B,resname=JZ4'"
+                    "distance needs a parenthesised reference selection: "
+                    "'distance=5:(resname=JZ4)'"
                 )
-            cutoff_s = cutoff_s.strip()
+            cutoff_s = self.text[self.i:colon].strip()
+            self.i = colon + 1  # at '('
             if cutoff_s.endswith("nm"):
                 cutoff_nm = float(cutoff_s[:-2])
             else:  # angstrom by default
                 cutoff_nm = float(cutoff_s.rstrip("Aa")) / 10.0
-            out["distance"] = (cutoff_nm, parse_select_string(ref))
-        elif key in _SELECT_KEYS:
-            out.setdefault(key, []).extend(_parse_tokens(value))
-        else:
+            self._expect("(")
+            ref = self.parse_group()
+            self._expect(")")
+            return ("distance", cutoff_nm, ref)
+
+        if key not in _SELECT_KEYS:
             raise ValueError(
                 f"unknown selection keyword {key!r}; "
-                f"supported: {', '.join(_SELECT_KEYS)}"
+                f"supported: {', '.join(_SELECT_KEYS)}, distance, not"
             )
-        last_key = key
-    return out
+        start = self.i
+        while self.i < len(self.text) and self.text[self.i] not in ";)":
+            self.i += 1
+        tokens = _parse_tokens(self.text[start:self.i])
+        if not tokens:
+            raise ValueError(f"keyword {key!r} needs at least one value")
+        for tok in tokens:
+            if "=" in tok:
+                raise ValueError(
+                    f"value {tok!r} contains '='; use ';' to separate "
+                    f"keywords (',' only lists values of one keyword)"
+                )
+        return ("key", key, tokens)
+
+
+def parse_select_string(spec):
+    """Parse a selection string into an AST (see :class:`_SelectParser`)."""
+    parser = _SelectParser(spec)
+    node = parser.parse_group()
+    parser._ws()
+    if parser.i != len(parser.text):
+        raise ValueError(
+            f"unexpected trailing text {parser.text[parser.i:]!r} "
+            f"in selection {spec!r}"
+        )
+    return node
+
+
+def _key_mask(atom_df, key, tokens):
+    if key in ("index", "resindex", "resid"):
+        values = atom_df[key].to_numpy()
+        try:
+            return _match_numeric_tokens(tokens, values.astype(float))
+        except (ValueError, TypeError):
+            return _match_string_tokens(tokens, values.astype(str))
+    return _match_string_tokens(tokens, atom_df[key].astype(str).to_numpy())
+
+
+def eval_select(node, atom_df, positions_nm):
+    """Evaluate a parsed selection AST to a boolean mask over atoms."""
+    kind = node[0]
+    if kind == "and":
+        mask = np.ones(len(atom_df), dtype=bool)
+        for term in node[1]:
+            mask &= eval_select(term, atom_df, positions_nm)
+        return mask
+    if kind == "not":
+        return ~eval_select(node[1], atom_df, positions_nm)
+    if kind == "distance":
+        _, cutoff_nm, ref = node
+        ref_mask = eval_select(ref, atom_df, positions_nm)
+        if not ref_mask.any():
+            raise ValueError("distance reference selection matched no atoms")
+        ref_pos = positions_nm[ref_mask]
+        # distance from every atom to its nearest reference atom
+        d2 = ((positions_nm[:, None, :] - ref_pos[None, :, :]) ** 2).sum(-1)
+        return d2.min(axis=1) <= cutoff_nm ** 2
+    if kind == "key":
+        return _key_mask(atom_df, node[1], node[2])
+    raise ValueError(f"unknown selection node {kind!r}")
 
 
 def selection_mask(atom_df, positions_nm, spec):
-    """Boolean mask over atoms for one parsed selection spec (AND of keys)."""
+    """Boolean mask over atoms for one selection (string or parsed AST)."""
     if isinstance(spec, str):
         spec = parse_select_string(spec)
-    n = len(atom_df)
-    mask = np.ones(n, dtype=bool)
-    for key, tokens in spec.items():
-        if key == "distance":
-            cutoff_nm, ref_spec = tokens
-            ref_mask = selection_mask(atom_df, positions_nm, ref_spec)
-            if not ref_mask.any():
-                raise ValueError("distance reference selection matched no atoms")
-            ref_pos = positions_nm[ref_mask]
-            # distance from every atom to its nearest reference atom
-            d2 = ((positions_nm[:, None, :] - ref_pos[None, :, :]) ** 2).sum(-1)
-            mask &= (d2.min(axis=1) <= cutoff_nm ** 2)
-        elif key in ("index", "resindex", "resid"):
-            values = atom_df[key].to_numpy()
-            try:
-                numeric = values.astype(float)
-                mask &= _match_numeric_tokens(tokens, numeric)
-            except (ValueError, TypeError):
-                mask &= _match_string_tokens(tokens, values.astype(str))
-        elif key in ("chain", "resname", "name", "element"):
-            mask &= _match_string_tokens(
-                tokens, atom_df[key].astype(str).to_numpy()
-            )
-        else:
-            raise ValueError(f"unknown selection keyword {key!r}")
-    return mask
+    return eval_select(spec, atom_df, positions_nm)
 
 
 def combined_mask(atom_df, positions_nm, selects):
@@ -448,9 +517,9 @@ def inspect_params(
         pdb/pdbx of the prepared system.
     system_file : str
         serialized OpenMM System (system.xml from ``neomd prepare``).
-    selects : list[str | dict]
-        Selection groups; AND inside a group, OR between groups.  None or
-        empty selects ALL atoms.
+    selects : list[str]
+        Selection groups; terms are AND-ed with ``;`` inside a group,
+        groups are OR-ed.  None or empty selects ALL atoms.
     params : list[str]
         Parameter types; None or ['all'] means every available type.
     mode : str
@@ -536,8 +605,8 @@ def main(argv=None):
     parser.add_argument("--system", "-s", required=True,
                         help="serialized OpenMM System (system.xml from `neomd prepare`)")
     parser.add_argument("--select", action="append", default=[],
-                        help="selection group, e.g. 'chain=A,resname=ALA,resid=10-20' "
-                             "or 'distance=5.0:resname=JZ4'; repeatable (groups are OR-ed)")
+                        help="selection group, e.g. 'chain=A;resname=ALA;resid=10-20' "
+                             "or 'distance=5:(resname=JZ4)'; repeatable (groups are OR-ed)")
     parser.add_argument("--params", "-p", default="all",
                         help="comma-separated parameter types or 'all' (default)")
     parser.add_argument("--mode", "-m", choices=["any", "all"], default="any",
