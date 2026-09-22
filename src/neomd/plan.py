@@ -18,7 +18,9 @@ import copy
 import hashlib
 import importlib
 import json
+import math
 import os
+import re
 from typing import Any, Mapping
 
 from .errors import (
@@ -518,6 +520,7 @@ def _validate(data: Any, ctx: _Context) -> list:
     _validate_plugins_section(data, ctx, problem)
     # -- the opes_set section (OPES method parameters) ------------------------
     _validate_opes_section(data, ctx, problem)
+    _validate_gamd_section(data, problem)
     # -- the qc section (structure quality checks; neomd.qc) ------------------
     _validate_qc_section(data, ctx, problem)
 
@@ -1166,6 +1169,136 @@ def _validate_plugins_section(data: Mapping, ctx: _Context, problem) -> None:
                     else ("plugins", name),
                     known_keys=declared,
                 )
+def _validate_gamd_section(data, problem):
+    """Collect ordered boost selection and staged protocol configuration errors."""
+    section = data.get("gamd")
+    if not isinstance(section, Mapping):
+        return
+    keys = {"mode", "sigma0", "calibration_steps", "calibration_interval", "frequency",
+            "channels", "boosts", "threshold_policy", "energy_unit", "preparation_steps",
+            "boost_preparation_steps", "equilibration_steps", "adaptation_interval", "exchange"}
+
+    def issue(message, path, value=_NOT_GIVEN):
+        location = ".".join(str(part) for part in ("gamd",) + path)
+        problem(ConfigValueError, f"{location}: {message}", ("gamd",) + path, value)
+
+    def unknown(mapping, allowed, path):
+        for key in mapping:
+            if key not in allowed:
+                problem(ConfigKeyError, f"unknown GaMD key {key!r}", ("gamd",) + path + (key,),
+                        known_keys=allowed)
+
+    def positive(value, path):
+        if not _is_number(value) or not math.isfinite(value) or value <= 0:
+            issue("must be a finite positive number", path, value)
+
+    def integer(value, path, minimum=1):
+        if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+            issue(f"must be an integer >= {minimum}", path, value)
+
+    def indices(value, path):
+        if not isinstance(value, (list, tuple)) or not value:
+            issue("must be a nonempty list of zero-based atom indices", path, value)
+            return
+        for i, atom in enumerate(value):
+            integer(atom, path + (i,), 0)
+
+    unknown(section, keys, ())
+    for key in ("sigma0",):
+        if key in section:
+            positive(section[key], (key,))
+    for key in ("calibration_steps", "calibration_interval", "frequency", "adaptation_interval"):
+        if key in section and section[key] is not None:
+            integer(section[key], (key,))
+    for key in ("preparation_steps", "boost_preparation_steps", "equilibration_steps"):
+        if key in section:
+            integer(section[key], (key,), 0)
+    if section.get("energy_unit", "kJ/mol") not in ("kJ/mol", "kcal/mol"):
+        issue("energy_unit must be kJ/mol or kcal/mol", ("energy_unit",), section["energy_unit"])
+    if section.get("threshold_policy", "upper") not in ("lower", "upper"):
+        issue("threshold_policy must be lower or upper", ("threshold_policy",))
+    boosts = section.get("boosts")
+    if boosts is not None and section.get("channels"):
+        issue("boosts and legacy channels are mutually exclusive", ("boosts",))
+    if section.get("mode", "total") not in ("total", "dual") and not section.get("channels"):
+        issue("mode must be total or dual", ("mode",))
+    if boosts is not None:
+        if not isinstance(boosts, (list, tuple)) or not boosts:
+            issue("boosts must be a nonempty ordered list", ("boosts",), boosts)
+        else:
+            labels = set()
+            remainder_count = 0
+            for i, entry in enumerate(boosts):
+                path = ("boosts", i)
+                if not isinstance(entry, Mapping):
+                    issue("boost entry must be a mapping", path, entry)
+                    continue
+                unknown(entry, {"label", "selectors", "remaining", "sigma0", "threshold_policy", "energy_unit"}, path)
+                label = entry.get("label")
+                if not isinstance(label, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", label):
+                    issue("label must start with a lowercase letter and contain only lowercase letters, digits or underscores", path + ("label",), label)
+                elif label in labels:
+                    issue("boost labels must be unique", path + ("label",), label)
+                else:
+                    labels.add(label)
+                if entry.get("energy_unit", "kJ/mol") not in ("kJ/mol", "kcal/mol"):
+                    issue("energy_unit must be kJ/mol or kcal/mol", path + ("energy_unit",))
+                if "sigma0" in entry:
+                    positive(entry["sigma0"], path + ("sigma0",))
+                if entry.get("threshold_policy", "upper") not in ("upper", "lower"):
+                    issue("threshold_policy must be lower or upper", path + ("threshold_policy",))
+                remaining = entry.get("remaining", False)
+                if not isinstance(remaining, bool):
+                    issue("remaining must be a boolean", path + ("remaining",), remaining)
+                if remaining:
+                    remainder_count += 1
+                    if i != len(boosts) - 1:
+                        issue("remaining boost must be last", path + ("remaining",))
+                    if "selectors" in entry:
+                        issue("remaining cannot be combined with selectors", path + ("selectors",))
+                    continue
+                selectors = entry.get("selectors")
+                if not isinstance(selectors, (list, tuple)) or not selectors:
+                    issue("explicit boost needs a nonempty selectors list", path + ("selectors",), selectors)
+                    continue
+                for j, selector in enumerate(selectors):
+                    spath = path + ("selectors", j)
+                    if not isinstance(selector, Mapping):
+                        issue("selector must be a mapping", spath, selector)
+                        continue
+                    unknown(selector, {"atom_indices", "force_types"}, spath)
+                    indices(selector.get("atom_indices"), spath + ("atom_indices",))
+                    types = selector.get("force_types")
+                    if (not isinstance(types, (list, tuple)) or not types or
+                            any(t not in ("bond", "angle", "dihedral", "nonbonded") for t in types)):
+                        issue("force_types must select bond, angle, dihedral or nonbonded", spath + ("force_types",), types)
+            if remainder_count > 1:
+                issue("at most one remaining boost is allowed", ("boosts",))
+    exchange = section.get("exchange")
+    if exchange is not None:
+        if not isinstance(exchange, Mapping):
+            issue("exchange must be a mapping", ("exchange",), exchange)
+        else:
+            path = ("exchange",)
+            unknown(exchange, {"copies", "designated_slot", "reference_atoms", "ligand_reference_atoms",
+                               "interval", "cutoff_nm", "periodic"}, path)
+            copies = exchange.get("copies")
+            if not isinstance(copies, (list, tuple)) or len(copies) < 2:
+                issue("exchange requires at least two aligned ligand copies", path + ("copies",), copies)
+            else:
+                for i, atoms in enumerate(copies):
+                    indices(atoms, path + ("copies", i))
+            indices(exchange.get("reference_atoms"), path + ("reference_atoms",))
+            if "ligand_reference_atoms" in exchange:
+                indices(exchange["ligand_reference_atoms"], path + ("ligand_reference_atoms",))
+            integer(exchange.get("interval", 1), path + ("interval",))
+            integer(exchange.get("designated_slot", 0), path + ("designated_slot",), 0)
+            if exchange.get("cutoff_nm") is not None:
+                positive(exchange["cutoff_nm"], path + ("cutoff_nm",))
+            if "periodic" in exchange and not isinstance(exchange["periodic"], bool):
+                issue("periodic must be a boolean", path + ("periodic",))
+
+
 def _validate_qc_section(data: Mapping, ctx: _Context, problem) -> None:
     """The ``qc`` section (structure quality checks, :mod:`neomd.qc`).
 

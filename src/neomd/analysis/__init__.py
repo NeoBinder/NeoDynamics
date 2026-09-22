@@ -6,6 +6,7 @@ docs/methods/analysis.md.  numpy-only, openmm-free, deterministic.
 """
 
 from .convergence import ConvergenceResult, ConvergenceRow, fes_convergence
+from .coordinates import evaluate_coordinates
 from .errors import AnalysisError
 from .fes import (
     bias_at_points,
@@ -29,6 +30,9 @@ from .freeenergy import (
     mbar_from_tapes,
     read_du,
 )
+from .gamd import CE2Result, GamdData, ce2_fes, read_gamd
+from .gamd_cli import analyze_gamd
+from .gamd_frames import read_gamd_frames
 from .merge import (
     MergedRuns,
     load_runs,
@@ -68,6 +72,9 @@ from .reweight import (
 from .stats import BlockAverageResult, block_average
 
 __all__ = [
+    # saved-frame GaMD analysis
+    "GamdData", "CE2Result", "read_gamd", "ce2_fes",
+    "evaluate_coordinates", "analyze_gamd", "read_gamd_frames",
     # errors
     "AnalysisError",
     # readers

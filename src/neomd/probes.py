@@ -12,6 +12,8 @@ nm / kJ/mol / ps per port.py).
 
 from __future__ import annotations
 
+import json
+import math
 import time
 from dataclasses import dataclass
 from typing import Callable, Iterable, Mapping, Protocol, Sequence, runtime_checkable
@@ -790,21 +792,12 @@ class SmdProbe:
 
 
 class GamdProbe:
-    """Appends GaMD boost rows to ``gamd.tsv`` (ADR-0005).
+    """Exact saved-configuration boost increments in kJ/mol.
 
-    One row per observation; per boost channel, in installation order, the
-    three columns of :class:`~neomd.kernel.port.BoostReading`:
-    ``<label>__boost`` (ΔV, kJ/mol — the reweighting trace, w = exp(βΔV)
-    through :mod:`neomd.analysis`), ``<label>__energy`` (the channel's
-    target energy P at the step's starting configuration, kJ/mol) and
-    ``<label>__scale`` (the channel's force scaling 1 − k(E−P)).  Readings
-    come from the negotiated :class:`~neomd.kernel.port.BoostOps`
-    capability (``boost_potentials()`` — the integrator's own globals, the
-    same numbers the dynamics used); a kernel without it makes the probe
-    refuse to construct (GaMD cannot run there at all).
-
-    Layout: header ``# step <label>__boost <label>__energy <label>__scale
-    ...``; ``append=True`` resumes without rewriting the header.
+    Sampling uses the union of method and trajectory cadences. Metadata records
+    the active production parameter revision and physical identities occupying
+    exchange slots after completed boundary events. ``total_boost`` is the sum
+    of increments, not a sum of original channel energies.
     """
 
     def __init__(
@@ -813,13 +806,25 @@ class GamdProbe:
         interval: int,
         labels: Sequence[str],
         append: bool = False,
+        *,
+        trajectory_interval: int = 0,
+        metadata: Callable | None = None,
+        dt_ps: float | None = None,
     ):
         if not labels:
             raise ValueError("GamdProbe needs at least one boost channel label")
         self.sink = sink
-        self.interval = _check_interval(interval)
+        self.frequency = _check_interval(interval)
+        self.trajectory_interval = int(trajectory_interval or 0)
+        if self.trajectory_interval < 0:
+            raise ValueError("trajectory_interval must be nonnegative")
+        self.interval = math.gcd(self.frequency, self.trajectory_interval)
         self.labels = [str(label) for label in labels]
         self.append = bool(append)
+        self.metadata = metadata
+        if dt_ps is not None and (not math.isfinite(dt_ps) or dt_ps <= 0):
+            raise ValueError("dt_ps must be finite and positive")
+        self.dt_ps = None if dt_ps is None else float(dt_ps)
         self._wrote_header = False
         self._last_step: int | None = None
 
@@ -833,9 +838,14 @@ class GamdProbe:
         for label in self.labels:
             parts.extend((f"{label}__boost", f"{label}__energy",
                           f"{label}__scale"))
+        parts.extend(("total_boost", "time_ps", "phase",
+                      "parameter_revision", "slot_to_identity"))
         return "\t".join(parts)
 
     def observe(self, view: RunView) -> None:
+        if (view.step % self.frequency != 0 and
+                (not self.trajectory_interval or view.step % self.trajectory_interval != 0)):
+            return
         readings = view.kernel.boost_potentials()
         row = [str(view.step)]
         for label in self.labels:
@@ -846,6 +856,15 @@ class GamdProbe:
                     f"{label!r} (channels: {sorted(readings) or 'none'})")
             row.extend((str(reading.boost), str(reading.energy),
                         str(reading.scale)))
+        metadata = {} if self.metadata is None else self.metadata()
+        total = sum(readings[label].boost for label in self.labels)
+        spec = getattr(view.kernel, "spec", None)
+        dt = (self.dt_ps if self.dt_ps is not None else
+              float(getattr(spec, "integrator", {}).get("dt", 0.004)))
+        row.extend((str(total), str(view.step * dt),
+                    str(metadata.get("phase", "production")),
+                    str(metadata.get("parameter_revision", 0)),
+                    json.dumps(metadata.get("slot_to_identity", []), separators=(",", ":"))))
         with self.sink.text_writer(_GAMD_FILENAME) as fh:
             if not self._wrote_header and not self.append:
                 fh.write(self._header() + "\n")
@@ -961,8 +980,15 @@ class ProbeScheduler:
         for p in self.probes:
             _check_interval(p.interval)
 
-    def tick(self, step: int, view: RunView) -> None:
+    def tick(self, step: int, view: RunView, *, checkpoint_phase: bool | None = None) -> None:
+        """Observe due probes; the driver commits checkpoints after boundary hooks.
+
+        The default remains a standalone all-probe tick. Two-phase driver ticks
+        preserve the previous checkpoint if reporting or method updates fail.
+        """
         for probe in self.probes:
+            if checkpoint_phase is not None and isinstance(probe, CheckpointProbe) != checkpoint_phase:
+                continue
             if step % probe.interval == 0:
                 probe.observe(view)
 

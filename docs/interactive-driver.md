@@ -64,5 +64,16 @@ generation, on the same supported scientific platform/system/version. Copy a
 generation into a new mutable working directory before resuming it. Hash or
 state mismatches raise an error before scientific tapes are changed. The host
 owns durable generation publication, session ownership, user access and transport.
+
+Scientific companions are hash-bound in the checkpoint descriptor and copied into
+its immutable generation. They include the metadynamics active-hill push journal
+(`metadynamics_bias_state.json`), staged GaMD state and parameter provenance, and
+both ligand-exchange identity files (`ligand_exchange.json` and
+`ligand_exchange_events.jsonl`) when present. Throttled metadynamics cannot resume
+from its hills file alone: accumulated hills and the subset active in the kernel
+may differ. Restore the complete generation; missing or modified companions fail
+integrity validation. The same bounded companion list applies to completed RBFE
+windows. Preserving these files does not expand protocol admission or advertise
+new scientific capabilities.
 See [ADR-0008](adr/0008-interactive-service-driver.md) for method qualifications,
 minimization semantics and the scientific/service boundary.

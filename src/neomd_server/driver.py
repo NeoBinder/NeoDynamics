@@ -21,6 +21,7 @@ from neomd.driver import (
     LAST_CHECKPOINT_FILENAME,
     MinResult,
     PreparedMethod,
+    advance_preparation,
     minimization_settings,
     positions_digest,
     prepare_method_stepper,
@@ -35,11 +36,11 @@ from neomd.registry import scan_entry_points
 from neomd.run import build_kernel_spec
 from neomd.sinks import LocalDirSink
 
+from .checkpoint_files import CHECKPOINT_COMPANIONS
 from .probes import assemble_reporting_probes
 
 SESSION_STATE = "interactive_state.json"
-_COMPANIONS = ("manifest.json", "hills.npz", "kernels.npz", "gamd_calibration.json",
-               "gamd_preparation.json")
+_COMPANIONS = CHECKPOINT_COMPANIONS
 _TERMINAL = {"completed", "stopped", "failed", "closed"}
 
 
@@ -231,7 +232,8 @@ class InteractiveSession:
                 if self._min_iterations >= int(self._min_kwargs["max_iterations"]):
                     self._finish("completed")
             elif self.phase == "calibration":
-                self._preparation.advance(max_steps)
+                advance_preparation(self._kernel, self.plan, self._prepared, max_steps,
+                                    sink=self.sink, on_progress=self._record)
             else:
                 if self._runner is None:
                     if self._running_budget is not None:

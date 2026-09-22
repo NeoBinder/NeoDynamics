@@ -77,6 +77,9 @@ class InteractiveLadderSession:
             def write_bytes(self, name, data):
                 return parent.write_bytes(prefix + name, data)
 
+            def append_bytes(self, name, data):
+                return parent.append_bytes(prefix + name, data)
+
             def read_bytes(self, name):
                 return parent.read_bytes(prefix + name)
 
