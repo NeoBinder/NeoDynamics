@@ -35,6 +35,7 @@ from .publication_journal import (
 )
 
 _JOIN_GRACE_SECONDS = 5.0
+_DIAGNOSTIC_LIMIT = 128
 
 
 def _child_exchange(spec, channel):
@@ -181,6 +182,7 @@ class PublicationCoordinator:
         entry = {"scope_id": scope_id, "finalization_id": finalization_id,
                  "reason": reason, "at": time.time()}
         self.blocked.append(entry)
+        del self.blocked[:-_DIAGNOSTIC_LIMIT]
         return entry
 
     async def _run(self):
@@ -242,7 +244,9 @@ class PublicationCoordinator:
     # -- claiming and driving --------------------------------------------------
 
     async def _claim_pending(self):
-        active = [task for task in self.drives.values() if not task.done()]
+        self.drives = {key: task for key, task in self.drives.items() if not task.done()}
+        self._drive_children = {key: children for key, children in self._drive_children.items() if children}
+        active = list(self.drives.values())
         after = None
         while len(active) < self.settings.max_active:
             page = await self.journal.jobs(after=after)
@@ -579,6 +583,7 @@ class PublicationCoordinator:
         # Every exchange child of this drive is joined before returning here.
         await self._release(lease, record.finalization_id)
         self.cleanup_reports.append(await self._guarded_cleanup(lease, record))
+        del self.cleanup_reports[:-_DIAGNOSTIC_LIMIT]
 
     async def _guarded_cleanup(self, lease, record):
         """Delete only the exact owned sealed output set, or record blocked cleanup."""
@@ -592,6 +597,21 @@ class PublicationCoordinator:
         except Exception:
             report["blocked"].append("artifact_unverified")
             return report
+        # One joined filesystem worker per active drive. Cancellation must not
+        # detach deletion from the drive's tracked lifetime.
+        waiter = asyncio.create_task(asyncio.to_thread(self._cleanup_files, entries, report))
+        try:
+            return await asyncio.shield(waiter)
+        except asyncio.CancelledError:
+            while not waiter.done():
+                try:
+                    await asyncio.shield(waiter)
+                except asyncio.CancelledError:
+                    continue
+            waiter.result()
+            raise
+
+    def _cleanup_files(self, entries, report):
         objects = Path(self.inputs.root) / "objects"
         try:
             directory = os.open(objects, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
@@ -600,14 +620,13 @@ class PublicationCoordinator:
             return report
         try:
             expected = {entry.local_ref: entry for entry in entries}
-            present = {name for name in os.listdir(directory) if name in expected}
             for name, entry in expected.items():
-                if name not in present:
-                    report["blocked"].append("missing:" + name)
-                    continue
                 try:
                     info = os.stat(name, dir_fd=directory, follow_symlinks=False)
                     identity = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+                except FileNotFoundError:
+                    report["blocked"].append("missing:" + name)
+                    continue
                 except OSError:
                     report["blocked"].append("stat:" + name)
                     continue

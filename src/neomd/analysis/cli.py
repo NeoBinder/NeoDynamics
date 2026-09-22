@@ -30,6 +30,10 @@ def add_analysis_parser(parser) -> None:
     sub = parser.add_subparsers(dest="analysis_command", required=True,
                                 metavar="TOOL")
 
+    from .gamd_cli import add_gamd_parser
+
+    add_gamd_parser(sub)
+
     fes = sub.add_parser(
         "fes", help="reconstruct the free-energy surface from hills.npz")
     fes.add_argument("run_dir", nargs="+", metavar="RUN_DIR",

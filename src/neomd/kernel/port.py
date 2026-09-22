@@ -29,6 +29,8 @@ __all__ = [
     "BoostChannelIR",
     "BoostReading",
     "BoostOps",
+    "PartitionOps",
+    "LigandExchangeOps",
     "CVIR",
     "GridSpec",
     "Param",
@@ -37,6 +39,7 @@ __all__ = [
     "KernelSpec",
     "KernelPort",
     "InteractiveOps",
+    "CheckpointMetadataOps",
     "KernelFactory",
     "MAX_FORCE_GROUPS",
     "pick_free_force_group",
@@ -503,6 +506,12 @@ class BoostChannelIR:
     not the gradient of any potential; reweighting consistency demands forces
     and ΔV come from one V*, so it is rejected — ADR-0005).
 
+    Below the calibrated range, the force reduction saturates at one.
+    The corresponding C1 energy continues linearly as (E−P)−1/(2k),
+    so the reported potential and applied forces retain the same gradient.
+    Overlapping legacy channels add derivatives; individual nonnegative
+    scales do not guarantee a nonnegative combined scale.
+
     Units: ``threshold`` (E) in kJ/mol; ``k`` in 1/(kJ/mol).
     """
 
@@ -522,7 +531,9 @@ class BoostChannelIR:
             raise ValueError(
                 f"boost channel {self.label!r}: duplicate force groups "
                 f"{self.groups}")
-        if self.k < 0.0:
+        if not math.isfinite(self.threshold):
+            raise ValueError("boost threshold must be finite")
+        if not math.isfinite(self.k) or self.k < 0.0:
             raise ValueError(
                 f"boost channel {self.label!r}: k must be >= 0, got {self.k}")
         # frozen dataclass: field normalization goes through object.__setattr__
@@ -531,12 +542,11 @@ class BoostChannelIR:
 
 @dataclass(frozen=True)
 class BoostReading:
-    """What one boost channel applied at the most recent step.
+    """One boost channel evaluated at the exact current configuration.
 
     ``boost``: ΔV (kJ/mol, >= 0); ``energy``: the channel's target energy P
-    (kJ/mol) the scaling was computed from (the step's STARTING potential,
-    the integrator convention); ``scale``: the channel's own force scaling
-    1 − k(E−P) (in [0, 1] while boosting, else 1.0).
+    (kJ/mol) at the current configuration; ``scale``: the channel's own force scaling
+    1 − min(1, max(0, k(E−P))) (in [0, 1]).
     """
 
     boost: float
@@ -548,16 +558,14 @@ class BoostReading:
 class BoostOps(Protocol):
     """OPTIONAL capability: GaMD-style energy-dependent force scaling.
 
-    Negotiated like the other capabilities (``provides(kernel, BoostOps)``).
-    The method installs named boost channels BEFORE any dynamics (the same
-    pre-Context discipline as ``install_bias``; openmm builds a boost-capable
-    Langevin CustomIntegrator at that point — the Context integrator cannot
-    be swapped later), typically at ZERO strength, then pushes calibrated
-    (threshold, k) values live as they become known — the BiasParamOps
-    pattern applied to channels.  ``install_boost`` must come AFTER every
-    ``install_bias`` (drive()'s natural order: restraints are installed
-    before the method's prepare): kernels refuse later bias installs rather
-    than silently excluding their forces from the scaled update.
+    The method installs named boost channels before Context creation and
+    after all additive biases. Production represents the complete boosted
+    energy as a native System Force, so coordinate forces, reporting and
+    Monte Carlo box proposals evaluate one potential. The fake uses the
+    same boost mathematics with its deterministic numerical gradients.
+    Methods normally install zero-strength channels, then push calibrated
+    parameters using ``set_boost_param``. Late bias installs are refused
+    because logical group ownership has already been frozen.
 
     Dual-boost channel discovery is a duck-typed companion method
     (``torsion_force_groups() -> tuple[int, ...]``, like GroupEnergy):
@@ -575,8 +583,34 @@ class BoostOps(Protocol):
         ...
 
     def boost_potentials(self) -> dict:
-        """label -> BoostReading of the most recent step ({} before any)."""
+        """label -> BoostReading evaluated at the exact current configuration."""
         ...
+
+
+@runtime_checkable
+class PartitionOps(Protocol):
+    """Optional ordered any-atom decomposition of original force-field terms.
+
+    Returns an auditable report with ordered ``channels`` rows containing
+    label, groups, matched, assigned and claimed counts. Installed user biases
+    never participate. Must be invoked before a Context or boost exists.
+    """
+
+    def compile_boost_partitions(self, boosts: Sequence[Mapping]) -> dict: ...
+
+
+@runtime_checkable
+class LigandExchangeOps(Protocol):
+    """Atomic equivalent-copy exchange, destination-to-source permutation.
+
+    Equivalence covers base force-field terms, masses and constraints.
+    Installed restraints and boosts can change under the permutation;
+    this operation does not perform an acceptance/rejection calculation.
+    """
+
+    def validate_ligand_exchange(self, copies: Sequence[Sequence[int]]) -> None: ...
+
+    def permute_ligands(self, copies: Sequence[Sequence[int]], permutation: Sequence[int]) -> None: ...
 
 
 @runtime_checkable
@@ -594,6 +628,19 @@ class InteractiveOps(Protocol):
     def reserve_interactions(self) -> None: ...
 
     def set_interactions(self, particles: Mapping[int, Sequence[float]]) -> None: ...
+
+
+@runtime_checkable
+class CheckpointMetadataOps(Protocol):
+    """Optional finite JSON metadata committed atomically inside snapshots.
+
+    Setters and getters copy values. Restoring a raw legacy checkpoint clears
+    metadata; getters must load a pending lazy resume before returning state.
+    """
+
+    def set_checkpoint_metadata(self, metadata: dict) -> None: ...
+
+    def checkpoint_metadata(self) -> dict: ...
 
 
 @runtime_checkable

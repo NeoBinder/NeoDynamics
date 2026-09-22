@@ -451,8 +451,16 @@ def test_the_prepare_configs_are_exactly_the_two_known_ones():
         "examples/3HTB_complex/prepare.yaml",
         "examples/ala_meta/prep_system.yaml",
     ]
-    # the runnable surface: 3HTB min/eq/eq_restraints + ala_meta min/eq/meta
-    assert len(run_configs) == 6
+    assert run_configs == [
+        "examples/3HTB_complex/eq.yaml",
+        "examples/3HTB_complex/eq_restraints.yaml",
+        "examples/3HTB_complex/min.yaml",
+        "examples/ala_meta/eq.yaml",
+        "examples/ala_meta/meta.yaml",
+        "examples/ala_meta/min.yaml",
+        "examples/ligamd2/peptide-smoke.yaml",
+        "examples/ligamd2/single-ligand.yaml",
+    ]
 
 
 @needs_antechamber

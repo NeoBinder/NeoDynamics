@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import io
 import math
+import os
 import struct
+import tempfile
 import time
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
@@ -111,6 +113,12 @@ class ArtifactSink(ABC):
         """
         raise NotImplementedError(f"{type(self).__name__} cannot read artifacts")
 
+    def append_bytes(self, name: str, data: bytes) -> None:
+        """Append a journal record; durable sinks commit it before returning."""
+        with self.binary_writer(name) as stream:
+            stream.seek(0, io.SEEK_END)
+            stream.write(data)
+
 
 def _check_name(name: str) -> None:
     """Names are relative single-tree paths; reject escapes."""
@@ -138,7 +146,26 @@ class LocalDirSink(ArtifactSink):
     def write_bytes(self, name: str, data: bytes) -> None:
         target = self._resolve(name)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        # Recovery journals and checkpoints must remain either the previous
+        # complete artifact or its replacement after an interrupted write.
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=target.parent, prefix=f".{target.name}.",
+                                             delete=False) as stream:
+                temporary = Path(stream.name)
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, target)
+            temporary = None
+            directory = os.open(target.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
         self._track(name)
 
     @contextmanager
@@ -148,6 +175,15 @@ class LocalDirSink(ArtifactSink):
         with open(target, "a", encoding="utf-8", newline="\n") as fh:
             self._track(name)
             yield fh
+
+    def append_bytes(self, name: str, data: bytes) -> None:
+        target = self._resolve(name)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with open(target, "ab") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        self._track(name)
 
     @contextmanager
     def binary_writer(self, name: str, *, truncate: bool = False) -> Iterator[BinaryIO]:

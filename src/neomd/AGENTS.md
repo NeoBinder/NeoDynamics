@@ -1,10 +1,4 @@
-# src/neomd — SDK boundaries
-
-The active v2 package. Deeper guides: `kernel/AGENTS.md` (KernelPort,
-adapters, force-group model), `methods/AGENTS.md` (dispatch
-contract, smd/opes/gamd), `ml/AGENTS.md` (ML/MM), `mlcv/AGENTS.md` (ML-CV),
-`analysis/AGENTS.md` (post-run analysis). Docstring content policy
-(issue #17): `docs/AGENTS.md`.
+# SDK boundaries
 
 - Facade spellings compile to the same immutable, fingerprinted Plan. Compile
   and direct drive share kernel-spec construction. Validation collects all
@@ -14,24 +8,15 @@ contract, smd/opes/gamd), `ml/AGENTS.md` (ML/MM), `mlcv/AGENTS.md` (ML-CV),
   plugin is an error, not a fallback. See ADR-0002 for namespace changes.
 - `resume.py` owns restore and trimming every tape to the checkpoint. Probes
   do not independently choose append/truncate. Coordinate output may wrap
-  molecules by default via the `MoleculeGroups` capability; checkpoints never
-  wrap because resume must remain bit-exact.
+  molecules; checkpoints never wrap because resume must remain bit-exact.
 - Keep artifact writes in probes/sinks, OpenMM access behind the kernel seam,
-  private API access in `openmm_privates.py` behind its pinned-version gate,
-  and torch/openmmtorch imports in `ml/` or `mlcv/`. Preserve the
-  source-scan checks for these boundaries.
+  private API access in `openmm_privates.py`, and torch/openmmtorch imports in
+  `ml/` or `mlcv/`. Preserve the source-scan checks for these boundaries.
 - `SystemBundle` and geometry QC remain OpenMM-free. QC collects findings before
   a strict-mode failure. External tools use isolated subprocess directories,
   never process-wide `os.chdir`.
 - Schema, force expression and observables have one definition per registered
-  restraint/CV/method (currently 10 restraint types — `distances` packs N pairs
-  into one force per side, `boresch` packs orientation restraint over 3+3
-  anchor atoms — and 9 CVs: 5 expression-driven plus the kind-driven
-  `rmsd`/`coordination`/`path_s`/`path_z`); preserve numpy/kernel parity and
-  registry validation.
-- Run output rides the `neomd` logger at INFO (`console.py`): start/end
-  banners, same-line periodic progress via `InlineProgressHandler`, explicit
-  levels win.
+  restraint/CV/method; preserve numpy/kernel parity and registry validation.
 
 ## Easy-to-miss state and model seams
 
@@ -83,3 +68,18 @@ contract, smd/opes/gamd), `ml/AGENTS.md` (ML/MM), `mlcv/AGENTS.md` (ML-CV),
 For scientific architecture changes, consult the relevant ADR under `docs/adr/`.
 For documentation/docstring changes use `docs/AGENTS.md`. These paths are
 project-root-relative; local guides carry kernel and method-specific constraints.
+
+## Additional engine contracts
+
+- Plugin required-key presence is checked at the `--check-files` tier; schema
+  values stay opaque. Keep discovery before Plan construction for every facade.
+- Multi-bond restraint values are not live-settable; grouped Boresch forces
+  remain one force per expression kind. Kind-driven RMSD, coordination and
+  path CV adapters retain numpy/kernel parity.
+- Coordinate artifacts default to molecule wrapping through `MoleculeGroups`;
+  unsupported kernels emit one warning and keep raw coordinates.
+- Run messages use the `neomd` INFO logger and idempotent console setup; explicit
+  levels preserve `--silent`. Progress records use `inline=True` except the
+  final completion record, which stays in scrollback.
+- OpenMM private accesses stay behind the pinned 8.6.x version gate; QC writes
+  `qc_report.json` via sinks at preparation/minimization tails, soft by default.

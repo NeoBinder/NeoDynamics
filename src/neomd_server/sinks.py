@@ -90,6 +90,11 @@ class QuotaSink(ArtifactSink):
         self.base.write_bytes(name, data)
         self.pending.pop(name, None)
 
+    def append_bytes(self, name, data):
+        self.check_write(name, self.path_size(name) + len(data))
+        self.base.append_bytes(name, data)
+        self.pending.pop(name, None)
+
     @contextmanager
     def text_writer(self, name):
         with self.base.text_writer(name) as handle:

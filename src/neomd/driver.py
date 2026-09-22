@@ -29,7 +29,7 @@ from .kernel.port import (
     provides,
 )
 from .manifest import MANIFEST_FILENAME
-from .probes import KernelView, Probe, ProbeScheduler, RunView
+from .probes import CheckpointProbe, KernelView, Probe, ProbeScheduler, RunView
 from .wrap import wrap_positions
 
 __all__ = [
@@ -47,6 +47,7 @@ __all__ = [
     "run_minimization_qc",
 
     "prepare_method_stepper",
+    "advance_preparation",
     "run_prepared_method",
     "drive",
     "PROGRESS_INTERVAL",
@@ -376,7 +377,8 @@ def run_md(
     boundary, but the :class:`~neomd.probes.RunView` is constructed only when a
     probe or the ``on_step`` hook actually fires.  Probes tick *before*
     ``on_step`` at a shared boundary (reporters fired at step completion, the
-    hill deposited after).
+    hill deposited after). Checkpoint probes commit last, after those method
+    updates, so a failed boundary can be replayed from the prior checkpoint.
 
     Parameters
     ----------
@@ -435,9 +437,11 @@ class MDStepper:
     """
 
     def __init__(self, kernel, plan, probes=(), *, scheduler=None, view=None,
-                 on_step=None, on_step_interval=1, log_interval=PROGRESS_INTERVAL,
-                 logger=None, clock=time.time, sink=None, on_progress=None):
+                 on_step=None, on_step_interval=1, before_step=None, before_step_interval=1,
+                 log_interval=PROGRESS_INTERVAL,
+                 logger=None, clock=time.time, sink=None, on_progress=None, checkpoint=None):
         self.kernel, self.plan, self.sink = kernel, plan, sink
+        self.checkpoint = checkpoint
         self.log, self.clock = _resolve_logger(logger), clock
         self.scheduler = ProbeScheduler(probes) if scheduler is None else scheduler
         if view is not None and not callable(view):
@@ -450,6 +454,8 @@ class MDStepper:
         self.total = int(total)
         self.on_step, self.on_progress = on_step, on_progress
         self.on_step_interval = max(1, int(on_step_interval))
+        self.before_step = before_step
+        self.before_step_interval = max(1, int(before_step_interval))
         self.log_interval = max(1, int(log_interval))
         self.dt_ns = timestep_ps(plan) / 1000.0
         self.start_step = kernel.current_step
@@ -474,23 +480,38 @@ class MDStepper:
         boundaries.add(self.log_interval)
         if self.on_step is not None:
             boundaries.add(self.on_step_interval)
+        if self.before_step is not None:
+            boundaries.add(self.before_step_interval)
         cap = min(self.total, self.kernel.current_step + max_steps)
         while self.kernel.current_step < cap:
             target = _next_boundary(self.kernel.current_step, boundaries, cap)
             chunk = target - self.kernel.current_step
             self.kernel.step(chunk)
             self.steps_since_log += chunk
+            if self.before_step is not None and target % self.before_step_interval == 0:
+                # Atomic method transitions precede fresh views and every reporter,
+                # including checkpoint probes. Existing post-report hooks retain
+                # their ordering (e.g. metadynamics deposition).
+                self.before_step(target, self.view(self.kernel, target))
             fire_hook = self.on_step is not None and target % self.on_step_interval == 0
             fire_probe = any(target % probe.interval == 0 for probe in self.scheduler.probes)
             if fire_probe or fire_hook:
                 boundary_view = self.view(self.kernel, target)
-                self.scheduler.tick(target, boundary_view)
+                self.scheduler.tick(target, boundary_view, checkpoint_phase=False)
+                if fire_hook:
+                    self.on_step(target, boundary_view)
+                # Commit only after all frame tapes and scientific boundary
+                # updates succeeded. Otherwise resume must replay this boundary
+                # from the previous checkpoint, trimming any ahead-of-state rows.
+                if self.checkpoint is not None and any(
+                        isinstance(probe, CheckpointProbe) and target % probe.interval == 0
+                        for probe in self.scheduler.probes):
+                    self.checkpoint()
+                self.scheduler.tick(target, boundary_view, checkpoint_phase=True)
                 if self.on_progress is not None and fire_probe:
                     progress = self.scheduler.progress()
                     if progress:
                         self.on_progress(target, progress)
-                if fire_hook:
-                    self.on_step(target, boundary_view)
             if target % self.log_interval == 0 or target == self.total:
                 now = self.clock()
                 _log_progress(self.log, start_time=self.start_time,
@@ -508,6 +529,8 @@ class MDStepper:
         if self.result is not None:
             return self.result
         self.scheduler.finish()
+        if self.checkpoint is not None:
+            self.checkpoint()
         if self.sink is not None:
             self.sink.write_bytes(LAST_CHECKPOINT_FILENAME, self.kernel.snapshot())
             write_final_structure(self.kernel, self.sink,
@@ -693,6 +716,9 @@ class PreparedMethod:
 
     * ``on_step`` / ``on_step_interval`` — the physics hook fired on
       absolute multiples of the interval (hill deposition, ramp pushes).
+    * ``before_step`` / ``before_step_interval`` — completed-step transitions
+      fired before fresh reporter views and checkpoints (ligand exchange).
+      Existing ``on_step`` hooks still fire after reporting.
     * ``fgroups`` — the method's own bias force-group ids (informational;
       drive() does not merge them into ``RunOutcome.fgroups`` — the
       fgroup write-back stays the restraint section's).
@@ -721,6 +747,8 @@ class PreparedMethod:
 
     on_step: Callable[[int, RunView], None] | None = None
     on_step_interval: int = 1
+    before_step: Callable[[int, RunView], None] | None = None
+    before_step_interval: int = 1
     fgroups: dict = field(default_factory=dict)
     resume_plan: object = None
     tapes: dict = field(default_factory=dict)
@@ -744,6 +772,37 @@ _TAPE_SWITCHES = {"smd.tsv": "report_smd", "gamd.tsv": "report_gamd"}
 def _tape_enabled(plan, filename: str) -> bool:
     switch = _TAPE_SWITCHES.get(filename)
     return True if switch is None else bool(getattr(plan, switch, True))
+
+
+def advance_preparation(kernel, plan, prepared, max_steps, *, sink=None, on_progress=None):
+    """Advance scientific stages while honoring the driver's checkpoint cadence.
+
+    Preparation owns its scientific update boundaries; production trajectory
+    tapes still start after it finishes. Every checkpoint follows completed
+    exchanges/statistics updates and the method's state flush.
+    """
+    if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < 1:
+        raise ValueError("max_steps must be a positive integer")
+    preparation = prepared.preparation
+    cap = kernel.current_step + max_steps
+    interval = int(getattr(plan, "checkpoint_interval", 0) or 0)
+    probe = CheckpointProbe(sink, interval) if sink is not None and interval > 0 else None
+    while preparation is not None and not preparation.done and kernel.current_step < cap:
+        target = cap
+        if probe is not None:
+            target = min(target, (kernel.current_step // interval + 1) * interval)
+        before = kernel.current_step
+        preparation.advance(target - before)
+        step = kernel.current_step
+        if step <= before:
+            raise RuntimeError("method preparation did not advance")
+        if probe is not None and step % interval == 0:
+            if prepared.checkpoint is not None:
+                prepared.checkpoint()
+            probe.observe(KernelView(kernel, step))
+            if on_progress is not None:
+                on_progress(step, {CHECKPOINT_FILENAME: step})
+    return kernel.current_step
 
 
 def run_prepared_method(kernel: KernelPort, plan, prepared: PreparedMethod, *,
@@ -770,7 +829,7 @@ def run_prepared_method(kernel: KernelPort, plan, prepared: PreparedMethod, *,
     preparation = prepared.preparation
     if preparation is not None:
         while not preparation.done:
-            preparation.advance(5000)
+            advance_preparation(kernel, plan, prepared, 5000, sink=sink, on_progress=on_progress)
     runner = prepare_method_stepper(kernel, plan, prepared, sink=sink,
                                     logger=logger, on_progress=on_progress,
                                     restraint_independent=restraint_independent,
@@ -823,6 +882,9 @@ def prepare_method_stepper(kernel, plan, prepared, *, sink=None, logger=None,
     return MDStepper(kernel, plan, probes,
                     on_step=on_step,
                     on_step_interval=prepared.on_step_interval,
+                    before_step=prepared.before_step,
+                    before_step_interval=prepared.before_step_interval,
+                    checkpoint=prepared.checkpoint,
                     logger=logger, sink=sink, on_progress=on_progress)
 
 
@@ -994,6 +1056,7 @@ def drive(
         # its tapes); the driver runs the loop with the reporting IT owns —
         # the restraint tape plus the method's switch-gated tapes — so no
         # method plugin ever sees restraint wiring.
+        from . import methods as _builtin_methods  # noqa: F401 - register built-in methods
         from . import registry
 
         entry = registry.get("method", method)  # KeyError w/ did-you-mean

@@ -17,6 +17,7 @@ from uuid import UUID, uuid4
 
 from .budget import RunningBudget
 from .checkpoint_evidence import CheckpointPublication, encoded
+from .checkpoint_files import CHECKPOINT_COMPANIONS
 from .durability import sync_directory_trees
 from .finalization import seal_outputs
 from .processes import arm_parent_death
@@ -87,7 +88,7 @@ def _publish_files(paths, spec, *, closed_outputs=None):
             else "structure"
             if suffix in {".pdbx", ".pdb", ".cif"}
             else "method_state"
-            if suffix in {".npz", ".json"}
+            if suffix in {".npz", ".json", ".jsonl"}
             else "report"
         )
         with path.open("rb") as handle:
@@ -112,6 +113,8 @@ def _publish_files(paths, spec, *, closed_outputs=None):
                     "original_filename": path.name,
                     "media_type": "application/json"
                     if suffix == ".json"
+                    else "application/x-ndjson"
+                    if suffix == ".jsonl"
                     else "text/plain"
                     if suffix in {".tsv", ".pdbx", ".pdb", ".cif"}
                     else "application/octet-stream",
@@ -136,11 +139,7 @@ def _checkpoint(session, sink, spec, *, descriptor):
             if Path(name).name in {
                 "output.ckpt",
                 "interactive_state.json",
-                "manifest.json",
-                "hills.npz",
-                "kernels.npz",
-                "gamd_calibration.json",
-                "gamd_preparation.json",
+                *CHECKPOINT_COMPANIONS,
             }:
                 names.add(name)
     size = sum((sink.root / name).stat().st_size for name in names)

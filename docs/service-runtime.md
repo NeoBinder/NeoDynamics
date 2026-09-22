@@ -54,6 +54,13 @@ of the CLI error output.
 | `SHUTDOWN_TIMEOUT_SECONDS` | Child graceful-exit interval before terminate/kill |
 | `MAX_OUTPUT_BYTES` | Reserved output budget per accepted session |
 | `OBSERVATION_TTL_SECONDS` | Freshness lifetime for physical observations and capability responses |
+| `PREPARATION_MAX_SOURCE_BYTES` | Preparation canonical source ceiling; must equal the advertised catalog limit (64 MiB) |
+| `PREPARATION_MAX_RESULT_BYTES` | Preparation result artifact ceiling; must equal the advertised catalog limit (512 MiB) |
+| `PREPARATION_TIME_LIMIT_SECONDS` | Preparation operation wall-clock deadline; must equal the advertised catalog limit (3600 s) |
+| `PREPARATION_MEMORY_LIMIT_BYTES` | Preparation child address-space bound; must equal the advertised catalog limit (4 GiB) |
+| `PREPARATION_MAX_QUEUED_PER_OWNER` | Queued/running preparation operations per owner scope; catalog limit 8 |
+| `PREPARATION_MAX_CONCURRENT_OPERATIONS` | Preparation executor concurrency; the catalog admits exactly 1 |
+| `PREPARATION_MAX_REQUEST_BYTES` | Serialized preparation request body ceiling (8 MiB) |
 
 The effective coordinate-upload limit is the smaller of `MAX_UPLOAD_BYTES` and
 `MAX_REFERENCE_BYTES`; prepared part transfer uses `MAX_UPLOAD_PART_BYTES`.

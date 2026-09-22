@@ -780,3 +780,76 @@ def test_runtime_enable_disable_and_supervisor_wiring(tmp_path, monkeypatch):
     assert supervisor.publication is recorder
     asyncio.run(supervisor.close())
     assert recorder.calls == ['close']  # disabled start path is lifespan-owned; close still ordered
+
+
+def test_resident_diagnostics_and_completed_drive_tracking_are_bounded():
+    from types import SimpleNamespace
+
+    async def scenario():
+        coordinator = object.__new__(PublicationCoordinator)
+        coordinator.blocked = []
+        for index in range(1000):
+            coordinator._note('scope', str(index), 'artifact_unverified')
+        assert len(coordinator.blocked) == 128
+        assert coordinator.blocked[-1]['finalization_id'] == '999'
+        completed = asyncio.create_task(asyncio.sleep(0))
+        await completed
+        coordinator.drives = {'complete': completed}
+        coordinator._drive_children = {'complete': set(), 'unjoined': {123}}
+        coordinator._held = {'unjoined': object()}
+        coordinator.settings = SimpleNamespace(max_active=1)
+        class Journal:
+            async def jobs(self, **kwargs):
+                return SimpleNamespace(entries=[], next_after=None)
+        coordinator.journal = Journal()
+        await coordinator._claim_pending()
+        assert coordinator.drives == {}
+        assert coordinator._drive_children == {'unjoined': {123}}
+        assert 'unjoined' in coordinator._held
+    asyncio.run(scenario())
+
+
+def test_cleanup_is_offloop_exact_entry_and_joined_on_cancellation(tmp_path, monkeypatch):
+    import threading
+    from types import SimpleNamespace
+
+    async def scenario():
+        coordinator = object.__new__(PublicationCoordinator)
+        coordinator._children = set()
+        coordinator.inputs = SimpleNamespace(root=tmp_path)
+        objects = tmp_path / 'objects'
+        objects.mkdir()
+        target = objects / 'owned'
+        target.write_bytes(b'owned')
+        (objects / 'unrelated').write_bytes(b'keep')
+        info = target.stat()
+        entry = SimpleNamespace(local_ref='owned', stat=(info.st_dev, info.st_ino, info.st_size,
+                                                        info.st_mtime_ns, info.st_ctime_ns))
+        async def evidence(*args):
+            return None, [entry]
+        coordinator._evidence = evidence
+        def no_listing(*args):
+            raise AssertionError('cleanup must not enumerate shared storage')
+        monkeypatch.setattr(os, 'listdir', no_listing)
+        started, finish = threading.Event(), threading.Event()
+        original = coordinator._cleanup_files
+        main_thread = threading.get_ident()
+        def cleanup(entries, report):
+            assert threading.get_ident() != main_thread
+            started.set()
+            assert finish.wait(5)
+            return original(entries, report)
+        coordinator._cleanup_files = cleanup
+        record = SimpleNamespace(scope_id='scope', session_id='session', finalization_id='final')
+        task = asyncio.create_task(coordinator._guarded_cleanup(record, record))
+        while not started.is_set():
+            await asyncio.sleep(0.001)
+        task.cancel()
+        await asyncio.sleep(0.01)
+        assert not task.done()
+        finish.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert not target.exists()
+        assert (objects / 'unrelated').read_bytes() == b'keep'
+    asyncio.run(scenario())

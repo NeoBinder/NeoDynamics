@@ -65,6 +65,6 @@ terminal evidence. Selected-H6 size and deployment admission budgets remain
 the API's separate admission checks.
 
 This snapshot is packaged as read-only package data (see `pyproject.toml`
-`[tool.setuptools.package-data]`), so the resident service reads the frozen
+`[tool.setuptools.data-files]`), so the resident service reads the frozen
 contract from its installed distribution; runtime coordinator activation is
 separate host configuration (`NEOMD_SERVER_PUBLICATION_*` settings).

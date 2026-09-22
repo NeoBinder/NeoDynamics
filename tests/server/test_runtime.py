@@ -48,6 +48,13 @@ def environment(tmp_path):
         "SHUTDOWN_TIMEOUT_SECONDS": "3",
         "MAX_OUTPUT_BYTES": "1000000",
         "OBSERVATION_TTL_SECONDS": "2",
+        "PREPARATION_MAX_SOURCE_BYTES": "67108864",
+        "PREPARATION_MAX_RESULT_BYTES": "536870912",
+        "PREPARATION_TIME_LIMIT_SECONDS": "3600",
+        "PREPARATION_MEMORY_LIMIT_BYTES": "4294967296",
+        "PREPARATION_MAX_QUEUED_PER_OWNER": "8",
+        "PREPARATION_MAX_CONCURRENT_OPERATIONS": "1",
+        "PREPARATION_MAX_REQUEST_BYTES": "8388608",
     }
     return {"NEOMD_SERVER_" + key: value for key, value in values.items()}
 
@@ -56,6 +63,8 @@ def test_required_configuration_and_secret_redaction(tmp_path):
     env = environment(tmp_path)
     settings = RuntimeSettings.from_env(env)
     assert settings.admission.max_active == 2
+    assert settings.preparation.time_limit_seconds == 3600
+    assert settings.preparation.max_concurrent_operations == 1
     assert "secret" not in repr(settings) and "service-token" not in repr(settings)
     del env["NEOMD_SERVER_MAX_ACTIVE"]
     del env["NEOMD_SERVER_MAX_QUEUED"]
@@ -63,12 +72,14 @@ def test_required_configuration_and_secret_redaction(tmp_path):
     del env["NEOMD_SERVER_FINALIZATION_TIMEOUT_SECONDS"]
     del env["NEOMD_SERVER_MAX_PENDING_INPUT_OPERATIONS"]
     del env["NEOMD_SERVER_QUEUE_TTL_SECONDS"]
+    del env["NEOMD_SERVER_PREPARATION_MAX_SOURCE_BYTES"]
     with pytest.raises(ValueError) as failure:
         RuntimeSettings.from_env(env)
     assert "MAX_ACTIVE" in str(failure.value) and "QUEUE_TTL_SECONDS" in str(failure.value)
     assert "MAX_QUEUED" in str(failure.value) and "MAX_RUNNING_SECONDS" in str(failure.value)
     assert "FINALIZATION_TIMEOUT_SECONDS" in str(failure.value)
     assert "MAX_PENDING_INPUT_OPERATIONS" in str(failure.value)
+    assert "PREPARATION_MAX_SOURCE_BYTES" in str(failure.value)
     assert "secret" not in str(failure.value)
 
 

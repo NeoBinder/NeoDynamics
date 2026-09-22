@@ -179,10 +179,27 @@ def _verify_bundle_impl(job, limits, *, sender):
         directory / "system.xml", max_bytes=limits["max_xml_bytes"], max_forces=limits["max_forces"]
     )
     del manifest  # The engine returns its independently verified manifest.
-    verified = verify_prepared_system(
-        directory / "manifest.json", expected_sha256=receipt["manifest_sha256"],
-        profile="canonical_protein_load_v1" if version == 2 else None,
-    )
+    authority = job.get("preparation_authority")
+    if authority is not None:
+        from neomd.prepared_pipeline import verify_protein_preparation
+
+        if (version != 2 or authority["receipt"]["verification"]["manifest_sha256"]
+                != receipt["manifest_sha256"]):
+            raise LedgerError("integrity_mismatch")
+        verified = verify_protein_preparation(
+            directory / "manifest.json", expected_sha256=receipt["manifest_sha256"],
+        )
+        verification = authority["receipt"]["verification"]
+        if (verified["prepared_revision_id"] != verification["prepared_revision_id"]
+                or verified["artifacts"]["mapping.json"]["sha256"] != verification["mapping_sha256"]
+                or verified["artifacts"]["assembly-report.json"]["sha256"]
+                != verification["assembly_report_sha256"]):
+            raise LedgerError("integrity_mismatch")
+    else:
+        verified = verify_prepared_system(
+            directory / "manifest.json", expected_sha256=receipt["manifest_sha256"],
+            profile="canonical_protein_load_v1" if version == 2 else None,
+        )
     mapping = _read_json(directory / "mapping.json")
     if (not isinstance(mapping, dict) or mapping.get("schema_version") != version
             or version == 2 and type(mapping.get("schema_version")) is not int):
@@ -555,7 +572,7 @@ class InputStore:
                     raise LedgerError("idempotency_conflict")
                 return existing["receipt"]
             used = await connection.fetchval(
-                "SELECT (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.asset_uploads WHERE pool_id=$1) + (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.output_reservations WHERE pool_id=$1)",
+                "SELECT (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.asset_uploads WHERE pool_id=$1) + (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.output_reservations WHERE pool_id=$1) + (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.preparation_source_uploads WHERE pool_id=$1) + (SELECT coalesce(sum(reserved_output_bytes),0) FROM neomd_service.preparation_operations WHERE pool_id=$1) + (SELECT coalesce(sum(pa.size_bytes),0) FROM neomd_service.preparation_artifacts pa JOIN neomd_service.preparation_operations po ON po.operation_id=pa.operation_id WHERE po.pool_id=$1)",
                 self.pool_id,
             )
             if total > capacity - used:
@@ -763,6 +780,28 @@ class InputStore:
         prepared = receipt["prepared"]
         if kind == "coordinate_commit":
             source["asset"] = await self._prepared_row(connection, scope, prepared)
+        else:
+            # Only an exact succeeded result produced for this owner and provider
+            # may use the full verifier. Arbitrary uploaded histories stay LOAD-only.
+            authority = await connection.fetchrow(
+                """SELECT operation_id,receipt,inventory FROM neomd_service.preparation_operations
+                WHERE scope_id=$1 AND pool_id=$2 AND state='succeeded'
+                AND receipt->'verification'->>'manifest_sha256'=$3""",
+                scope, self.pool_id, receipt["manifest_sha256"],
+            )
+            if authority is not None:
+                expected = {item["path"]: (item["sha256"], item["size_bytes"])
+                            for item in authority["inventory"]["artifacts"] if item["role"] != "log"}
+                actual = {part["descriptor"]["name"]: (part["descriptor"]["sha256"],
+                                                       part["descriptor"]["size_bytes"])
+                          for part in receipt["parts"]}
+                if (expected != actual or authority["receipt"]["owner_scope"] != str(scope)
+                        or authority["receipt"]["backend"]["pool_id"] != self.pool_id):
+                    raise LedgerError("integrity_mismatch")
+                source["preparation_authority"] = {
+                    "operation_id": str(authority["operation_id"]),
+                    "receipt": authority["receipt"], "inventory": authority["inventory"],
+                }
         return source, prepared, expiry
 
     async def _input_execute(self, operation, deadline):
@@ -770,6 +809,8 @@ class InputStore:
         if operation["kind"] == "prepared_commit":
             job = {"root": str(self.root), "receipt": source["receipt"],
                    "request_sha256": source["request_sha256"], "fence": fence(operation)}
+            if "preparation_authority" in source:
+                job["preparation_authority"] = source["preparation_authority"]
             async with self._verification_slot(job, deadline):
                 verified = await self._run_verifier(job, deadline, operation=operation)
                 self._verified_receipt(job, verified)
@@ -979,7 +1020,7 @@ class InputStore:
                     raise LedgerError("idempotency_conflict")
                 return existing["receipt"]
             used = await connection.fetchval(
-                "SELECT (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.asset_uploads WHERE pool_id=$1) + (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.output_reservations WHERE pool_id=$1)",
+                "SELECT (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.asset_uploads WHERE pool_id=$1) + (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.output_reservations WHERE pool_id=$1) + (SELECT coalesce(sum(reserved_bytes),0) FROM neomd_service.preparation_source_uploads WHERE pool_id=$1) + (SELECT coalesce(sum(reserved_output_bytes),0) FROM neomd_service.preparation_operations WHERE pool_id=$1) + (SELECT coalesce(sum(pa.size_bytes),0) FROM neomd_service.preparation_artifacts pa JOIN neomd_service.preparation_operations po ON po.operation_id=pa.operation_id WHERE po.pool_id=$1)",
                 self.pool_id,
             )
             if metadata["size_bytes"] > capacity - used:

@@ -46,6 +46,12 @@ def validator(name):
             registry = registry.with_resource(scientific["$id"], Resource.from_contents(scientific))
     if name in scientific_schemas:
         selected = scientific_schemas[name]
+    elif "#/$defs/" in name:
+        base, _, definition = name.partition("#/$defs/")
+        definitions = scientific_schemas.get(base, {}).get("$defs", {})
+        if definition not in definitions:
+            raise ValueError("unknown protocol schema")
+        selected = {"$ref": f"#/$defs/{definition}", "$defs": definitions}
     elif name in schema["$defs"]:
         selected = {"$ref": f"#/$defs/{name}", "$defs": schema["$defs"]}
     else:

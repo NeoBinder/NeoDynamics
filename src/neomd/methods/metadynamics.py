@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime
 import io
+import json
 import logging
 import math
 from dataclasses import dataclass
@@ -34,6 +35,7 @@ __all__ = [
     "LABEL",
     "HILLS_FILENAME",
     "FES_FILENAME",
+    "BIAS_STATE_FILENAME",
 ]
 
 #: molar gas constant, kJ/(mol K) — bit-identical to openmm's
@@ -52,6 +54,7 @@ _R_J_MOL_K = 8.31446261815324
 LABEL = "metadynamics"
 HILLS_FILENAME = "hills.npz"
 FES_FILENAME = "fes.tsv"
+BIAS_STATE_FILENAME = "metadynamics_bias_state.json"
 
 LOG = logging.getLogger("neomd.methods.metadynamics")
 
@@ -262,6 +265,7 @@ class MetadynamicsRun:
         self._hills_positions: list[list[float]] = []
         self._hills_heights: list[float] = []
         self._last_update_context_step = 0
+        self._push_history: list[dict[str, int]] = []
         self.fgroup: int | None = None
 
     # -- entry point --------------------------------------------------------
@@ -313,6 +317,8 @@ class MetadynamicsRun:
         resume_plan = plan_resume(self.plan, self.kernel, self.sink)
         if resume_plan is not None:
             self._replay_ledger(resume_plan)
+        # A checkpoint before the first deposition still needs an empty ledger.
+        self._save_hills()
 
         tapes: dict = {}
         if self.sink is not None:
@@ -388,9 +394,9 @@ class MetadynamicsRun:
     def _replay_ledger(self, resume_plan) -> None:
         """Replay the hills ledger into the bias matrix and push it.
 
-        The ledger stores the hills themselves; the bias matrix is REBUILT
-        by replaying them through the deposition math (deterministic), and
-        one ``update_table`` pushes the rebuilt matrix to the kernel.
+        The ledger rebuilds the accumulated bias through deterministic
+        deposition math. The push journal identifies the prefix active at
+        the checkpoint; only that table is pushed to the restored kernel.
 
         The kernel restore and the ledger TRIM (hills deposited past the
         checkpoint step are dropped before replay) belong to
@@ -417,14 +423,43 @@ class MetadynamicsRun:
             positions = np.asarray(loaded["positions"], dtype=np.float64)
         ncv = len(self.grids)
         positions = positions.reshape(len(steps), ncv)
-        for step, position, height in zip(steps.tolist(),
-                                          positions.tolist(),
-                                          heights.tolist()):
-            self._add_gaussian(position, height)  # replay, no context push
+        if self.sink.exists(BIAS_STATE_FILENAME):
+            state = json.loads(self.sink.read_bytes(BIAS_STATE_FILENAME))
+            if (state.get("schema_version") != 1
+                    or state.get("update_context_frequency") != self.update_context_frequency
+                    or state.get("deposition_frequency") != self.frequency):
+                raise ValueError("metadynamics bias push settings changed since checkpoint")
+            self._push_history = [event for event in state["push_history"]
+                                  if event["step"] <= resume_plan.resume_step]
+            previous_step, previous_count = -1, 0
+            for event in self._push_history:
+                step, count = event["step"], event["n_hills"]
+                if (type(step) is not int or type(count) is not int
+                        or step <= previous_step or not previous_count < count <= len(steps)
+                        or steps[count - 1] != step):
+                    raise ValueError("metadynamics push history disagrees with saved hills")
+                previous_step, previous_count = step, count
+        elif self.update_context_frequency is not None:
+            raise ValueError("throttled metadynamics resume requires metadynamics_bias_state.json; "
+                             "the active hill prefix cannot be proven from legacy artifacts")
+        else:
+            # With unthrottled deposition every completed hill is active.
+            self._push_history = [{"step": int(step), "n_hills": i + 1}
+                                  for i, step in enumerate(steps)]
+        active_count = self._push_history[-1]["n_hills"] if self._push_history else 0
+        self._last_update_context_step = (self._push_history[-1]["step"]
+                                          if self._push_history else 0)
+        active_bias = np.zeros(self._shape, dtype=np.float64)
+        for i, (step, position, height) in enumerate(zip(steps.tolist(),
+                                                        positions.tolist(),
+                                                        heights.tolist()), start=1):
+            self._add_gaussian(position, height)  # pending and active hills accumulate
             self._hills_steps.append(step)
             self._hills_positions.append(position)
             self._hills_heights.append(height)
-        self._ops.update_table(LABEL, self._total_bias.flatten())
+            if i == active_count:
+                active_bias = self._total_bias.copy()
+        self._ops.update_table(LABEL, active_bias.flatten())
         self.log.info("Load bias FILE:%s (%d hills replayed)",
                       HILLS_FILENAME, len(steps))
 
@@ -445,9 +480,10 @@ class MetadynamicsRun:
         self._hills_steps.append(int(step))
         self._hills_positions.append([float(v) for v in position])
         self._hills_heights.append(float(height))
-        self._save_hills()
         if self._update_context_check(step):
             self._ops.update_table(LABEL, self._total_bias.flatten())
+            self._push_history.append({"step": int(step), "n_hills": len(self._hills_steps)})
+        self._save_hills()
 
     def _add_gaussian(self, position, height) -> None:
         """v1 ``_addGaussian`` (== openmm app/metadynamics.py), verbatim math.
@@ -486,6 +522,7 @@ class MetadynamicsRun:
         only the kernel/context push is throttled.
         """
         if self.update_context_frequency is None:
+            self._last_update_context_step = step
             return True
         if step - self._last_update_context_step > self.update_context_frequency:
             self._last_update_context_step = step
@@ -514,6 +551,16 @@ class MetadynamicsRun:
         buffer = io.BytesIO()
         np.savez(buffer, steps=steps, positions=positions, heights=heights)
         self.sink.write_bytes(HILLS_FILENAME, buffer.getvalue())
+        # Written before checkpoint commit; future events survive only until
+        # resume trims them against the committed integration step.
+        self.sink.write_bytes(BIAS_STATE_FILENAME, json.dumps({
+            "schema_version": 1,
+            "deposition_frequency": self.frequency,
+            "update_context_frequency": self.update_context_frequency,
+            "push_history": self._push_history,
+            "active_hills": self._push_history[-1]["n_hills"] if self._push_history else 0,
+            "last_update_context_step": self._last_update_context_step,
+        }, sort_keys=True).encode())
 
     def get_free_energy(self) -> np.ndarray:
         """``-((T+deltaT)/deltaT) * total_bias``, kJ/mol.

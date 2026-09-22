@@ -7,10 +7,6 @@ release, including the `neomd2` alias. The interactive service is
 session policy, while reusable stepping, scientific preparation and qualified
 physical/method controls remain engine interfaces.
 
-The server is not online yet (no deployment exists): implement against the
-current versioned contracts only. Do not write forward-compatibility code
-for anticipated future service versions or undeployed behavior.
-
 ## Scientific boundaries
 
 - Preserve force expressions, units and default parameters when refactoring;
@@ -32,28 +28,6 @@ for anticipated future service versions or undeployed behavior.
   every error with key paths and did-you-mean. New-code tests cross public
   interfaces (`md_run`, `compile`, `register`, port operations), not internals.
 
-## Commands
-
-```bash
-pixi run test
-pixi run test-golden
-pixi run test-legacy
-pixi run -e ml test-ml
-pixi run -e server test-server
-uvx ruff check .
-pixi run docs-gen
-pixi run docs-build
-neomd run|prepare|migrate|validate|version
-```
-
-Semantics, tolerances and CI detail: `tests/AGENTS.md` and `docs/AGENTS.md`.
-
-## Working discipline
-
-- Deletion test: for each module, ask "if I deleted it, where would the
-  complexity go?" A module that fails this is a candidate for merging.
-- Version is derived by versioningit from git tags — do not hardcode.
-
 ## Development
 
 In NeoEvolutionMatrix, follow workspace-root `AGENTS.md` for worktrees,
@@ -68,3 +42,10 @@ relevant ADR, task notes in ignored `.agents/`. Root instructions have a
 3,000-word ceiling, subfolder instructions 1,000; prefer much less. Before
 deleting documents, present exact candidates/reasons and obtain explicit
 confirmation; preserve live references, rationale and unfinished decisions.
+
+When changing architecture, ask where each module's complexity would go if
+removed; merge a module only when its boundary adds no independent value.
+Load `src/neomd/AGENTS.md` for SDK architecture, `tests/AGENTS.md` for test
+tiers, and `docs/AGENTS.md` for documentation/docstring policy before editing
+those areas. When main moves, merge it into the task worktree and resolve
+there; preserve shared history. Never clean across `.worktrees/`.

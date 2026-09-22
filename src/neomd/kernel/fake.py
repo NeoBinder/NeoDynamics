@@ -14,6 +14,7 @@ import pickle
 
 import numpy as np
 
+from .checkpoint import copy_metadata, unwrap_checkpoint, wrap_checkpoint
 from .port import (
     CVIR,
     BiasIR,
@@ -317,6 +318,7 @@ class FakeKernel:
         self._interactions = {}
         self._interactions_reserved = False
         self._step = 0
+        self._checkpoint_metadata = {}
         self._biases: list[tuple[int, BiasIR]] = []
         self._next_group = 0
         #: label -> (TableSpec, values ndarray) for CustomCVTableForce biases
@@ -329,6 +331,7 @@ class FakeKernel:
         self._boost: dict[str, dict] = {}
         #: label -> BoostReading of the most recent step ({} before any)
         self._boost_last: dict[str, BoostReading] = {}
+        self._partition_groups = set()
 
     # ------------------------------------------------------------------
     # state observation
@@ -369,8 +372,13 @@ class FakeKernel:
                   else None)
         # documented: the fake reports zero forces (bias forces are not
         # propagated into its dynamics)
+        if self._boost:
+            potential += sum(reading.boost for reading in self.boost_potentials().values())
+        force = self._interaction_forces(self._positions)
+        if self._boost:
+            force = force + self._boost_force()
         return EnergyReport(potential=potential,
-                            forces=self._interaction_forces(self._positions),
+                            forces=force,
                             kinetic=kinetic, volume=volume,
                             temperature=temperature)
 
@@ -414,9 +422,8 @@ class FakeKernel:
         gradient of ``V* = sum_g V_g + sum_c dV_c(P_c)``; the F = 0
         simplification holds only when NO boost is installed).  Channel
         target energies are the summed energies of their force groups
-        (``()`` = every installed bias); the applied dV/P/s of the most
-        recent step is readable via :meth:`boost_potentials` (the
-        reweighting trace).  Must come after every ``install_bias``:
+        (legacy ``()`` = every installed bias); :meth:`boost_potentials`
+        evaluates dV/P/s at the exact current configuration.  Must come after every ``install_bias``:
         later bias installs are refused (see :meth:`install_bias`), so a
         stale channel set can never silently mis-scale new forces.
 
@@ -448,12 +455,60 @@ class FakeKernel:
         if name not in ("threshold", "k"):
             raise ValueError(
                 f"boost param name must be 'threshold' or 'k', got {name!r}")
-        if name == "k" and value < 0.0:
+        if not np.isfinite(value) or (name == "k" and value < 0.0):
             raise ValueError(f"boost k must be >= 0, got {value}")
         self._boost[label][name] = float(value)
 
     def boost_potentials(self) -> dict:
-        return dict(self._boost_last)
+        from .partition import boost_value
+        readings = {}
+        for label, channel in self._boost.items():
+            energy = self._channel_energy(channel, self._positions)
+            boost, scale = boost_value(energy, channel['threshold'], channel['k'])
+            readings[label] = BoostReading(boost, energy, scale)
+        return readings
+
+    def compile_boost_partitions(self, boosts):
+        """The fake has no physical force-field terms; biases remain excluded.
+
+        Empty logical groups intentionally exercise method and resume behavior
+        without claiming that restraint fixtures are physical force fields.
+        """
+        from .partition import selections
+        chosen = selections(boosts, self.num_particles)
+        if self._boost or self._partition_groups:
+            raise RuntimeError('compile partitions before boost creation, only once')
+        used = {group for group, _ in self._biases}
+        rows = []
+        for choice in chosen:
+            group = pick_free_force_group(used, {g: 'existing group' for g in used})
+            used.add(group)
+            self._partition_groups.add(group)
+            rows.append(dict(label=choice.label, groups=[group], matched=0,
+                             assigned=0, claimed=0, force_types={}))
+        return dict(particles=[dict(particle_index=i, mass_dalton=float(m), virtual_site=False, topology_atom_index=None) for i, m in enumerate(self._masses)], bonds=[],
+                    semantics='ordered-any-atom-first-defined-wins', channels=rows,
+                    residual=dict(groups=[], assigned=0), component_count=0,
+                    excluded_restraint_groups=sorted(g for g, _ in self._biases),
+                    adapter='fake: no physical force-field interactions')
+
+    def validate_ligand_exchange(self, copies):
+        from .partition import validate_permutation
+        groups = validate_permutation(copies, list(range(len(copies))), self.num_particles)
+        first = self._masses[list(groups[0])]
+        if any(not np.array_equal(first, self._masses[list(group)]) for group in groups[1:]):
+            raise ValueError('ligand copies have different masses')
+
+    def permute_ligands(self, copies, permutation):
+        from .partition import validate_permutation
+        groups = validate_permutation(copies, permutation, self.num_particles)
+        self.validate_ligand_exchange(copies)
+        positions, velocities = self._positions.copy(), self._velocities.copy()
+        for destination, source in enumerate(permutation):
+            self._positions[list(groups[destination])] = positions[list(groups[source])]
+            self._velocities[list(groups[destination])] = velocities[list(groups[source])]
+        self._boost_last = {}
+
 
     def torsion_force_groups(self) -> tuple[int, ...]:
         """Duck-typed dual-boost discovery (mirrors the openmm adapter):
@@ -490,19 +545,8 @@ class FakeKernel:
         (the integrator convention); each force group of the potential is
         then rescaled additively by every channel targeting it.
         """
-        factors: dict[str, float] = {}  # label -> k*(E-P) while P < E, else 0
-        readings: dict[str, BoostReading] = {}
-        for label, channel in self._boost.items():
-            energy = self._channel_energy(channel, self._positions)
-            depth = channel["threshold"] - energy
-            if channel["k"] > 0.0 and depth > 0.0:
-                boost = 0.5 * channel["k"] * depth * depth
-                factors[label] = channel["k"] * depth
-            else:  # no boost: above threshold or zero strength
-                boost = 0.0
-                factors[label] = 0.0
-            readings[label] = BoostReading(
-                boost=boost, energy=energy, scale=1.0 - factors[label])
+        readings = self.boost_potentials()
+        factors = {label: 1.0 - reading.scale for label, reading in readings.items()}
         self._boost_last = readings
 
         # group the installed biases by their (additive) scale, one
@@ -606,7 +650,7 @@ class FakeKernel:
     # ------------------------------------------------------------------
 
     def install_bias(self, bias: BiasIR, group: int | None = None) -> int:
-        if self._boost:
+        if self._boost or self._partition_groups:
             # ADR-0005 ordering: the boost rescales force groups by explicit
             # membership — a bias installed after it would silently escape
             # the scaled update.  Refuse loudly instead.
@@ -941,6 +985,12 @@ class FakeKernel:
     # snapshots
     # ------------------------------------------------------------------
 
+    def set_checkpoint_metadata(self, metadata: dict) -> None:
+        self._checkpoint_metadata = copy_metadata(metadata)
+
+    def checkpoint_metadata(self) -> dict:
+        return copy_metadata(self._checkpoint_metadata)
+
     def snapshot(self) -> bytes:
         """Pickle of (positions, velocities, step, installed biases, group
         counter, tables, the RandomState state, steered-MD parameter
@@ -966,11 +1016,12 @@ class FakeKernel:
         }
         if self._interactions_reserved:
             payload["interactions"] = self._interactions
-        return pickle.dumps(payload, protocol=4)
+        return wrap_checkpoint(pickle.dumps(payload, protocol=4), self._checkpoint_metadata)
 
     def restore(self, data: bytes) -> None:
         """Restore a :meth:`snapshot` blob (accepts the older v1 payload
         format too); mid-run restores continue the trajectory bit-for-bit."""
+        data, metadata = unwrap_checkpoint(data)
         payload = pickle.loads(data)
         if payload.get("format") not in ("neomd-fake-kernel-v1",
                                          "neomd-fake-kernel-v2"):
@@ -996,6 +1047,7 @@ class FakeKernel:
         self._boost_last = {
             label: BoostReading(boost=float(b), energy=float(e), scale=float(s))
             for label, (b, e, s) in boost.get("last", {}).items()}
+        self._checkpoint_metadata = metadata
 
 
 KernelFactory.register_adapter("fake", FakeKernel)

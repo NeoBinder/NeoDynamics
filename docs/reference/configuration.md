@@ -93,7 +93,15 @@ sampling methods register through the extension rack (`neomd.methods`).
 | `steps` | yes | int, the FINAL step of the whole run — the calibration pre-run advances the same counter (plan-level key) | — |
 | `temperature` | yes | number, kelvin (plan-level key) | — |
 | `continue_md` | no | bool; restore output.ckpt, trim gamd.tsv and push the saved gamd_calibration.json parameters (the calibration pre-run never re-runs) | None |
-| `gamd.channels` | no | explicit channel definitions [{label, groups}] over force-group ids (LiGaMD: point at the ligand dihedral / ligand-nonbonded groups of a system that separates them into their own force groups) | None |
+| `gamd.adaptation_interval` | no | positive adaptation sampling interval; defaults to calibration_interval | None |
+| `gamd.boost_preparation_steps` | no | nonnegative fixed initial-boost preparation steps (default 0) | None |
+| `gamd.boosts` | no | ordered [{label, selectors:[{atom_indices,force_types}], sigma0?, threshold_policy?, energy_unit?}] with optional final {label,remaining:true}; zero-based any-atom match, first-defined owns each term; restraints excluded | None |
+| `gamd.channels` | no | legacy explicit channel definitions [{label, groups}] over force-group ids (LiGaMD: point at the ligand dihedral / ligand-nonbonded groups of a system that separates them into their own force groups) | None |
+| `gamd.energy_unit` | no | kJ/mol (default) or kcal/mol; kcal/mol is explicitly multiplied by 4.184 | None |
+| `gamd.equilibration_steps` | no | nonnegative adaptive boosted equilibration steps (default 0); production freezes parameters | None |
+| `gamd.exchange` | no | experimental deterministic ligand relabel: copies, reference_atoms, interval? (default 1), designated_slot?, ligand_reference_atoms? (copy offsets), cutoff_nm?, periodic?; with cutoff retain designated copy at distance <= cutoff; only when designated is outside swap the nearest other copy at distance <= cutoff; without cutoff choose nearest of all slots; no energy or Metropolis acceptance gate; not a qualified equilibrium PMF sampler | None |
+| `gamd.preparation_steps` | no | nonnegative conventional-MD preparation steps (default 0) | None |
+| `gamd.threshold_policy` | no | upper (default, lower fallback) or lower, independently overridable per boost | None |
 | `output.report_gamd` | no | bool, default true — the gamd.tsv boost trace switch (driver._TAPE_SWITCHES) | None |
 
 ### `method: metadynamics`
