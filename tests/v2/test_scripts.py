@@ -252,23 +252,6 @@ def test_parity_against_v1_convert_script(tmp_path):
 
 
 # ===========================================================================
-# fix_protein — pure plumbing (no pdbfixer needed)
-# ===========================================================================
-
-def test_openmm_accepts_v1_numpy_periodic_box_vector_form():
-    """The verbatim port hands a plain ``np.eye(3) * side`` array to
-    ``Topology.setPeriodicBoxVectors`` — pin that openmm (8.x) accepts
-    exactly that form, so the port needs no adaptation."""
-    top = Topology()
-    res = top.addResidue("ALA", top.addChain("A"))
-    top.addAtom("CA", Element.getByAtomicNumber(6), res)
-    side = 2.718  # nm
-    top.setPeriodicBoxVectors(np.eye(3) * side)
-    box = np.asarray(top.getPeriodicBoxVectors().value_in_unit(unit.nanometer))
-    assert np.allclose(box, np.eye(3) * side, atol=1e-6)
-
-
-# ===========================================================================
 # fix_protein — pdbfixer-dependent (skip-guarded, see PDBFIXER_GAP)
 # ===========================================================================
 

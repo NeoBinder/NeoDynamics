@@ -1,5 +1,9 @@
 # Quick start
 
+Start with the repository installation and runnable CPU demo in the
+[project README](https://github.com/NeoBinder/NeoDynamics#quick-start).
+The examples below show how to use your own prepared inputs.
+
 ## Python — one facade, three depths
 
 ```python
@@ -18,7 +22,7 @@ fingerprint.
 
 ```bash
 neomd run path/to/run_dir --steps 50000                  # default: --platform cuda --kernel openmm
-neomd run path/to/run_dir --steps 50000 --platform cpu   # CPU-only environments opt in (fake/replay kernels too)
+neomd run path/to/run_dir --steps 50000 --platform cpu   # run the OpenMM kernel on CPU
 neomd prepare prep_config.yaml                            # system preparation (protein+ligand+solvent)
 neomd migrate old_v1_config.yaml -o plan.yaml             # one-shot v1 YAML -> Plan translation
 neomd validate plan.yaml --check-files                    # report every problem, write nothing
@@ -56,7 +60,8 @@ output:
 ```
 
 Every key a plan accepts is listed in the [configuration
-reference](reference/configuration.md).
+reference](reference/configuration.md). Output files, wrapping and checkpoint
+continuation are covered in [Run outputs and continuation](running.md).
 
 ## Beyond plain MD
 
@@ -68,10 +73,11 @@ artifacts plus `colvar.tsv`, `hills.npz` and `fes.tsv`. See the
 
 Steered MD swaps in `method: smd` and an `smd:` section whose entries
 use the restraint vocabulary — any rampable key (`restr_k`, `max_nm`,
-`min_degree`, `order`, `maxRMSD_nm`, `ref_position_nm`, ...) given a
+`min_degree`, `maxRMSD_nm`, `ref_position_nm`, ...) given a
 LIST of values is piecewise-linearly interpolated over `steps` and
 pushed to the kernel on a fixed 5000-step staircase (v1 semantics,
-verbatim). A classic pull is a `max_nm`/`ref_position_nm` ramp; a soft
+verbatim). `order` stays constant; its legacy `[2]` spelling is accepted
+as the constant value 2. A classic pull is a `max_nm`/`ref_position_nm` ramp; a soft
 engage/release is a `restr_k` ramp like `[0, 1000, ..., 0]`. See the
 [steered-MD tutorial](tutorials/steered-md.md).
 
@@ -117,3 +123,14 @@ pixi shell
 
 For working on NeoDynamics itself, see the [development
 page](development.md).
+
+## Migrating from v1
+
+`neomd migrate old_config.yaml -o plan.yaml` (or
+`python -m neomd.migrate_v1`) translates a v1 run config into a v2 plan:
+dead keys produce warnings, `method` synonyms map (`minimization → min`,
+`equilibration → eq`), paths are absolutised against `--base-dir`, and
+validation errors are relocated to the original YAML `file:line`. `qmmm`
+configs are rejected (broken in v1; it returns as a 2.x plugin). The
+translator is a one-shot tool, not a compatibility layer. The old `bin/`
+entry points remain thin wrappers for one release.

@@ -2,9 +2,10 @@
 
 Steered MD swaps in `method: smd` and an `smd:` section whose entries use
 the restraint vocabulary — any rampable key (`restr_k`, `max_nm`,
-`min_degree`, `order`, `maxRMSD_nm`, `ref_position_nm`, ...) given a LIST
+`min_degree`, `maxRMSD_nm`, `ref_position_nm`, ...) given a LIST
 of values is piecewise-linearly interpolated over `steps` and pushed to
-the kernel on a fixed 5000-step staircase.
+the kernel on a fixed 5000-step staircase. `order` is not rampable; it remains
+constant, including the legacy `order: [2]` spelling.
 
 ```yaml
 method: smd
@@ -24,7 +25,7 @@ output:
 ```
 
 - **Rampable keys** — any rampable numeric key (`restr_k`, `min_nm`,
-  `max_nm`, `min_degree`, `max_degree`, `order`, `maxRMSD_nm`, or
+  `max_nm`, `min_degree`, `max_degree`, `maxRMSD_nm`, or
   `ref_position_nm` as a list of `[x, y, z]` triples) may be given a list
   of values. A classic pull is a `max_nm`/`ref_position_nm` ramp; a soft
   engage/release is a `restr_k` ramp like `[0, 1000, ..., 0]`.

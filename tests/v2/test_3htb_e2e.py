@@ -49,15 +49,12 @@ kJ/mol/nm, two orders of magnitude above the example's tolerance 10.
 The ML/MM ligand smoke (section 4) adds ~60 s in-process (min 25 iters +
 3 MD steps, single-threaded, mock NNP — no torch needed).
 
-Translator round-trip (item 3.3): every YAML under examples/ translates —
-prepare-configs with the documented refusal, run-configs into valid Plans,
-and the three 3HTB run-configs additionally COMPILE (kernel constructible
-from the prepared files; no dynamics run).
+The generic example translation contract lives in test_migrate.py. Here the
+three 3HTB run-configs additionally COMPILE against the prepared files.
 """
 
 from __future__ import annotations
 
-import glob
 import json
 import os
 import shutil
@@ -401,66 +398,8 @@ def test_runbook_reused_the_module_preparation(runbook):
 
 
 # ---------------------------------------------------------------------------
-# 3. translator round-trip (item 3.3) — every YAML under examples/
+# 3. prepared 3HTB run-configs compile through the public interface
 # ---------------------------------------------------------------------------
-
-
-def example_yaml_files():
-    found = sorted(glob.glob(os.path.join(REPO, "examples", "*", "*.yaml")))
-    assert found, "no example YAMLs found"
-    return found
-
-
-def example_id(path):
-    return os.path.relpath(path, REPO)
-
-
-@pytest.mark.parametrize("path", example_yaml_files(), ids=example_id)
-def test_every_example_yaml_translates(path):
-    """Prepare-configs refuse with the documented error; run-configs become
-    valid Plans (validate -> derive -> freeze -> fingerprint)."""
-    from neomd.errors import ConfigKeyError
-    from neomd.migrate_v1 import is_v1_prepare_config, translate
-    from neomd.plan import Plan
-
-    with open(path, "r", encoding="utf-8") as handle:
-        config = yaml.safe_load(handle)
-
-    if is_v1_prepare_config(config):
-        with pytest.raises(ConfigKeyError, match="system-preparation"):
-            translate(config, source=path)
-    else:
-        translated = translate(config, source=path,
-                               base_dir=os.path.dirname(path))
-        plan = Plan.from_dict(translated, source=path)
-        assert plan.fingerprint
-
-
-def test_the_prepare_configs_are_exactly_the_two_known_ones():
-    """Coverage honesty: the prepare-config branch of the round-trip is fed
-    by exactly these two files (3HTB prepare.yaml, ala_meta prep_system.yaml)."""
-    from neomd.migrate_v1 import is_v1_prepare_config
-
-    prepare_configs, run_configs = [], []
-    for path in example_yaml_files():
-        with open(path, "r", encoding="utf-8") as handle:
-            config = yaml.safe_load(handle)
-        (prepare_configs if is_v1_prepare_config(config) else run_configs
-         ).append(example_id(path))
-    assert prepare_configs == [
-        "examples/3HTB_complex/prepare.yaml",
-        "examples/ala_meta/prep_system.yaml",
-    ]
-    assert run_configs == [
-        "examples/3HTB_complex/eq.yaml",
-        "examples/3HTB_complex/eq_restraints.yaml",
-        "examples/3HTB_complex/min.yaml",
-        "examples/ala_meta/eq.yaml",
-        "examples/ala_meta/meta.yaml",
-        "examples/ala_meta/min.yaml",
-        "examples/ligamd2/peptide-smoke.yaml",
-        "examples/ligamd2/single-ligand.yaml",
-    ]
 
 
 @needs_antechamber

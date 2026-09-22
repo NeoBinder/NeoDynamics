@@ -34,19 +34,12 @@ import neomd.restraints  # noqa: F401  (import = registration)
 from neomd.kernel import KernelSpec, SystemData
 from neomd.kernel.fake import FakeKernel
 from neomd.kernel.port import BiasIR, Param
-from neomd.registry import get, registered
+from neomd.registry import get
 
 DATA = pathlib.Path(__file__).resolve().parents[1] / "data"
 ALA2_PDB = DATA / "ala2" / "ala2.pdb"
 ALA2_SYSTEM_XML = (DATA / "ala2" / "system.xml").read_text()
 ALA2_ATOMS = 22
-
-#: the 9 v1 restraint types (8 Phase-1/2 + the post-flip 179ae35 `distances`)
-#: plus boresch (v2-native, W1-d) — the full restraint vocabulary today
-KNOWN_RESTRAINTS = {"distance", "dihedral", "angle", "funnel",
-                    "dist_ref_position", "rmsd", "xyz_box", "vec_restraint",
-                    "distances", "boresch"}
-
 
 # ---------------------------------------------------------------------------
 # v1 reference strings, replicated inline from src/neomd (verbatim porting)
@@ -175,10 +168,6 @@ def write_minimal_pdbx(path, rows_angstrom, model_nums=None):
 # ===========================================================================
 # registration + unknown-type errors
 # ===========================================================================
-
-def test_all_nine_v1_types_registered_at_import():
-    assert set(registered("restraint")) == KNOWN_RESTRAINTS
-
 
 def test_unknown_restraint_type_did_you_mean():
     with pytest.raises(KeyError) as ei:

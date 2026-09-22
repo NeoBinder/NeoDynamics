@@ -11,7 +11,7 @@ public surface: ``translate()``, ``is_v1_prepare_config()``, ``main()``,
 Real-world inputs exercised:
 
 * the three config dicts of tests/test_pipeline.py (loaded from that file),
-* every YAML in examples/3HTB_complex/ and examples/ala_meta/ (run configs
+* every YAML under examples/ (run configs
   must yield valid Plans; prepare-configs must be refused with a clear
   error).
 
@@ -22,6 +22,7 @@ path) is enforced by a source scan over src/neomd/.
 from __future__ import annotations
 
 import copy
+import glob
 import importlib.util
 import os
 
@@ -39,10 +40,7 @@ from neomd.migrate_v1 import (
 from neomd.plan import Plan, load_plan
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-EXAMPLE_DIRS = (
-    os.path.join(REPO, "examples", "3HTB_complex"),
-    os.path.join(REPO, "examples", "ala_meta"),
-)
+EXAMPLE_ROOT = os.path.join(REPO, "examples")
 RUNTIME_ROOT = os.path.join(REPO, "src", "neomd")
 
 
@@ -98,16 +96,12 @@ def v1_test_pipeline_configs() -> list[dict]:
 
 
 def example_yaml_files() -> list[str]:
-    found: list[str] = []
-    for directory in EXAMPLE_DIRS:
-        found.extend(
-            sorted(
-                os.path.join(directory, name)
-                for name in os.listdir(directory)
-                if name.endswith((".yaml", ".yml"))
-            )
-        )
-    assert found, f"no example YAMLs found under {EXAMPLE_DIRS}"
+    found = sorted(
+        path
+        for pattern in ("*.yaml", "*.yml")
+        for path in glob.glob(os.path.join(EXAMPLE_ROOT, "*", pattern))
+    )
+    assert found, f"no example YAMLs found under {EXAMPLE_ROOT}"
     return found
 
 
@@ -153,10 +147,18 @@ def test_example_yamls_translate(path):
             translate(config, source=path)
     else:
         translated = translate(config, source=path, base_dir=os.path.dirname(path))
-        Plan.from_dict(translated, source=path)  # a real, valid v2 plan
-        # the schemas are intentionally v1-shaped and these files carry only
-        # canonical keys and absolute paths: identity is the expected output
-        assert translated == config
+        assert Plan.from_dict(translated, source=path).fingerprint
+        # Canonical example settings stay identical; only relative paths are
+        # made absolute against the YAML directory (absolute paths stay put).
+        expected = copy.deepcopy(config)
+        for key, value in expected["input_files"].items():
+            if isinstance(value, str) and not os.path.isabs(value):
+                expected["input_files"][key] = os.path.abspath(
+                    os.path.join(os.path.dirname(path), value))
+        if not os.path.isabs(expected["output"]["output_dir"]):
+            expected["output"]["output_dir"] = os.path.abspath(os.path.join(
+                os.path.dirname(path), expected["output"]["output_dir"]))
+        assert translated == expected
 
 
 @pytest.mark.parametrize(

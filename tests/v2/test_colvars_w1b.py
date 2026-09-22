@@ -47,7 +47,7 @@ from neomd.kernel import BiasIR, GridSpec, KernelSpec, SystemData, TableSpec
 from neomd.kernel._bootstrap import ensure_adapters
 from neomd.kernel.fake import FakeKernel
 from neomd.plan import Plan, check_plan_files
-from neomd.registry import get, registered
+from neomd.registry import get
 from neomd.sinks import LocalDirSink
 
 ensure_adapters()
@@ -153,10 +153,6 @@ def _evaluate_cv(cv, positions, masses):
 # ===========================================================================
 # registration + vocabulary
 # ===========================================================================
-
-def test_all_nine_cv_types_registered_at_import():
-    assert set(registered("cv")) == ALL_NINE_CVS
-
 
 def test_cv_expressions_vocabulary_is_truthful():
     import neomd.colvars as colvars

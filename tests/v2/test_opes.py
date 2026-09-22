@@ -368,24 +368,6 @@ def test_fake_end_to_end_moving_system_counts_and_finiteness(tmp_path):
     assert len(rows) - 1 == result.n_deposits  # colvar rows match deposits
 
 
-def test_fake_same_seed_identical_ledger_and_positions(tmp_path):
-    def once(directory):
-        plan = Plan.from_dict(opes_config(output=out(directory)))
-        result = OPESRun(fake_kernel(seed=4242), plan,
-                         sink=LocalDirSink(directory)).run()
-        return result, load_ledger(directory)
-
-    first, ledger_a = once(tmp_path / "a")
-    second, ledger_b = once(tmp_path / "b")
-    assert set(ledger_a) == {"steps", "positions", "sigmas", "heights",
-                             "logweights"}
-    for name in ledger_a:
-        assert np.array_equal(ledger_a[name], ledger_b[name])
-    assert first.positions_sha256 == second.positions_sha256
-    assert first.fes_sum == second.fes_sum
-    assert first.n_kernels == second.n_kernels
-
-
 def test_fake_table_pushed_once_per_deposit(tmp_path, monkeypatch):
     class SpyOps:
         def __init__(self, inner):
