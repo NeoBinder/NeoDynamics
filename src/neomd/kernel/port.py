@@ -331,7 +331,9 @@ class KernelSpec:
     #: system modifications applied before the Context exists (barostat
     #: addition / mass overrides); the openmm
     #: adapter implements them, other kernels may ignore them.
-    barostat: dict | None = None  # {"pressure": bar, "frequency": steps, "temperature": K, "seed": int}
+    #: managed=True opts non-GaMD methods into proposal-state checkpointing;
+    #: GaMD enables it automatically. Otherwise native OpenMM behavior remains.
+    barostat: dict | None = None  # pressure, frequency, temperature, seed, managed
     particle_masses: dict[int, float] | None = None  # {particle index: dalton}
     #: zero-interaction NonbondedForce exceptions, flattened
     #: ``(particle, partner)`` pairs; applied pre-Context by the openmm

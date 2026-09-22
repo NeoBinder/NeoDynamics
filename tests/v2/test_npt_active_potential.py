@@ -41,7 +41,8 @@ def kernel_with_hills(tmp_path):
     system.setDefaultPeriodicBoxVectors(*(np.eye(3) * 3))
     kernel = OpenMMKernel(KernelSpec(
         platform="cpu", system_xml=openmm.XmlSerializer.serialize(system),
-        topology_file=str(structure), seed=891, barostat={"frequency": 2, "seed": 419},
+        topology_file=str(structure), seed=891,
+        barostat={"frequency": 2, "seed": 419, "managed": True},
         integrator={"dt": 0.001, "friction_coeff": 1.0}))
     restraint = BiasIR(kind="CustomCentroidBondForce", energy="0.5*k*distance(g1,g2)^2",
                        groups=[[0], [1]], params={"k": Param(4.0, "kJ/mol")},
@@ -104,6 +105,8 @@ def test_trial_recomputes_accumulated_hills_and_restraints_exactly_once(tmp_path
 
 
 def test_restrained_metadynamics_npt_resume_preserves_history_and_box_rng(tmp_path):
+    from dataclasses import replace
+
     from neomd.driver import drive
     from neomd.methods.metadynamics import LABEL
     from neomd.plan import Plan
@@ -117,7 +120,7 @@ def test_restrained_metadynamics_npt_resume_preserves_history_and_box_rng(tmp_pa
             "method": LABEL, "steps": steps, "temperature": 298,
             "continue_md": resume, "seed": spec.seed,
             "integrator": {"dt": 0.001, "friction_coeff": 1.0},
-            "barostat": {"pressure": 1, "frequency": 2, "seed": 419},
+            "barostat": {"pressure": 1, "frequency": 2, "seed": 419, "managed": True},
             "input_files": {"complex": spec.topology_file, "system": "unused.xml"},
             "output": {"output_dir": str(directory), "state_interval": 2,
                        "trajectory_interval": 2, "checkpoint_interval": 2},
@@ -128,8 +131,16 @@ def test_restrained_metadynamics_npt_resume_preserves_history_and_box_rng(tmp_pa
                                     "biasWidth_nm": 0.15, "bins": 701}},
             "meta_set": {"biasFactor": 5.0, "height": 1.2, "frequency": 2},
         })
-        kernel = OpenMMKernel(spec)
-        outcome = drive(plan, kernel_factory=lambda _: kernel, sink=LocalDirSink(directory))
+        kernels = []
+
+        def factory(derived):
+            # Use the public plan's barostat option, not the template's mode.
+            kernel = OpenMMKernel(replace(derived, system_xml=spec.system_xml, platform="cpu"))
+            kernels.append(kernel)
+            return kernel
+
+        outcome = drive(plan, kernel_factory=factory, sink=LocalDirSink(directory))
+        kernel = kernels[0]
         return kernel, outcome
 
     straight_dir, split_dir = tmp_path / "straight", tmp_path / "split"

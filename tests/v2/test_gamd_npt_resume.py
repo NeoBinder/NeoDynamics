@@ -188,7 +188,7 @@ def test_deterministic_managed_trial_acceptance_rejection_and_legacy_refusal(tmp
 
 def test_lazy_checkpoint_step_restores_partial_frequency_before_scheduling(tmp_path):
     _, _, spec = fixture(tmp_path, periodic=True)
-    spec = replace(spec, barostat={'frequency': 10, 'seed': 33})
+    spec = replace(spec, barostat={'frequency': 10, 'seed': 33, 'managed': True})
     straight = OpenMMKernel(spec)
     straight.step(7)
     checkpoint = tmp_path / 'phase.ckpt'
@@ -202,7 +202,7 @@ def test_lazy_checkpoint_step_restores_partial_frequency_before_scheduling(tmp_p
 
 def test_trial_exception_rolls_back_positions_box_and_readings(tmp_path):
     _, _, spec = fixture(tmp_path, periodic=True)
-    kernel = OpenMMKernel(replace(spec, barostat={'frequency': 2, 'seed': 71}))
+    kernel = OpenMMKernel(replace(spec, barostat={'frequency': 2, 'seed': 71, 'managed': True}))
     before = active_state(kernel)
     # The invalid variate is detected after candidate energy evaluation.
     with pytest.raises(ValueError, match='uniform'):
