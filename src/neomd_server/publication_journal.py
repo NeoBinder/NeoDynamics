@@ -176,6 +176,7 @@ class JournalOperation:
     intent_bytes: bytes = field(repr=False)
     outcome_bytes: bytes | None = field(repr=False)
     conflict_bytes: bytes | None = field(repr=False)
+    upload_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -388,7 +389,8 @@ class PublicationJournal:
     def _operation(row):
         return JournalOperation(str(row['operation_id']), row['kind'], row['state'], bytes(row['intent_bytes']),
             None if row['outcome'] is None else _bytes(row['outcome']),
-            None if row['conflict_evidence'] is None else _bytes(row['conflict_evidence']))
+            None if row['conflict_evidence'] is None else _bytes(row['conflict_evidence']),
+            None if row['upload_id'] is None else str(row['upload_id']))
 
     async def get(self, scope_id, finalization_id):
         async with self.ledger.pool.acquire() as connection:
@@ -812,7 +814,7 @@ class PublicationJournal:
         return row['exchange_id'] is not None and str(row['exchange_id']) == selected['exchange_id'] and row['exchange_bytes'] == grant.exchange_bytes
 
     async def record_uncertain(self, grant, closed_exchange=None):
-        """Possible remains possible, including missing auth, 404, timeout or expiry."""
+        """Uncertainty alone keeps possible; only a definitive query may reset."""
         if not isinstance(grant, ExchangeGrant):
             raise JournalError('invalid_request')
         if closed_exchange is not None and (not isinstance(closed_exchange, ClosedExchange) or closed_exchange.grant != grant):
@@ -826,10 +828,13 @@ class PublicationJournal:
                 await connection.execute('''UPDATE neomd_service.publication_jobs SET exchange_id=NULL,exchange_bytes=NULL
                     WHERE journal_id=$1''', row['journal_id'])
 
-    async def record_exchange(self, grant, response, closed_exchange):
-        """Persist known evidence first; only the exact live owner may advance it."""
+    async def record_exchange(self, grant, response, closed_exchange, *, closed_uploader=None):
+        """Persist evidence; optionally close joined uploader work atomically on completion."""
         if (not isinstance(response, AuthenticatedResponse) or response.grant != grant
                 or not isinstance(closed_exchange, ClosedExchange) or closed_exchange.grant != grant):
+            raise JournalError('closure_required')
+        if closed_uploader is not None and (
+                not isinstance(closed_uploader, ClosedUploader) or closed_uploader.lease != grant.lease):
             raise JournalError('closure_required')
         data = json.loads(response.data_bytes)
         compact = self._compact(grant, data)
@@ -867,14 +872,23 @@ class PublicationJournal:
                     exchange_id=NULL,exchange_bytes=NULL WHERE journal_id=$1''', row['journal_id'], compact)
                 return False
             if data['kind'] == 'error':
-                # A never-sent create can take its sole initial grant after this
-                # authenticated original-request lookup. 404 cannot reset possible.
-                if (not selected['mutation'] and selected['kind'] == 'publication'
-                        and selected['publication_id'] is None and data['status'] == 404):
-                    unsent = await connection.fetchval('''SELECT state='unsent' AND send_exchange_id IS NULL
-                        FROM neomd_service.publication_operations WHERE journal_id=$1 AND kind='create' ''', row['journal_id'])
-                    if unsent:
-                        await connection.execute('UPDATE neomd_service.publication_jobs SET query_required=false WHERE journal_id=$1', row['journal_id'])
+                # A closed, authenticated 404 on an original-identity query is
+                # definitive not-stored evidence: the mutation becomes
+                # re-sendable under its original identity. Only this lookup
+                # authorizes the re-send — an uncertain exchange alone
+                # (record_uncertain) never resets a possible operation.
+                if not selected['mutation'] and data['status'] == 404:
+                    if selected['kind'] == 'publication' and selected['publication_id'] is None:
+                        await connection.execute('''UPDATE neomd_service.publication_operations
+                            SET state='unsent',send_exchange_id=NULL,send_grant_bytes=NULL
+                            WHERE journal_id=$1 AND kind='create' AND state='possible' ''', row['journal_id'])
+                        await connection.execute('UPDATE neomd_service.publication_jobs SET query_required=false WHERE journal_id=$1',
+                            row['journal_id'])
+                    elif selected['kind'] in {'part', 'action'}:
+                        await connection.execute('''UPDATE neomd_service.publication_operations
+                            SET state='unsent',send_exchange_id=NULL,send_grant_bytes=NULL
+                            WHERE journal_id=$1 AND operation_id=$2 AND state='possible' ''',
+                            row['journal_id'], _uuid(selected['operation_id']))
                 await connection.execute('UPDATE neomd_service.publication_jobs SET stale_evidence=$2 WHERE journal_id=$1', row['journal_id'], compact)
             elif data['kind'] == 'publication':
                 if (row['publication_id'] is not None and str(row['publication_id']) != data['publication_id']
@@ -915,6 +929,14 @@ class PublicationJournal:
                     if data['kind'] == 'action':
                         await connection.execute('UPDATE neomd_service.publication_uploads SET state=$3 WHERE journal_id=$1 AND upload_id=$2',
                             row['journal_id'], operation['upload_id'], data['upload_state'])
+                    if not selected['mutation'] and data['kind'] == 'part' and not terminal:
+                        # A queried page without the producer's exact tuple is
+                        # definitive not-stored evidence: the part re-sends
+                        # under its original recorded identity.
+                        await connection.execute('''UPDATE neomd_service.publication_operations
+                            SET state='unsent',send_exchange_id=NULL,send_grant_bytes=NULL
+                            WHERE journal_id=$1 AND operation_id=$2 AND state='possible' ''',
+                            row['journal_id'], operation['operation_id'])
             elif data['kind'] == 'receipt':
                 await self._receipt(connection, row, response, data, compact)
             await connection.execute('UPDATE neomd_service.publication_jobs SET exchange_id=NULL,exchange_bytes=NULL WHERE journal_id=$1', row['journal_id'])
@@ -923,6 +945,13 @@ class PublicationJournal:
             await self._live(connection, row, grant.lease)
             if await connection.fetchval('SELECT clock_timestamp()') >= grant.deadline:
                 raise JournalError('lease_expired')
+            if closed_uploader is not None:
+                # The host has joined all uploader work and will issue no more
+                # exchanges after completion. Never leave a committed receipt
+                # holding capacity if the host dies before its next iteration.
+                await connection.execute('''UPDATE neomd_service.publication_jobs
+                    SET owner_closed=true,active_reserved=false,pending_reserved=false
+                    WHERE journal_id=$1 AND state='complete' ''', row['journal_id'])
         return True
 
     async def _witness(self, connection, row, selected, data, compact):

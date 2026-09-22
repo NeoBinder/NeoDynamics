@@ -121,7 +121,12 @@
             "admission_full",
             "service_unavailable",
             "worker_lost",
-            "running_time_limit_exceeded"
+            "running_time_limit_exceeded",
+            "request_conflict",
+            "preset_revision_mismatch",
+            "preparation_terminal",
+            "unsupported_structure",
+            "evidence_mismatch"
           ]
         },
         "message": {
@@ -1825,7 +1830,7 @@
       "properties": {
         "name": {
           "type": "string",
-          "pattern": "^(manifest\\.json|mapping\\.json|coordinates\\.f64le|system\\.xml|topology\\.pdbx|sources/[0-9]{4}\\.[a-z0-9]+)$",
+          "pattern": "^(manifest\\.json|mapping\\.json|coordinates\\.f64le|system\\.xml|topology\\.pdbx|assembly-report\\.json|forcefield/(protein\\.ff14SB|tip3p_standard)\\.xml|sources/[0-9]{4}\\.[a-z0-9]+)$",
           "maxLength": 128
         },
         "sha256": {

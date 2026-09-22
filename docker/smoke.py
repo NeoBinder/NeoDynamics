@@ -141,10 +141,10 @@ def check_installation(provenance_path: Path) -> dict:
     importlib.import_module("pdbfixer")
     server = Path(origins["neomd_server"]).parent
     migrations = server / "migrations"
-    if {path.name for path in migrations.glob("*.sql")} != {f"{n:03d}.sql" for n in range(1, 10)}:
-        raise SmokeError("installed migrations must contain exactly 001.sql through 009.sql")
+    if {path.name for path in migrations.glob("*.sql")} != {f"{n:03d}.sql" for n in range(1, 12)}:
+        raise SmokeError("installed migrations must contain exactly 001.sql through 011.sql")
     contracts = Path(sysconfig.get_path("data")) / "share/neodynamics/contracts"
-    assets = [(f"migrations/{n:03d}.sql", migrations / f"{n:03d}.sql") for n in range(1, 10)]
+    assets = [(f"migrations/{n:03d}.sql", migrations / f"{n:03d}.sql") for n in range(1, 12)]
     assets += [(f"contracts/{name}", contracts / name) for name in CONTRACTS]
     assets += [(f"fixture/{name}", server / "fixtures/qualification" / name) for name in FIXTURE_FILES]
     inventory = {}

@@ -67,6 +67,22 @@ def test_migration005_preserves_unqualified_historical_projection(database_dsn):
                 assert rows[0]["particle_identity_sha256"] is None
                 assert rows[0]["preview_projection_sha256"] is None
                 assert await connection.fetchval("SELECT count(*) FROM neomd_service.input_operations") == 0
-                assert await connection.fetchval("SELECT max(version) FROM neomd_service.migrations") == 9
+                assert await connection.fetchval("SELECT max(version) FROM neomd_service.migrations") == 11
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("name", [
+    "assembly-report.json", "forcefield/protein.ff14SB.xml", "forcefield/tip3p_standard.xml",
+])
+def test_full_preparation_resource_artifact_names_are_explicit(name):
+    validate("UploadPart", {"name": name, "sha256": "a" * 64, "size_bytes": 1})
+
+
+@pytest.mark.parametrize("name", [
+    "preparation.log", "forcefield/custom.xml", "forcefield/../protein.ff14SB.xml",
+    "forcefield/proteinXff14SB.xml", "/assembly-report.json", "assembly-reportXjson",
+])
+def test_preparation_resource_allowlist_does_not_accept_arbitrary_paths(name):
+    with pytest.raises(ContractError):
+        validate("UploadPart", {"name": name, "sha256": "a" * 64, "size_bytes": 1})

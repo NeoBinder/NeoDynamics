@@ -54,6 +54,13 @@ of the CLI error output.
 | `SHUTDOWN_TIMEOUT_SECONDS` | Child graceful-exit interval before terminate/kill |
 | `MAX_OUTPUT_BYTES` | Reserved output budget per accepted session |
 | `OBSERVATION_TTL_SECONDS` | Freshness lifetime for physical observations and capability responses |
+| `PREPARATION_MAX_SOURCE_BYTES` | Preparation canonical source ceiling; must equal the advertised catalog limit (64 MiB) |
+| `PREPARATION_MAX_RESULT_BYTES` | Preparation result artifact ceiling; must equal the advertised catalog limit (512 MiB) |
+| `PREPARATION_TIME_LIMIT_SECONDS` | Preparation operation wall-clock deadline; must equal the advertised catalog limit (3600 s) |
+| `PREPARATION_MEMORY_LIMIT_BYTES` | Preparation child address-space bound; must equal the advertised catalog limit (4 GiB) |
+| `PREPARATION_MAX_QUEUED_PER_OWNER` | Queued/running preparation operations per owner scope; catalog limit 8 |
+| `PREPARATION_MAX_CONCURRENT_OPERATIONS` | Preparation executor concurrency; the catalog admits exactly 1 |
+| `PREPARATION_MAX_REQUEST_BYTES` | Serialized preparation request body ceiling (8 MiB) |
 
 The effective coordinate-upload limit is the smaller of `MAX_UPLOAD_BYTES` and
 `MAX_REFERENCE_BYTES`; prepared part transfer uses `MAX_UPLOAD_PART_BYTES`.
@@ -269,9 +276,21 @@ creating parent disappears, including while blocked in a native call. A PPID
 handshake closes the registration race. Graceful shutdown still allows the
 owner-thread checkpoint/close path before the configured termination deadline.
 
-Object publication, OSS receipts and post-publication cleanup require their
-separate integration policy. This runtime only records local artifacts; it never
-labels local files as uploaded or deletes completed output to make space.
+Object publication runs only through the explicitly configured publication
+coordinator (`NEOMD_SERVER_PUBLICATION_*` settings; absent settings disable
+publication entirely). Its exchanges execute in bounded joined child processes
+with query-first recovery, and its guarded cleanup deletes only the exact
+owned sealed output set after verified receipts and writer/uploader closure.
+Lease renewal continues during exchanges; lease expiry alone never authorizes
+takeover. Timed-out or cancelled children are killed and joined before their
+tracking or capacity is released. Unknown child lifetimes retain capacity.
+The coordinator reads all operation pages and resumes unsent completion actions
+under their original identities. After all uploader work joins, it commits the
+complete receipt and publication-capacity release together, so a crash before
+local cleanup cannot strand a completed job's capacity. Output storage remains
+reserved independently.
+The runtime never labels local files as uploaded without that receipt proof
+and never deletes completed output to make space.
 
 ## Sealed-output finalization
 

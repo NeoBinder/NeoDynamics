@@ -138,8 +138,11 @@ prepared inputs are outside this historical checkpoint set.
 `neomd_server.publication_journal.PublicationJournal` is a separate integration
 library over the service-owned schema. Migration `008` creates its destination,
 job, upload and operation tables without staging historical work. It performs no
-HTTP, local-file or object-store operation and is not activated by the resident
-runtime. The frozen NeoAPI publication DTO/schema snapshot is packaged under
+HTTP, local-file or object-store operation itself. The resident runtime
+activates it explicitly through the publication coordinator
+(`publication_runtime.py`) only when `PublicationSettings` is configured;
+absent settings leave publication disabled. The frozen NeoAPI publication
+DTO/schema snapshot is packaged under
 `contracts/neoapi-md-publication/v1`; parsing it does not authenticate a response.
 
 Construct the journal with `PublicationJournal(ledger, pool_id=..., settings=...)`
@@ -190,8 +193,14 @@ The first terminal identity and bounded conflicting evidence are retained;
 contradictions hold the job. A terminal action's nested current upload state may
 legitimately change, so it is excluded from the immutable terminal fingerprint.
 The exact full receipt is stored once after all source and target checks. Both
-pending and active journal capacity remain until explicit uploader closure;
-neither receipt nor closure retires artifacts or releases output reservations.
+pending and active journal capacity remain until explicit uploader closure.
+`record_exchange(..., closed_uploader=proof)` accepts an exact joined-uploader
+proof and releases both reservations in the same transaction only if the
+observation completes the publication. The resident coordinator uses this path
+after joining its sequential exchange children, eliminating a crash window
+between receipt persistence and capacity release. Standalone journal callers
+without that proof still close their exact lease explicitly, including after
+completion. Neither receipt nor closure retires artifacts or releases output reservations.
 Final-result archiving and subsequent historical-checkpoint cleanup require
 separate transport and cleanup integration.
 

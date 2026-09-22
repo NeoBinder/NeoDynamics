@@ -40,7 +40,7 @@ output:
   needs its own energy reading opts out with
   `independent_force_group: true` (one dedicated group + its own
   `{name}__energy` column), mirroring the
-  [restraint policy](restraints.md#energy-columns-and-force-groups).
+  [restraint policy](restraints.md).
   A static `restraint:` section (e.g. holding the protein) is reported
   to `restraint.tsv` as in any MD run — restraint and smd categories
   always get separate shared groups.

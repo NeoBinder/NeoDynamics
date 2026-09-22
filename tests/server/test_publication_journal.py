@@ -143,13 +143,19 @@ def test_one_possible_send_survives_unknown_404_and_late_acceptance(database_dsn
             await journal.record_uncertain(original, ClosedExchange.after_join(original))
             query = await journal.begin_query(lease, QuerySelector('publication'), operation_ms=10000)
             assert await observe(journal, query, {'code': 'not_found', 'request_id': uid()}, status=404)
-            with pytest.raises(JournalError, match='already_possible'):
-                await journal.mark_possible(lease, record.request_id, operation_ms=10000)
+            # B07-3 semantics: the closed authenticated 404 on the original
+            # identity is definitive not-stored evidence, so the create takes a
+            # fresh grant under the SAME original identity. The pre-B07-3 rule
+            # ("404 cannot reset possible") wedged recovery forever: a create
+            # that provably never landed could never be re-sent.
+            resent = await journal.mark_possible(lease, record.request_id, operation_ms=10000)
+            assert json.loads(resent.exchange_bytes)['operation_id'] == record.request_id
             observed = publication(record)
-            old = response(original, observed, status=202)
-            assert not await journal.record_exchange(original, old, ClosedExchange.after_join(original))
-            current = await journal.get(record.scope_id, record.finalization_id)
-            assert current.publication_id is None and current.stale_evidence_bytes is not None
+            with pytest.raises(JournalError, match='generation_fenced'):
+                await observe(journal, original, observed, status=202)
+            old = await journal.get(record.scope_id, record.finalization_id)
+            assert old.publication_id is None and old.stale_evidence_bytes is not None
+            assert await observe(journal, resent, observed, status=202)
             query = await journal.begin_query(lease, QuerySelector('publication'), operation_ms=10000)
             await observe(journal, query, observed)
             assert (await journal.get(record.scope_id, record.finalization_id)).publication_id == observed['publication_id']
@@ -157,7 +163,7 @@ def test_one_possible_send_survives_unknown_404_and_late_acceptance(database_dsn
 
 
 @pytest.mark.parametrize('sent', [False, True])
-def test_owner_transfer_requires_closure_and_query_first_without_reset(database_dsn, sent):
+def test_owner_transfer_requires_closure_and_query_first_before_expiry(database_dsn, sent):
     async def scenario():
         async with repository(database_dsn) as ledger:
             journal, _, record, lease = await begin(ledger)
@@ -174,13 +180,48 @@ def test_owner_transfer_requires_closure_and_query_first_without_reset(database_
                 await journal.mark_possible(new, record.request_id, operation_ms=10000)
             query = await journal.begin_query(new, QuerySelector('publication'), operation_ms=10000)
             await observe(journal, query, {'code': 'not_found', 'request_id': uid()}, status=404)
+            # After the definitive 404 the operation is re-sendable under its
+            # original identity (B07-3): the takeover never replays blindly.
+            grant = await journal.mark_possible(new, record.request_id, operation_ms=10000)
+            assert grant.lease == new
             if sent:
-                with pytest.raises(JournalError, match='query_required'):
-                    await journal.mark_possible(new, record.request_id, operation_ms=10000)
-                assert not await observe(journal, original, publication(record), status=202)
-            else:
-                grant = await journal.mark_possible(new, record.request_id, operation_ms=10000)
-                assert grant.lease == new
+                # The reset cleared the superseded grant's send authority.
+                with pytest.raises(JournalError, match='generation_fenced'):
+                    await observe(journal, original, publication(record), status=202)
+    asyncio.run(scenario())
+
+
+def test_expired_lease_still_requires_joined_uploader_before_takeover(database_dsn):
+    """An expired lease cannot prove that a possible HTTP send has stopped."""
+    async def scenario():
+        async with repository(database_dsn) as ledger:
+            journal, _, record, lease = await begin(ledger)
+            grant = await journal.mark_possible(lease, record.request_id, operation_ms=10000)
+            await journal.record_uncertain(grant)  # no closure proof: exchange stays recorded
+            # While the lease is live, ownership still requires a closure proof.
+            with pytest.raises(JournalError, match='closure_required'):
+                await journal.claim(record.scope_id, record.finalization_id, owner_id=uid(), lease_id=uid(), lease_ms=30000)
+            async with ledger.pool.acquire() as connection:
+                await connection.execute("UPDATE neomd_service.publication_jobs SET lease_expires_at=clock_timestamp() - interval '1 second' WHERE journal_id=$1",
+                    UUID(record.journal_id))
+            with pytest.raises(JournalError, match='closure_required'):
+                await journal.claim(record.scope_id, record.finalization_id, owner_id=uid(), lease_id=uid(), lease_ms=30000)
+            revived = await journal.claim(record.scope_id, record.finalization_id, owner_id=uid(), lease_id=uid(), lease_ms=30000,
+                prior_closed=ClosedUploader.after_join(lease))
+            assert revived.fence == lease.fence + 1
+            with pytest.raises(JournalError, match='generation_fenced'):
+                await journal.renew(lease, lease_ms=30000)
+            with pytest.raises(JournalError, match='generation_fenced'):
+                await journal.close(lease, ClosedUploader.after_join(lease))
+            # The takeover cleared the unproven exchange and forces query-first:
+            # the new owner can never blindly replay the uncertain mutation.
+            with pytest.raises(JournalError, match='query_required'):
+                await journal.mark_possible(revived, record.request_id, operation_ms=10000)
+            assert not await observe(journal, grant, publication(record), status=202)
+            query = await journal.begin_query(revived, QuerySelector('publication'), operation_ms=10000)
+            assert await observe(journal, query, {'code': 'not_found', 'request_id': uid()}, status=404)
+            fresh = await journal.mark_possible(revived, record.request_id, operation_ms=10000)
+            assert fresh.lease == revived
     asyncio.run(scenario())
 
 
@@ -244,9 +285,15 @@ def test_durable_pending_active_limits_require_uploader_closure(database_dsn):
             await asyncio.sleep(.15)
             with pytest.raises(JournalError, match='capacity_exceeded'):
                 await journal.claim(first.scope_id, first.finalization_id, owner_id=uid(), lease_id=uid(), lease_ms=30000)
+            # Expiry retains the slot until the previous uploader is joined.
             with pytest.raises(JournalError, match='closure_required'):
                 await journal.claim(second.scope_id, second.finalization_id, owner_id=uid(), lease_id=uid(), lease_ms=30000)
-            await journal.close(short, ClosedUploader.after_join(short))
+            revived = await journal.claim(second.scope_id, second.finalization_id, owner_id=uid(), lease_id=uid(), lease_ms=30000,
+                prior_closed=ClosedUploader.after_join(short))
+            assert revived.fence == short.fence + 1
+            with pytest.raises(JournalError, match='generation_fenced'):
+                await journal.close(short, ClosedUploader.after_join(short))
+            await journal.close(revived, ClosedUploader.after_join(revived))
             reopened = PublicationJournal(ledger, pool_id='fixture', settings=config)
             with pytest.raises(JournalError, match='capacity_exceeded'):
                 await reopened.stage(third)
@@ -326,7 +373,7 @@ def test_poll_storage_is_compact_and_receipt_conflict_retains_first_bytes(databa
     asyncio.run(scenario())
 
 
-def test_part_query_unknown_never_resets_send_and_action_requires_all_parts(database_dsn):
+def test_part_query_not_stored_resets_send_and_action_requires_all_parts(database_dsn):
     async def scenario():
         async with repository(database_dsn) as ledger:
             journal, _, record, lease = await begin(ledger)
@@ -343,8 +390,13 @@ def test_part_query_unknown_never_resets_send_and_action_requires_all_parts(data
             await journal.record_uncertain(grant, ClosedExchange.after_join(grant))
             query = await journal.begin_query(lease, QuerySelector('part', operation.operation_id), operation_ms=10000)
             await observe(journal, query, {'upload_id': upload.upload_id, 'parts': [], 'next_part_number': None})
-            with pytest.raises(JournalError, match='already_possible'):
-                await journal.mark_possible(lease, operation.operation_id, operation_ms=10000)
+            # B07-3: an empty page after the exact part number is definitive
+            # not-stored evidence, so the recorded tuple re-sends under its
+            # original identity. The pre-B07-3 rule kept the uncertain send
+            # possible forever with no recovery path.
+            resent = await journal.mark_possible(lease, operation.operation_id, operation_ms=10000)
+            assert resent.upload.upload_id == upload.upload_id
+            await journal.record_uncertain(resent, ClosedExchange.after_join(resent))
             query = await journal.begin_query(lease, QuerySelector('part', operation.operation_id), operation_ms=10000)
             await observe(journal, query, {'upload_id': upload.upload_id, 'parts': [original.value()], 'next_part_number': None})
             states = {value.operation_id: value.state for value in (await journal.operations(record.scope_id, record.finalization_id)).operations}
@@ -352,7 +404,8 @@ def test_part_query_unknown_never_resets_send_and_action_requires_all_parts(data
     asyncio.run(scenario())
 
 
-def test_receipt_lock_wait_expiry_rolls_back_before_completion(database_dsn):
+@pytest.mark.parametrize('close_uploader', [False, True])
+def test_receipt_lock_wait_expiry_rolls_back_before_completion(database_dsn, close_uploader):
     async def scenario():
         async with repository(database_dsn) as ledger:
             journal, _, record, lease = await begin(ledger)
@@ -363,7 +416,8 @@ def test_receipt_lock_wait_expiry_rolls_back_before_completion(database_dsn):
                 transaction = blocker.transaction()
                 await transaction.start()
                 await blocker.execute('LOCK TABLE neomd_service.publication_uploads IN SHARE MODE')
-                task = asyncio.create_task(journal.record_exchange(query, known, ClosedExchange.after_join(query)))
+                task = asyncio.create_task(journal.record_exchange(query, known, ClosedExchange.after_join(query),
+                    closed_uploader=ClosedUploader.after_join(lease) if close_uploader else None))
                 try:
                     async with asyncio.timeout(2):
                         while not await blocker.fetchval("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE relation='neomd_service.publication_uploads'::regclass AND NOT granted)"):
@@ -376,6 +430,8 @@ def test_receipt_lock_wait_expiry_rolls_back_before_completion(database_dsn):
                     await asyncio.wait_for(task, 2)
             after = await journal.get(record.scope_id, record.finalization_id)
             assert after.state == 'pending' and after.receipt_bytes is None
+            ref = (await journal.jobs()).entries[0]
+            assert ref.active_reserved and ref.pending_reserved and not ref.owner_closed
             # The observed response is retained by its host and can be recorded
             # as stale evidence; it cannot be applied after the exchange deadline.
             assert not await journal.record_exchange(query, known, ClosedExchange.after_join(query))

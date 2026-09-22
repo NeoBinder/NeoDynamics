@@ -28,6 +28,7 @@ import pytest
 
 from neomd import registry
 from neomd.driver import drive
+from neomd.errors import NeoUserError
 from neomd.kernel import KernelFactory, KernelSpec
 from neomd.kernel._bootstrap import ensure_adapters
 from neomd.kernel.fake import FakeKernel
@@ -174,11 +175,12 @@ def test_fake_end_to_end_total_boost(tmp_path):
     assert 0.0 < channel["k"] <= 1.0 / (channel["vmax"] - channel["vmin"])
 
     lines = (tmp_path / TAPE_FILENAME).read_text().splitlines()
-    assert lines[0] == "# step\ttotal__boost\ttotal__energy\ttotal__scale"
+    assert lines[0] == ("# step\ttotal__boost\ttotal__energy\ttotal__scale"
+                        "\ttotal_boost\ttime_ps\tphase\tparameter_revision\tslot_to_identity")
     steps = [int(row.split("\t")[0]) for row in lines[1:]]
     assert steps == list(range(110, 201, 10))  # calibration ended at 100
     for row in lines[1:]:
-        step, boost, energy, scale = row.split("\t")
+        step, boost, energy, scale = row.split("\t")[:4]
         boost, energy, scale = float(boost), float(energy), float(scale)
         expect_boost, expect_scale = _hand_reading(
             channel["threshold"], channel["k"], energy, clamp=False)
@@ -286,7 +288,7 @@ def test_fake_degenerate_calibration_stays_zero_strength(tmp_path):
     assert result.channels["total"]["k"] == 0.0
     assert result.mean_boost["total"] == 0.0
     for row in (tmp_path / TAPE_FILENAME).read_text().splitlines()[1:]:
-        boost, energy, scale = row.split("\t")[1:]
+        boost, energy, scale = row.split("\t")[1:4]
         assert float(boost) == 0.0 and float(energy) == 0.0
         assert float(scale) == 1.0
 
@@ -308,7 +310,8 @@ def test_fake_dual_mode_uses_torsion_bias_groups(tmp_path):
     lines = (tmp_path / TAPE_FILENAME).read_text().splitlines()
     assert lines[0] == ("# step\ttotal__boost\ttotal__energy\ttotal__scale"
                         "\tdihedral__boost\tdihedral__energy"
-                        "\tdihedral__scale")
+                        "\tdihedral__scale\ttotal_boost\ttime_ps\tphase"
+                        "\tparameter_revision\tslot_to_identity")
     assert len(lines) == 11  # header + rows at 110..200
 
 
@@ -330,13 +333,13 @@ def test_report_gamd_false_skips_the_tape(tmp_path):
 
 
 def test_validation_collects_gamd_section_problems():
-    with pytest.raises(ValueError, match="unknown keys"):
+    with pytest.raises(NeoUserError, match="unknown GaMD key"):
         GamdRun(FakeKernel(_spec(1)),
             Plan.from_dict(gamd_config(gamd={"bad_key": 1})))
-    with pytest.raises(ValueError, match="gamd.mode must be one of"):
+    with pytest.raises(NeoUserError, match="mode must be total or dual"):
         GamdRun(FakeKernel(_spec(1)),
             Plan.from_dict(gamd_config(gamd={"mode": "essential"})))
-    with pytest.raises(ValueError, match="sigma0 must be > 0"):
+    with pytest.raises(NeoUserError, match="finite positive"):
         GamdRun(FakeKernel(_spec(1)),
             Plan.from_dict(gamd_config(gamd={"sigma0": 0.0})))
 

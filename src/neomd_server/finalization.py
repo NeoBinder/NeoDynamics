@@ -127,12 +127,13 @@ def _descriptor(path, identity, spec, digest, size):
     suffix = path.suffix.lower()
     kind = ('checkpoint' if suffix == '.ckpt' else 'trajectory' if suffix == '.dcd'
             else 'structure' if suffix in {'.pdbx', '.pdb', '.cif'}
-            else 'method_state' if suffix in {'.npz', '.json'} else 'report')
+            else 'method_state' if suffix in {'.npz', '.json', '.jsonl'} else 'report')
     return {'artifact_id': identity, **spec['artifact_binding'], 'kind': kind,
             'content_sha256': digest, 'size_bytes': size, 'publication_state': 'local',
             'download_ref': None, 'publication_receipt_ref': None,
             'original_filename': path.name,
             'media_type': 'application/json' if suffix == '.json'
+                          else 'application/x-ndjson' if suffix == '.jsonl'
             else 'text/plain' if suffix in {'.tsv', '.pdbx', '.pdb', '.cif'}
             else 'application/octet-stream'}
 

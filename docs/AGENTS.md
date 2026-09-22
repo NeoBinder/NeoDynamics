@@ -29,3 +29,11 @@ proposed interface is not a shipped capability.
   `src/neomd_server/AGENTS.md` routes to the owner document. Preserve
   feature-tree qualification limits; a main-based documentation change cannot
   replace newer service behavior or mark pending integration as complete.
+
+Promote development drafts by rewriting for external readers; tracked docs
+never symlink or copy ignored drafts. Method pages keep a one-paragraph purpose,
+runnable usage, artifacts/resume semantics and primary DOI/arXiv references.
+Module docstrings use 1–5 lines for role and documentation/ADR pointers; a
+whole-module contract may use a compressed paragraph of at most six lines.
+Keep narrower unit, exactness, producer, threshold and attribution contracts
+with their implementing function/class.

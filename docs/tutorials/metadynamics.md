@@ -48,3 +48,23 @@ Runnable examples live in the repository:
 [`examples/3HTB_complex/`](https://github.com/NeoBinder/NeoDynamics/tree/main/examples/3HTB_complex)
 with the [`run_v2.py`](https://github.com/NeoBinder/NeoDynamics/blob/main/examples/3HTB_complex/run_v2.py)
 walkthrough.
+
+## Checkpointed bias state
+
+`metadynamics_bias_state.json` records every successful Context-table push as
+`{step, n_hills}`, plus the update cadence. This distinguishes accumulated hills
+from the prefix currently acting on the system when pushes are throttled.
+Resume trims that journal to the checkpoint, rebuilds the active table only,
+and restores the last-push step; pending hills stay accumulated for the next
+scheduled push. Changed push/deposition settings or inconsistent journal data
+are rejected. A throttled legacy checkpoint without this sidecar is rejected
+because its active table cannot be proven. Unthrottled legacy ledgers can be
+replayed because every completed hill is active.
+
+Fresh runs write an empty hill ledger and sidecar before the first deposition.
+At a checkpoint boundary, coordinate/observable reports precede deposition,
+then method state is flushed before the kernel checkpoint is committed. A
+checkpoint before the first hill therefore resumes with zero bias; interruption
+before a later commit discards all post-checkpoint hills and push events. This
+ordering preserves the analysis convention that a row at step `t` was sampled
+before the hill deposited at `t`.

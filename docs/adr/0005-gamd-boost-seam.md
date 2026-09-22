@@ -1,5 +1,10 @@
 # ADR-0005：GaMD boost 内核缝 —— port 新增 BoostOps 能力（install_boost / set_boost_param / boost_potentials），而非 BiasIR 加性偏置或 KernelSpec 字段
 
+> 更新：[ADR 0009](0009-ordered-potential-boosts.md) 定义有序物理相互作用选择、
+> 守恒的截断延拓、精确帧报告与完整 NPT 势能。下文保留原始设计的历史理由；
+> 其中积分器专属 boost、旧截断能量及“无法用加性 Force 表达”的结论由新决策取代。
+
+
 - 状态：已确认（2026-09-03）
 - 决策者：项目维护者
 - 关联：[ADR-0002](0002-plugin-plan-schema-namespace.md)、[issue #10](https://github.com/NeoBinder/NeoDynamics/issues/10)、GaMD 文献（Miao/Feher/McCammon, JCTC 2015；Miao 2016 dual-boost；Miao/Bhattarai/Wang, JCTC 2020 LiGaMD；Copeland/Miao 等, JPCB 2022 gamd-openmm）

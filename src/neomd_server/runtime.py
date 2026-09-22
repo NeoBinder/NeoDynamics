@@ -14,7 +14,10 @@ from urllib.parse import urlsplit
 
 from .assets import InputStore, UploadLimits
 from .ledger import AdmissionLimits, Ledger
+from .preparation_operations import PreparationLimits, PreparationStore
 from .protocols import ScientificLimits
+from .publication_config import PublicationSettings
+from .publication_runtime import PublicationCoordinator
 from .supervisor import ExecutionLimits, Supervisor
 
 _TOKEN = re.compile(r"[A-Za-z0-9._~-]{32,512}\Z", re.ASCII)
@@ -61,6 +64,7 @@ class RuntimeSettings:
     uploads: UploadLimits
     science: ScientificLimits
     execution: ExecutionLimits
+    preparation: PreparationLimits
     verification_timeout_seconds: int
     max_pending_input_operations: int
 
@@ -115,6 +119,18 @@ class RuntimeSettings:
             integer(name)
             for name in ["MAX_BIAS_GRID_POINTS", "MAX_REFERENCE_FRAMES", "MAX_REFERENCE_BYTES"]
         ]
+        preparation_values = [
+            integer(name)
+            for name in [
+                "PREPARATION_MAX_SOURCE_BYTES",
+                "PREPARATION_MAX_RESULT_BYTES",
+                "PREPARATION_TIME_LIMIT_SECONDS",
+                "PREPARATION_MEMORY_LIMIT_BYTES",
+                "PREPARATION_MAX_QUEUED_PER_OWNER",
+                "PREPARATION_MAX_CONCURRENT_OPERATIONS",
+                "PREPARATION_MAX_REQUEST_BYTES",
+            ]
+        ]
         execution_values = [
             read("PLATFORM"),
             read("DEVICE_INDEX"),
@@ -162,6 +178,7 @@ class RuntimeSettings:
             (UploadLimits, upload_values),
             (ScientificLimits, science_values),
             (ExecutionLimits, execution_values),
+            (PreparationLimits, preparation_values),
         ]:
             try:
                 groups.append(constructor(*values))
@@ -169,7 +186,7 @@ class RuntimeSettings:
                 problems.append(str(error))
         if problems:
             raise ConfigurationError("; ".join(problems))
-        admission, uploads, science, execution = groups
+        admission, uploads, science, execution, preparation = groups
         if execution.max_output_bytes > uploads.capacity_bytes:
             raise ConfigurationError("output reservation exceeds total storage capacity")
         try:
@@ -188,9 +205,21 @@ class RuntimeSettings:
             uploads,
             science,
             execution,
+            preparation,
             verification_timeout_seconds,
             max_pending_input_operations,
         )
+
+
+def publication_coordinator(ledger, inputs, storage_directory, *, pool_id, shutdown_timeout_seconds):
+    """Explicit activation only: absent publication settings leave it disabled."""
+    publication = PublicationSettings.from_env()
+    if publication is None:
+        return None
+    return PublicationCoordinator(
+        ledger, inputs, pool_id=pool_id, settings=publication,
+        shutdown_timeout_seconds=shutdown_timeout_seconds,
+    )
 
 
 async def serve(settings):
@@ -224,8 +253,20 @@ async def serve(settings):
             max_auth_staleness_seconds=int(
                 transport.auth_interval_seconds + transport.auth_timeout_seconds
             ),
+            publication=publication_coordinator(
+                ledger, inputs, settings.storage_directory, pool_id=settings.pool_id,
+                shutdown_timeout_seconds=settings.execution.shutdown_timeout_seconds),
         )
-        app = create_app(ledger, inputs, supervisor, transport)
+        preparations = PreparationStore(
+            ledger,
+            settings.storage_directory,
+            pool_id=settings.pool_id,
+            capacity_bytes=settings.uploads.capacity_bytes,
+            limits=settings.preparation,
+            shutdown_timeout_seconds=settings.execution.shutdown_timeout_seconds,
+        )
+        PreparationStore.check_catalog_limits(settings.preparation)
+        app = create_app(ledger, inputs, supervisor, transport, preparations=preparations)
         config = uvicorn.Config(
             app,
             host=settings.bind_host,

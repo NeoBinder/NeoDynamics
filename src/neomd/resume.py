@@ -17,6 +17,7 @@ trimmed (it is the restore source, wholesale-overwritten); the manifest's
 from __future__ import annotations
 
 import io
+import json
 import os
 from dataclasses import dataclass
 from typing import Mapping
@@ -39,6 +40,7 @@ TAPE_ARTIFACTS: dict[str, str] = {
     "gamd.tsv": "tsv",
     "hills.npz": "hills",
     "kernels.npz": "kernels",
+    "ligand_exchange_events.jsonl": "exchange",
 }
 
 
@@ -124,6 +126,9 @@ def _trim_artifact(sink: ArtifactSink, name: str, kind: str,
         with sink.binary_writer(name) as fh:
             trim_dcd(fh, last_step)
         return
+    if kind == "exchange":
+        trim_exchange_events(sink, last_step)
+        return
     data = sink.read_bytes(name)
     if kind == "tsv":
         trimmed = _trim_tsv_text(data.decode("utf-8"), last_step).encode("utf-8")
@@ -134,6 +139,26 @@ def _trim_artifact(sink: ArtifactSink, name: str, kind: str,
     else:  # pragma: no cover - TAPE_ARTIFACTS is the only caller
         raise ValueError(f"unknown artifact kind {kind!r} for {name!r}")
     sink.write_bytes(name, trimmed)
+
+
+def trim_exchange_events(sink: ArtifactSink, last_step: int) -> None:
+    """Trim sparse completed exchanges; an interrupted final append is uncommitted."""
+    name = "ligand_exchange_events.jsonl"
+    kept = []
+    previous = -1
+    for line in sink.read_bytes(name).splitlines(keepends=True):
+        if not line.endswith(b"\n"):
+            break  # No checkpoint commits before its complete journal record.
+        event = json.loads(line)
+        step = event["step"]
+        if type(step) is not int or step <= previous:
+            raise ValueError("invalid exchange journal step order")
+        previous = step
+        if step <= last_step:
+            kept.append(line)
+    trimmed = b"".join(kept)
+    if trimmed != sink.read_bytes(name):
+        sink.write_bytes(name, trimmed)
 
 
 # ---------------------------------------------------------------------------
