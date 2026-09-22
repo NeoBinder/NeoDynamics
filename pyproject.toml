@@ -101,7 +101,7 @@ python-box = ">=7.3.2"
 numpy = "*"
 
 [tool.pixi.pypi-options]
-index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+index-url = "https://pypi.org/simple"
 
 [tool.pixi.dependencies]
 python = "3.12.*"
@@ -187,7 +187,8 @@ ml = { features = ["ml"], solve-group = "ml" }
 rbfe = { features = ["engine", "rbfe", "test"], solve-group = "rbfe" }
 
 [tool.pixi.tasks]
-test = "pytest tests/ -m 'not golden and not legacy'"
-test-golden = "pytest tests/ -m 'golden and not legacy'"
-test-legacy = "pytest tests/ -m legacy -q"
-test-rbfe = "pytest tests/ -m 'not golden and not legacy'"
+# tests/server needs the server env (asyncpg/fastapi); run `pixi run -e server test-server` for it
+test = "pytest tests/ -m 'not golden and not legacy' --ignore=tests/server"
+test-golden = "pytest tests/ -m 'golden and not legacy' --ignore=tests/server"
+test-legacy = "pytest tests/ -m legacy -q --ignore=tests/server"
+test-rbfe = "pytest tests/ -m 'not golden and not legacy' --ignore=tests/server"
