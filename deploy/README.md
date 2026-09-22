@@ -7,7 +7,7 @@ in [docker/README.md](../docker/README.md).
 
 ## Templates and activation order
 
-- `runtime-config.yaml`: all 34 nonsecret required `NEOMD_SERVER_*` settings.
+- `runtime-config.yaml`: all 41 nonsecret required `NEOMD_SERVER_*` settings.
 - `migrate-api-dev.yaml`: explicit one-shot migration using separate credentials.
 - `app-dev.yaml`: 200 GiB RWO Longhorn PVC, single-replica `Recreate` Deployment,
   and internal ClusterIP Service on port 8003. It requests one GPU through
@@ -61,7 +61,7 @@ no host address or credential value belongs in these manifests.
 | `neodynamics-migration-secret` | `NEOMD_SERVER_PG_DSN` | `neodynamics_migrator` role, migration Job only |
 
 The migrator owns the `neomd_service` schema and runs the packaged migrations
-(currently 001–009) through `neomd-server migrate`. It needs the corresponding
+(currently 001–011) through `neomd-server migrate`. It needs the corresponding
 schema-creation/DDL authority in this database only. The runtime role is not the
 database/schema owner and needs CONNECT, schema USAGE, table SELECT/INSERT/UPDATE/
 DELETE, and sequence USAGE/SELECT in `neomd_service`. The database operator must
@@ -79,7 +79,7 @@ from letters, digits and `._~-`, optionally followed by one newline.
 
 ## Explicit staging profile
 
-The ConfigMap and the DSN Secret together provide all 35 fields required by
+The ConfigMap and the DSN Secret together provide all 42 fields required by
 `RuntimeSettings.from_env`. These are resource/operational limits, **not changes
 to forcefields, integrators, timesteps, simulation methods or preparation rules**.
 Paused/preparing/finalizing time does not consume the running allowance; paused
@@ -107,6 +107,10 @@ All variable suffixes below have the `NEOMD_SERVER_` prefix.
 | `PROBE_TIMEOUT_SECONDS`, `STARTUP_TIMEOUT_SECONDS` | 180 seconds for isolated method probes; 120 seconds for session preparation |
 | `BOUNDARY_TIMEOUT_SECONDS`, `SHUTDOWN_TIMEOUT_SECONDS` | 60 seconds maximum observation silence; 30 seconds graceful child shutdown |
 | `OBSERVATION_TTL_SECONDS`, `FINALIZATION_TIMEOUT_SECONDS` | 30-second observation freshness; 900-second sealed-output finalization deadline |
+| `PREPARATION_MAX_SOURCE_BYTES`, `PREPARATION_MAX_RESULT_BYTES` | 67108864 (64 MiB) input and 536870912 (512 MiB) output reservations |
+| `PREPARATION_TIME_LIMIT_SECONDS`, `PREPARATION_MEMORY_LIMIT_BYTES` | 3600 seconds and 4294967296 (4 GiB) per isolated preparation child |
+| `PREPARATION_MAX_QUEUED_PER_OWNER`, `PREPARATION_MAX_CONCURRENT_OPERATIONS` | 8 queued/running per owner; one executor, matching the preparation catalog |
+| `PREPARATION_MAX_REQUEST_BYTES` | 8388608 (8 MiB), matching the preparation request contract |
 | `POOL_ID`, `STORAGE_DIRECTORY` | Stable `api-dev-neodynamics`, owned `/var/lib/neodynamics` PVC root |
 | `BIND_HOST`, `BIND_PORT`, `TOKEN_FILE`, `PG_DSN` | Explicit listener `0.0.0.0:8003`; mounted token path and separate runtime/migration DSN Secret references |
 
