@@ -5,15 +5,25 @@ from dataclasses import replace
 from uuid import UUID, uuid4
 
 import pytest
-from test_assets import InputStore, UploadLimits, upload_request, bundle_bytes
+from test_assets import InputStore, UploadLimits, bundle_bytes, upload_request
+from test_ledger import create_request
+from test_ledger import inputs as register_session_inputs
 from test_preparation_operations import (
-    LIMITS, begin_and_upload, preparation_request, raw_source, store, terminal,
+    LIMITS,
+    begin_and_upload,
+    preparation_request,
+    store,
+    terminal,
 )
-
-from test_ledger import create_request, inputs as register_session_inputs
+from test_preparation_operations import (
+    raw_source as _raw_source,
+)
 
 from neomd_server.ledger import LedgerError
 from neomd_server.protocols import ScientificLimits
+
+# Register the shared pytest fixture without shadowing an imported name.
+raw_source = _raw_source
 
 
 async def reservation(preparations, operation_id):

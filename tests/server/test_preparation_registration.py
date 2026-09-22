@@ -7,12 +7,23 @@ from uuid import UUID, uuid4
 
 import pytest
 from input_helpers import commit_bundle
-from test_assets import store as input_store, upload
+from test_assets import store as input_store
+from test_assets import upload
 from test_preparation_operations import (
-    LIMITS, begin_and_upload, preparation_request, raw_source, store, terminal,
+    LIMITS,
+    begin_and_upload,
+    preparation_request,
+    store,
+    terminal,
+)
+from test_preparation_operations import (
+    raw_source as _raw_source,
 )
 
 from neomd_server.ledger import LedgerError
+
+# Register the shared pytest fixture without shadowing an imported name.
+raw_source = _raw_source
 
 
 def test_successful_preparation_registers_exact_bundle_only_for_its_owner(

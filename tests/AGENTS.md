@@ -27,8 +27,10 @@ re-runs on the recording machine. The spine gate uses the selected tier for
 every sample, including step 0; retain nonempty energy/frame samples and
 matching sample counts in both tiers.
 
-CI (`.github/workflows/ci.yml`) runs `pixi run test`, `pixi run test-golden`,
-and the 3HTB smoke on every PR, with `PYTEST_ADDOPTS=--skip-cuda` on
+CI (`.github/workflows/ci.yml`) runs the nongolden and golden selectors in
+the locked `server` environment via `python -m pytest` (preserving repository
+root imports for shared test fixtures), and the 3HTB smoke on every PR,
+with `PYTEST_ADDOPTS=--skip-cuda` on
 CPU-only hosted runners. Mark tests that execute CUDA (including implicit
 default-platform execution) with `@pytest.mark.cuda`; explicit CPU and fake
 tests remain enabled. Local runs include CUDA tests unless `--skip-cuda` is
