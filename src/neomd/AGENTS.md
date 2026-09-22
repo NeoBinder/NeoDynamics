@@ -68,3 +68,18 @@
 For scientific architecture changes, consult the relevant ADR under `docs/adr/`.
 For documentation/docstring changes use `docs/AGENTS.md`. These paths are
 project-root-relative; local guides carry kernel and method-specific constraints.
+
+## Additional engine contracts
+
+- Plugin required-key presence is checked at the `--check-files` tier; schema
+  values stay opaque. Keep discovery before Plan construction for every facade.
+- Multi-bond restraint values are not live-settable; grouped Boresch forces
+  remain one force per expression kind. Kind-driven RMSD, coordination and
+  path CV adapters retain numpy/kernel parity.
+- Coordinate artifacts default to molecule wrapping through `MoleculeGroups`;
+  unsupported kernels emit one warning and keep raw coordinates.
+- Run messages use the `neomd` INFO logger and idempotent console setup; explicit
+  levels preserve `--silent`. Progress records use `inline=True` except the
+  final completion record, which stays in scrollback.
+- OpenMM private accesses stay behind the pinned 8.6.x version gate; QC writes
+  `qc_report.json` via sinks at preparation/minimization tails, soft by default.

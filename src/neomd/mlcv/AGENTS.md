@@ -1,7 +1,9 @@
-# ML collective variables
+# src/neomd/mlcv — ML-CV phase 1 (ADR-0006)
 
-Featurization reuses public CV evaluation. Pool TICA runs without crossing run
-boundaries. Keep numpy feature/training paths torch-free; gated TorchScript
-export must reproduce `apply_model` closely. Simulation-core injection is a
-separate design decision in project-root `docs/adr/` ADR-0006, not implicit
-scope for changes to these tools.
+Numpy-only out-of-tree-style tool (`neomd mlcv featurize|train|convert`) —
+features reuse the PUBLIC cv registry's evaluate implementations; TICA
+(generalized eigenproblem, runs pooled without crossing boundaries) +
+logistic regression, both linear; TorchScript export is torch-gated and
+reproduces `apply_model` bit-tightly. ZERO simulation-core changes —
+phase 2 (TorchCV injection through the kind-driven CVIR precedent) is
+designed in ADR-0006.

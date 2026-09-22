@@ -42,3 +42,10 @@ relevant ADR, task notes in ignored `.agents/`. Root instructions have a
 3,000-word ceiling, subfolder instructions 1,000; prefer much less. Before
 deleting documents, present exact candidates/reasons and obtain explicit
 confirmation; preserve live references, rationale and unfinished decisions.
+
+When changing architecture, ask where each module's complexity would go if
+removed; merge a module only when its boundary adds no independent value.
+Load `src/neomd/AGENTS.md` for SDK architecture, `tests/AGENTS.md` for test
+tiers, and `docs/AGENTS.md` for documentation/docstring policy before editing
+those areas. When main moves, merge it into the task worktree and resolve
+there; preserve shared history. Never clean across `.worktrees/`.
