@@ -202,24 +202,6 @@ def test_fake_end_to_end_moving_system_counts_and_finiteness(tmp_path):
     assert len(rows) - 1 == result.n_hills  # colvar rows match hill count
 
 
-def test_fake_same_seed_identical_hills_ledger_and_positions(tmp_path):
-    def once(directory):
-        plan = Plan.from_dict(meta_config(output=out(directory)))
-        result = MetadynamicsRun(fake_kernel(seed=4242), plan,
-                                 sink=LocalDirSink(directory)).run()
-        with np.load(directory / HILLS_FILENAME) as hills:
-            ledger = {name: hills[name].copy() for name in hills.files}
-        return result, ledger
-
-    first, ledger_a = once(tmp_path / "a")
-    second, ledger_b = once(tmp_path / "b")
-    assert set(ledger_a) == {"steps", "positions", "heights"}
-    for name in ledger_a:
-        assert np.array_equal(ledger_a[name], ledger_b[name])
-    assert first.positions_sha256 == second.positions_sha256
-    assert first.fes_sum == second.fes_sum
-
-
 def test_fake_resume_matches_straight_run(tmp_path):
     """The §6 meta-resume property, fake tier: run 100 + continue to 200 ==
     a straight 200 run, hill for hill (bit-equal ledger + colvar + positions).

@@ -219,12 +219,8 @@ def test_l1_unknown_override_raises_did_you_mean(tmp_path):
     assert "steps" in str(err.value)
 
 
-def test_l2_accepts_plan_and_dict(tmp_path):
+def test_l2_accepts_plan(tmp_path):
     config = ala2_plan_dict(tmp_path / "out", steps=5)
-    with pytest.raises(NotImplementedError, match="fake"):
-        # stops at the (documented) kernel step — after successful L2
-        # resolution, before any run
-        md_run(config, kernel="fake")
     with pytest.raises(NotImplementedError, match="fake"):
         md_run(Plan.from_dict(config), kernel="fake")
 

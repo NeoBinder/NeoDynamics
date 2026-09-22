@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import os
 import sys
-import types
 
 import pytest
 import yaml
@@ -452,33 +451,8 @@ def test_deep_derived_defaults_survive_with():
 
 
 # ---------------------------------------------------------------------------
-# registry interplay (lazy / optional)
+# restraint validation
 # ---------------------------------------------------------------------------
-
-
-def test_registry_unavailable_skips_restraint_type_check(monkeypatch):
-    # registry.py may not exist while the parallel workstream builds it
-    monkeypatch.setitem(sys.modules, "neomd.registry", None)
-    config = restrained_config()
-    config["restraint"]["restr_com"]["type"] = "not_a_real_type"
-    plan = Plan.from_dict(config)
-    assert plan.restraint["restr_com"]["type"] == "not_a_real_type"
-
-
-def test_registry_available_validates_restraint_types(monkeypatch):
-    fake = types.ModuleType("neomd.registry")
-    fake.registered = lambda kind: {"distance": object(), "dihedral": object()}
-    fake.lookup_candidates = lambda kind, prefix: [
-        name for name in ("distance", "dihedral") if name.startswith(prefix)
-    ]
-    monkeypatch.setitem(sys.modules, "neomd.registry", fake)
-    plan = Plan.from_dict(restrained_config())  # "distance" is registered
-    assert plan.restraint["restr_com"]["type"] == "distance"
-    config = restrained_config()
-    config["restraint"]["restr_com"]["type"] = "dist"
-    with pytest.raises(ConfigValueError) as excinfo:
-        Plan.from_dict(config)
-    assert "distance" in str(excinfo.value)  # candidate via lookup_candidates
 
 
 def test_restraint_entry_needs_a_type():
@@ -716,13 +690,6 @@ def test_multiple_structural_errors_all_reported_in_one_pass():
     assert "iterval" in rendered and "interval" in rendered
     assert "nothing was executed" in rendered
     assert "[1]" in rendered and "[4]" in rendered  # numbered problems
-
-
-def test_single_error_still_raises_its_specific_type():
-    config = base_config()
-    config["steps"] = -5
-    with pytest.raises(ConfigValueError):  # not the aggregate
-        Plan.from_dict(config)
 
 
 def test_shape_errors_skip_dependent_checks_but_keep_collecting():

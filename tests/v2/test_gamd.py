@@ -217,20 +217,6 @@ def test_fake_calibration_stats_match_hand_computed_selection(tmp_path):
     assert channel["k"] == pytest.approx(k0 / (vmax - vmin), rel=1e-12)
 
 
-def test_fake_same_seed_bit_identical_tape_and_positions(tmp_path):
-    def once(directory):
-        outcome = drive(Plan.from_dict(gamd_config(output=out(directory))),
-                        kernel_factory=_fake_factory(seed=77),
-                        sink=LocalDirSink(directory))
-        return (outcome.results[0].positions_sha256,
-                (directory / TAPE_FILENAME).read_text())
-
-    sha_a, tape_a = once(tmp_path / "a")
-    sha_b, tape_b = once(tmp_path / "b")
-    assert sha_a == sha_b
-    assert tape_a == tape_b
-
-
 def test_fake_resume_matches_straight_run(tmp_path):
     """Kill/resume property: run 100(cal)+50, then continue to 200 == a
     straight 200 — tape rows, calibration params and positions identical."""

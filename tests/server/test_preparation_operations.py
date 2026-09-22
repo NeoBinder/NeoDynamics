@@ -308,9 +308,8 @@ def test_full_real_pipeline_success_and_artifact_reads(database_dsn, tmp_path, r
                 assert len(data) == artifact["size_bytes"]
             assert b"stage=prepare" in await preparations.artifact_content(
                 scope, operation["operation_id"], by_path["preparation.log"]["artifact_id"])
-            manifest = json.loads(await preparations.artifact_content(
+            json.loads(await preparations.artifact_content(
                 scope, operation["operation_id"], by_path["manifest.json"]["artifact_id"]))
-            assert hashlib.sha256(json.dumps(manifest).encode())  # parsed, immutable bytes above
             final = tmp_path / "preparations" / operation["operation_id"]
             assert (final / "manifest.json").read_bytes() == await preparations.artifact_content(
                 scope, operation["operation_id"], by_path["manifest.json"]["artifact_id"])

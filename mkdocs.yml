@@ -37,9 +37,14 @@ exclude_docs: |
 
 nav:
   - Home: index.md
-  - Quick start: quickstart.md
+  - User guide:
+      - Quick start: quickstart.md
+      - Preparation and tools: preparation-tools.md
+      - Run outputs and continuation: running.md
   - Configuration reference: reference/configuration.md
-  - Architecture: architecture.md
+  - SDK design:
+      - Architecture: architecture.md
+      - Extending NeoDynamics: extending.md
   - Interactive service driver: interactive-driver.md
   - Prepared bundles: prepared-bundle.md
   - Protein preparation: protein-preparation.md

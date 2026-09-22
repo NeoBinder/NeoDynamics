@@ -1,87 +1,58 @@
-# NeoDynamics
+# NeoDynamics documentation
 
-**A molecular-dynamics SDK on OpenMM** — generic MD, well-tempered
-metadynamics, steered MD, OPES and GaMD behind a single facade, with a
-swappable physics kernel.
-
-Python 3.12+ · OpenMM 8.6.x · MIT license · version derived from git tags
-
-The package contains:
-
-- OpenMM pipelines for generic MD (`min` / `eq` / `md` / `prod`) and
-  enhanced-sampling methods — well-tempered metadynamics, steered MD,
-  OPES, GaMD — plus in-tree ML/MM coupling and RBFE λ-window free-energy
-  calculation (true QM/MM is not supported)
-- OpenMM system-building tools (protein + ligand + solvent)
-- Post-run analysis (`neomd.analysis`): FES reconstruction, convergence
-  windows, block averaging, Tiwary–Parrinello reweighting, BAR/MBAR
-- Ligand forcefield creation and support for externally supplied ligand
-  forcefields (AM1-BCC/GAFF via antechamber, RESP2 charges via ORCA, or
-  expert-designed parameters)
-
-## Highlights
-
-- **One facade, progressive disclosure** — `md_run(dir)` → scalar kwargs →
-  full plan dict all compile to an *identical* immutable `Plan` (same sha256
-  fingerprint).
-- **Validate everything at once** — plan validation collects *all* problems,
-  each rendered with its YAML key path and a did-you-mean suggestion.
-- **A closed physics seam (`KernelPort`)** with three adapters: `openmm`
-  (production), `fake` (deterministic, openmm-free CI), `replay` (golden-tape
-  playback) — how the pieces fit together is on the [architecture
-  page](architecture.md).
-- **Knowledge triples + registry** — restraints, collective variables,
-  methods and probes are self-registering triples; plugins register through
-  `neomd.register()`.
-- **Deterministic resume** — a single owner restores the checkpoint and
-  trims every tape to the resume step.
+NeoDynamics prepares, runs and analyses OpenMM molecular-dynamics simulations
+through Python and the `neomd` command line. Start with a working example, then
+choose the preparation workflow and scientific method for your system.
 
 ## Quick start
 
-```python
-from neomd import md_run
+For installation and a bundled CPU demo, start with the
+[project README](https://github.com/NeoBinder/NeoDynamics#quick-start).
+The [quick-start guide](quickstart.md) explains YAML plans, Python calls,
+validation and migration from v1.
 
-md_run("path/to/run_dir")                # L0: zero-config (reads the plan file in the dir)
-md_run("path/to/run_dir", steps=50000)   # L1: scalar knobs deepen the plan
-md_run(plan_dict)                        # L2: the full experiment spec
-```
+## User guides
 
-```bash
-neomd run path/to/run_dir --steps 50000                  # default: --platform cuda --kernel openmm (cpu/fake/replay available)
-neomd validate plan.yaml --check-files                    # report every problem, write nothing
-```
+<a id="highlights"></a><a id="documentation"></a>
 
-A minimal plan file, the full CLI, a walkthrough of the plan format and
-installation options are on the [quick-start page](quickstart.md).
+| Task | Guide |
+| --- | --- |
+| Prepare protein, ligand and solvent inputs | [Preparation and tools](preparation-tools.md) |
+| Inspect every accepted plan option | [Configuration reference](reference/configuration.md) |
+| Read results, control wrapping or continue a run | [Outputs and continuation](running.md) |
+| Learn a sampling setup | [Metadynamics](tutorials/metadynamics.md) · [Steered MD](tutorials/steered-md.md) · [Restraints](tutorials/restraints.md) |
 
-## Documentation
+Preparation details branch into [protein identity and repair](protein-preparation.md)
+and [verified prepared bundles](prepared-bundle.md). These pages distinguish
+supported SDK workflows from service intake and remote operation limits.
 
-- [Quick start](quickstart.md) — first run, plan-file walkthrough, installation
-- [Configuration reference](reference/configuration.md) — every key a plan accepts
-- [Tutorials](tutorials/metadynamics.md) — metadynamics, steered MD, restraints
-- [Architecture](architecture.md) — how the pieces fit together
-- [Development](development.md) — working on NeoDynamics itself
+## Methods
 
-### Methods
+The [method index](methods/index.md) links to GaMD/LiGaMD, OPES, RBFE,
+ML/MM, collective variables, analysis and quality checks. Each method page
+covers configuration, outputs, continuation and scientific references.
 
-One page per method — schema, physics, artifacts and references:
+For GaMD, read both the [method guide](methods/gamd.md) and
+[CE2 analysis requirements](methods/gamd-analysis.md). Deterministic ligand
+exchange is experimental and does not establish an equilibrium PMF.
+See [scope limits](tutorials/coming-soon.md) for unsupported capabilities.
 
-- [GaMD](methods/gamd.md) — Gaussian accelerated MD: BoostOps seam,
-  calibration pre-run, dual/LiGaMD modes
-- [ML/MM](methods/mlmm.md) — `ml_region` (indices + active-site residue
-  selectors) with TorchScript/mock NNP adapters
-- [OPES](methods/opes.md) — on-the-fly probability enhanced sampling
-  (KDE bias, `kernels.npz` replay)
-- [RBFE](methods/rbfe.md) — λ-window ladder: `run_ladder`, du.tsv bands,
-  BAR/MBAR analysis
-- [Boresch restraint](methods/boresch.md) — orientation anchor over 3+3
-  anchor atoms
-- [CV library](methods/cv-library.md) — path (s,z) / coordination /
-  rmsd-as-CV knowledge triples
-- [ML-CV](methods/mlcv.md) — featurize / train / convert CLI (phase 1)
-- [Analysis](methods/analysis.md) — enhanced-sampling analysis and
-  convergence diagnostics (`neomd.analysis`)
-- [QC](methods/qc.md) — structure quality checks (`neomd.qc`)
+## Interactive service
 
-The full index with issue and ADR cross-references lives at
-[methods/index.md](methods/index.md).
+Start with the [resident service guide](service-runtime.md) for configuration,
+process isolation, admission, checkpoints and configured publication. Its
+linked contracts cover [scientific protocols](scientific-protocol.md),
+[durable command outcomes](service-ledger.md),
+[HTTP/WebSocket transport](private-transport.md) and
+[trajectory result evidence](trajectory-results.md).
+
+For embedded control, see the [interactive driver](interactive-driver.md).
+Check [runtime qualification](runtime-qualification.md) for what has actually
+been tested, including scale limits and outstanding gates.
+
+## Development
+
+- [Setup and checks](development.md): environments, tests, golden modes and docs builds.
+- [Architecture](architecture.md): plans, kernels, reporting and ownership boundaries.
+- [Extensions](extending.md): method plugins, entry points and custom reporting.
+- [Architecture decisions](adr/0001-neomd2-strangler-migration.md): rationale and retained scope decisions.

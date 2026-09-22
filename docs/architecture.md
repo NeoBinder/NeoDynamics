@@ -31,6 +31,14 @@ and publication ownership are specified in the [service ledger](service-ledger.m
 | Tools | `tools/` | External-process adapters (antechamber, orca, ligand, convert, fix_protein, template_xml); subprocess-isolated, `os.chdir` forbidden. |
 | v1 translator | `migrate_v1.py` | One-shot v1 YAML → Plan translation. A tool, never on the runtime import path. |
 
+## Plan identity
+
+Plans validate all errors with key paths and suggestions, derive defaults,
+deep-freeze their mappings, and compute a SHA-256 fingerprint. Equality is
+fingerprint equality; `plan.with_(...)` returns a revalidated copy.
+The [configuration reference](reference/configuration.md) lists the current
+method, restraint and CV vocabularies.
+
 ## The kernel seam — three adapters
 
 | Adapter | Role | Needs OpenMM? |
@@ -38,6 +46,10 @@ and publication ownership are specified in the [service ledger](service-ledger.m
 | `openmm` | production runs | yes — the only core module importing openmm |
 | `fake` | deterministic textbook Langevin; millisecond, openmm-free CI workhorse | no (numpy) |
 | `replay` | plays back recorded v1 golden tapes for parity tests | no |
+
+Optional operations are negotiated through `provides()`. The replay adapter
+registers on import: import `neomd.kernel.replay` before creating it through
+`KernelFactory`. Unsupported replay reporting columns are `nan`.
 
 Force-group ids are opaque ints — never compared across kernels. The fake
 kernel implements only textbook Langevin: golden samples catch behavior
@@ -53,6 +65,9 @@ methods never see restraint wiring. SMD reuses the restraint triples'
 spec values per update boundary.
 
 ## Extension
+
+See [Extending NeoDynamics](extending.md) for a complete method plugin and
+entry-point example, and for reporting-probe customization.
 
 The registry is the public plugin surface: `neomd.register()` or the
 `"neomd"` entry-point group. A worked, tested drill lives in

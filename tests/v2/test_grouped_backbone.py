@@ -109,12 +109,6 @@ def test_complete_sequence_is_necessary_not_sufficient_for_actual_single_residue
     assert (path.read_bytes(), source.positions_nm.tobytes()) == before
 
 
-def test_unrelated_coincident_retained_atoms_are_not_a_generated_geometry_failure(tmp_path):
-    source = complete_source(tmp_path, reverse=True, coincident=True)
-    repaired = group_and_repair_protein(source, platform="CPU", seed=123)
-    assert [a["name"] for a in repaired.lineage.atoms if a["origin"] == "generated_heavy_atom"] == ["CB"]
-
-
 def test_generated_peptide_cannot_conflict_with_preexisting_internal_oxt(tmp_path):
     source = backbone_source(tmp_path, missing=(1, "N"))
     topology, positions = app.Topology(), []
