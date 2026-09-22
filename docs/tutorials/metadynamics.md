@@ -51,6 +51,16 @@ walkthrough.
 
 ## Checkpointed bias state
 
+NPT uses OpenMM's native barostat by default, preserving existing seeded
+trajectories. Its checkpoint does not preserve all proposal counters and width
+in OpenMM 8.6, so native NPT does not promise step-exact resumed trajectories.
+For that guarantee, explicitly select
+`barostat: {pressure: 1.0, frequency: 25, managed: true}` before starting the run.
+Managed isotropic NPT checkpoints also store proposal RNG, width and phase;
+the complete current bias and restraints enter each proposal exactly once.
+Managed and native proposal streams differ and their checkpoints cannot be
+interchanged. GaMD selects managed NPT automatically.
+
 `metadynamics_bias_state.json` records every successful Context-table push as
 `{step, n_hills}`, plus the update cadence. This distinguishes accumulated hills
 from the prefix currently acting on the system when pushes are throttled.

@@ -91,8 +91,15 @@ potential plus pressure-volume work and the molecular volume Jacobian.
 
 OpenMM 8.6 Context checkpoints save platform/integrator state but omit the
 native barostat ForceImpl's attempt counters, proposal width and update phase.
-The supported isotropic NPT path therefore owns the volume proposal state in
-the adapter and disables native proposals. It uses a symmetric volume change,
+GaMD's isotropic NPT path therefore owns the volume proposal state in
+the adapter and disables native proposals when boosts are installed. Ordinary
+MD and metadynamics retain native proposals by default, preserving their
+existing seeded trajectories and native barostat variants. They can explicitly
+opt into managed isotropic proposals with `barostat.managed: true` for complete
+proposal-state resume. This changes the random proposal stream; native and
+managed checkpoints cannot be interchanged. Native OpenMM 8.6 NPT retains its
+resume limitations and is not qualified for step-exact resumed trajectories.
+The managed implementation uses a symmetric volume change,
 scales molecule arithmetic centers (preserving internal coordinates), and uses
 `DeltaU + P*DeltaV - N_molecules*R*T*log(V_new/V_old)` for the acceptance work.
 The opaque checkpoint also saves the proposal generator, adaptive width and

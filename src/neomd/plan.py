@@ -503,6 +503,13 @@ def _validate(data: Any, ctx: _Context) -> list:
                 wrap_coordinates,
             )
 
+    # Managed NPT is opt-in outside GaMD, preserving native trajectory parity.
+    barostat = data.get("barostat")
+    if isinstance(barostat, Mapping) and "managed" in barostat:
+        if not isinstance(barostat["managed"], bool):
+            problem(ConfigValueError, "barostat.managed must be a boolean (true/false)",
+                    ("barostat", "managed"), barostat["managed"])
+
     # -- restraint types (registry-aware, best effort) -----------------------
     _validate_restraint_types(data, ctx, problem)
 

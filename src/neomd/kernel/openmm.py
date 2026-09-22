@@ -135,6 +135,8 @@ def _apply_system_modifications(system: openmm.System, spec: KernelSpec) -> None
     """Barostat + per-particle mass overrides, applied BEFORE the Context
     is created."""
     if spec.barostat:
+        if not isinstance(spec.barostat.get("managed", False), bool):
+            raise ValueError("barostat.managed must be a boolean")
         barostat = openmm.MonteCarloBarostat(
             spec.barostat.get("pressure", 1.0),
             spec.barostat.get("temperature", spec.temperature),
@@ -214,7 +216,11 @@ class OpenMMKernel:
         self.spec = spec
         self.system = _deserialize_system(spec.system_xml)
         _apply_system_modifications(self.system, spec)
-        self._barostat = self._configure_barostat()
+        # Ordinary MD keeps native proposal/RNG behavior, including legacy
+        # trajectories. GaMD enables managed proposals when boosts install;
+        # other methods opt in explicitly for complete proposal-state resume.
+        self._barostat = (self._configure_barostat()
+                          if (spec.barostat or {}).get("managed", False) else None)
         self._structure = _load_structure(spec.topology_file)
         self._initial_positions = self._structure.positions
         if spec.initial_positions_nm is not None:
@@ -1301,6 +1307,8 @@ class OpenMMKernel:
                 raise ValueError('boost groups hold installed additive biases')
             installed[channel.label] = (groups, float(channel.threshold), float(channel.k))
         self._validate_boost_parameter_names(installed)
+        if installed and self._barostat is None:
+            self._barostat = self._configure_barostat()
         if self._energy_model is None:
             components, group_terms, base_terms, source_ids = [], {}, [], []
             for index, force in enumerate(self.system.getForces()):

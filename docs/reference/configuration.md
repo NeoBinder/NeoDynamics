@@ -18,7 +18,7 @@ key path and a did-you-mean suggestion.
 | Key | Required | Type | Meaning |
 |---|---|---|---|
 | `alchemical` | no | mapping | RBFE λ-window state (method `rbfe`, ADR-0003/0007): `lambda_values` (this window's λ, {param: value in [0,1]}), `ladder` (every window's λ — the du.tsv column vocabulary) and the fake-kernel `mock_bias`. |
-| `barostat` | no | mapping | Barostat settings (e.g. `frequency` in steps, `pressure`); the plan seed is injected as `seed` at kernel-spec build time. Absent means no barostat. |
+| `barostat` | no | mapping | Barostat settings (e.g. `frequency` in steps, `pressure`); the plan seed is injected as `seed` at kernel-spec build time. Absent means no added barostat. `managed: true` opts into complete isotropic proposal-state checkpoints (default false outside GaMD). GaMD automatically uses managed proposals; other methods retain native OpenMM trajectories unless opted in. |
 | `colvars` | no | mapping name -> spec | Collective variables for metadynamics (1-3 CVs); each spec needs `type` plus the CV vocabulary's keys (see the CV table below). |
 | `continue_md` | no | bool | Resume the run from its checkpoint: the single resume owner restores the kernel and trims every tape to the checkpoint step. Derived default: false. |
 | `debug` | no | bool or mapping | Debug switches. |

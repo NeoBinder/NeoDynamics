@@ -115,7 +115,10 @@ _TOP_LEVEL = {
         "mapping",
         "Barostat settings (e.g. `frequency` in steps, `pressure`); the plan "
         "seed is injected as `seed` at kernel-spec build time. Absent means "
-        "no barostat.",
+        "no added barostat. `managed: true` opts into complete isotropic "
+        "proposal-state checkpoints (default false outside GaMD). GaMD "
+        "automatically uses managed proposals; other methods retain native "
+        "OpenMM trajectories unless opted in.",
     ),
     "continue_md": (
         "bool",

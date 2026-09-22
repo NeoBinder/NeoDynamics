@@ -21,9 +21,12 @@ OpenMM 将完整 boost 写入 System 势能，NPT 的候选箱求值会同时
 偏置同样由其 System Force 计入，不能重复相加。参见
 [ADR 0009](../adr/0009-ordered-potential-boosts.md)。
 
-为精确恢复 NPT，内核管理各向同性体积提议：检查点保存随机数状态、
+为精确恢复 GaMD 的 NPT，安装 boost 时内核自动管理各向同性体积提议：检查点保存随机数状态、
 提议宽度和接受计数。OpenMM 8.6 原生检查点遗漏这些 barostat 内部状态，
 不能据此声称逐步精确恢复。新的完整状态格式对调用者仍是 opaque checkpoint。
+普通 MD 和 MetaD 默认保留 OpenMM 原生体积提议及其历史轨迹；可显式设置
+`barostat: {pressure: 1.0, frequency: 25, managed: true}` 使用完整提议状态检查点。
+managed 模式改变随机数序列，不能与原生 NPT 轨迹逐步比较，也不能混用两种检查点。
 
 ## 使用
 
