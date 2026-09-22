@@ -9,6 +9,12 @@ This page condenses the as-built picture; the design rationale is recorded
 in the ADRs under [adr/](adr/0001-neomd2-strangler-migration.md), starting
 with ADR 0001 (why a same-repo strangler migration).
 
+The independent `src/neomd_server/` package owns interactive sessions, service
+policy and its alternative driver/probes. Engine/CLI code never imports the
+service package. For that boundary, read the [interactive driver](interactive-driver.md)
+and [ADR 0008](adr/0008-interactive-service-driver.md); persistent service state
+and publication ownership are specified in the [service ledger](service-ledger.md).
+
 ## The pieces
 
 | Piece | Module | Role |
@@ -20,6 +26,7 @@ with ADR 0001 (why a same-repo strangler migration).
 | Driver / resume | `driver.py`, `resume.py` | `driver.py` runs the stepping loop and owns reporting; `resume.py` is THE resume owner: restore + trim every tape to the checkpoint step. |
 | Artifacts | `manifest.py`, `probes.py`, `sinks.py` | Fingerprint + epoch-chain provenance; all artifact writing. |
 | System | `system.py`, `prepare.py` | The openmm-free `SystemBundle` and the preparation workflow. |
+| Explicit assembly report | `assembly_report.py`, `system_assembly.py` | Already-prepared v2 topology → fixed explicit ff14SB/TIP3P System and independently versioned artifact-bound report; exact qualified-environment replay, not full protein preparation or service admission. |
 | Private-API gate | `openmm_privates.py` | Every OpenMM private-API touch lives here behind a pinned-version gate (openmm 8.6.x). |
 | Tools | `tools/` | External-process adapters (antechamber, orca, ligand, convert, fix_protein, template_xml); subprocess-isolated, `os.chdir` forbidden. |
 | v1 translator | `migrate_v1.py` | One-shot v1 YAML → Plan translation. A tool, never on the runtime import path. |
@@ -53,8 +60,12 @@ The registry is the public plugin surface: `neomd.register()` or the
 
 ## Settled decisions
 
-The architecture rests on decisions frozen in
-[AGENTS.md](https://github.com/NeoBinder/NeoDynamics/blob/main/AGENTS.md)
-(v1 hard freeze, physics ported verbatim, KernelPort stays, dual-track
-restraint reporting, no permanent compatibility layers, ...). Challenge
-them only with new evidence.
+[ADR 0001](adr/0001-neomd2-strangler-migration.md) records the v1 freeze,
+verbatim physics port, dual-track restraint reporting and intentionally
+breaking artifact formats. The adapters above each have a distinct role;
+a CPU OpenMM platform does not replace fake or replay.
+
+QM/MM requires a separately chartered plugin with production and mock
+adapters. Generic multi-leg orchestration is outside the current SDK;
+the [RBFE ladder](methods/rbfe.md) is a narrow per-window runner, not a
+general workflow engine. Reopen these scope decisions only with new evidence.

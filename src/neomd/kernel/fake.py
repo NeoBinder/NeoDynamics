@@ -294,7 +294,8 @@ class FakeKernel:
     def __init__(self, spec: KernelSpec):
         self.spec = spec
         data = spec.system_data if spec.system_data is not None else _default_system_data()
-        self._positions = np.array(data.positions, dtype=np.float64)
+        self._positions = np.array(data.positions if spec.initial_positions_nm is None
+                                   else spec.initial_positions_nm, dtype=np.float64)
         self._masses = np.array(data.masses, dtype=np.float64)
         if self._positions.shape != (self._masses.shape[0], 3):
             raise ValueError(
@@ -313,6 +314,8 @@ class FakeKernel:
         # per-particle Euler-Maruyama noise scale, nm/ps
         self._noise_scale = np.sqrt(2.0 * self._gamma * self._kT / self._masses * self._dt)
 
+        self._interactions = {}
+        self._interactions_reserved = False
         self._step = 0
         self._biases: list[tuple[int, BiasIR]] = []
         self._next_group = 0
@@ -357,7 +360,7 @@ class FakeKernel:
         energy from the kernel's own velocities, temperature from
         2*KE/(dof*R) with dof = 3N (the openmm StateDataReporter convention
         minus constraints, which the fake has none)."""
-        potential = self._bias_potential(self._positions)
+        potential = self._bias_potential(self._positions) + self._interaction_energy(self._positions)
         kinetic = 0.5 * float((self._masses
                                * (self._velocities ** 2).sum(axis=1)).sum())
         dof = 3 * self.num_particles
@@ -367,7 +370,7 @@ class FakeKernel:
         # documented: the fake reports zero forces (bias forces are not
         # propagated into its dynamics)
         return EnergyReport(potential=potential,
-                            forces=np.zeros_like(self._positions),
+                            forces=self._interaction_forces(self._positions),
                             kinetic=kinetic, volume=volume,
                             temperature=temperature)
 
@@ -389,6 +392,11 @@ class FakeKernel:
                 # F/m = 0 (free particles); textbook Euler-Maruyama update
                 self._velocities = (self._velocities * (1.0 - self._gamma * self._dt)
                                     + self._noise_scale[:, None] * noise)
+            if self._interactions:
+                force = self._interaction_forces(self._positions)
+                movable = self._masses > 0
+                self._velocities[movable] += (force[movable]
+                    / self._masses[movable, None]) * self._dt
             self._positions = self._positions + self._velocities * self._dt
             self._step += 1
 
@@ -512,6 +520,37 @@ class FakeKernel:
                 self._positions, eps, groups)
         return force
 
+    def reserve_interactions(self) -> None:
+        if self._boost and not self._interactions_reserved:
+            raise RuntimeError("reserve interactions before boost creation")
+        self._interactions_reserved = True
+
+    def set_interactions(self, particles) -> None:
+        if not self._interactions_reserved:
+            raise RuntimeError("reserve_interactions must be called first")
+        normalized = {}
+        for index, values in particles.items():
+            values = np.asarray(values, dtype=float)
+            if values.shape == (7,):
+                values = np.append(values, 0.0)
+            if (isinstance(index, bool) or not isinstance(index, int)
+                    or not 0 <= index < self.num_particles or values.shape != (8,)
+                    or not np.isfinite(values).all() or values[6] < 0):
+                raise ValueError("invalid particle interaction index/parameters")
+            normalized[index] = values.copy()
+        self._interactions = normalized
+
+    def _interaction_energy(self, positions):
+        return sum(-float(np.dot(values[:3], positions[index]))
+                   + 0.5 * values[6] * float(np.sum((positions[index] - values[3:6]) ** 2)) + values[7]
+                   for index, values in self._interactions.items())
+
+    def _interaction_forces(self, positions):
+        force = np.zeros_like(positions)
+        for index, values in self._interactions.items():
+            force[index] = values[:3] - values[6] * (positions[index] - values[3:6])
+        return force
+
     def minimize(self, tolerance: float = 10.0, max_iterations: int = 10000) -> None:
         """Deterministic steepest descent on the geometric bias potentials.
 
@@ -521,16 +560,16 @@ class FakeKernel:
         self._velocities[:] = 0.0
         eps = 1e-6  # nm
         step = 1e-2  # nm
-        energy = self._bias_potential(self._positions)
+        energy = self._bias_potential(self._positions) + self._interaction_energy(self._positions)
         for _ in range(max_iterations):
-            grad = self._numerical_gradient(self._positions, eps)
+            grad = self._numerical_gradient(self._positions, eps) - self._interaction_forces(self._positions)
             gmax = float(np.abs(grad).max())
             if gmax <= tolerance:
                 break
             direction = -grad / gmax
             while step > 1e-10:
                 candidate = self._positions + step * direction
-                new_energy = self._bias_potential(candidate)
+                new_energy = self._bias_potential(candidate) + self._interaction_energy(candidate)
                 if new_energy < energy:
                     self._positions = candidate
                     energy = new_energy
@@ -925,6 +964,8 @@ class FakeKernel:
                          for label, r in self._boost_last.items()},
             },
         }
+        if self._interactions_reserved:
+            payload["interactions"] = self._interactions
         return pickle.dumps(payload, protocol=4)
 
     def restore(self, data: bytes) -> None:
@@ -934,6 +975,8 @@ class FakeKernel:
         if payload.get("format") not in ("neomd-fake-kernel-v1",
                                          "neomd-fake-kernel-v2"):
             raise ValueError("not a FakeKernel snapshot")
+        self._interactions = payload.get("interactions", {})
+        self._interactions_reserved = "interactions" in payload
         self._positions = np.array(payload["positions"], dtype=np.float64)
         self._velocities = np.array(payload["velocities"], dtype=np.float64)
         self._step = int(payload["step"])

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:neodyn:prepared-bundle:v1:mapping",
+  "title": "Exact scientific identity mapping artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "prepared_revision_id", "sources", "atoms", "residues", "topology_particle_indices", "particles"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "prepared_revision_id": {"$ref": "urn:neodyn:prepared-bundle:v1:manifest#/$defs/uuid"},
+    "sources": {"type": "array", "items": {
+      "type": "object", "additionalProperties": false, "required": ["source_id", "content_sha256", "atoms"],
+      "properties": {
+        "source_id": {"$ref": "urn:neodyn:prepared-bundle:v1:manifest#/$defs/uuid"},
+        "content_sha256": {"$ref": "urn:neodyn:prepared-bundle:v1:manifest#/$defs/sha256"},
+        "atoms": {"type": "array", "items": {"$ref": "urn:neodyn:prepared-bundle:v1:manifest#/$defs/sourceAtom"}}
+      }
+    }},
+    "atoms": {"type": "array", "items": {
+      "type": "object", "additionalProperties": false, "required": ["atom_id", "residue_id", "source_atom_id", "source_id"],
+      "properties": {
+        "atom_id": {"$ref": "urn:neodyn:prepared-bundle:v1:manifest#/$defs/uuid"},
+        "residue_id": {"$ref": "urn:neodyn:prepared-bundle:v1:manifest#/$defs/uuid"},
+        "source_atom_id": {"$ref": "urn:neodyn:prepared-bundle:v1:manifest#/$defs/nullableUuid"},
+        "source_id": {"$ref": "urn:neodyn:prepared-bundle:v1:manifest#/$defs/nullableUuid"}
+      }
+    }},
+    "residues": {"type": "array", "items": {
+      "type": "object", "additionalProperties": false, "required": ["residue_id", "source_residue_id"],
+      "properties": {
+        "residue_id": {"$ref": "urn:neodyn:prepared-bundle:v1:manifest#/$defs/uuid"},
+        "source_residue_id": {"$ref": "urn:neodyn:prepared-bundle:v1:manifest#/$defs/nullableUuid"}
+      }
+    }},
+    "topology_particle_indices": {"type": "array", "uniqueItems": true, "items": {"type": "integer", "minimum": 0}},
+    "particles": {"type": "array", "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["particle_index", "identity_id", "identity_kind", "topology_atom_id", "control_eligible"],
+      "properties": {
+        "particle_index": {"type": "integer", "minimum": 0},
+        "identity_id": {"$ref": "urn:neodyn:prepared-bundle:v1:manifest#/$defs/uuid"},
+        "identity_kind": {"enum": ["atom", "site"]},
+        "topology_atom_id": {"$ref": "urn:neodyn:prepared-bundle:v1:manifest#/$defs/nullableUuid"},
+        "control_eligible": {"type": "boolean"}
+      }
+    }}
+  }
+}

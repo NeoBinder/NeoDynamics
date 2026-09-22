@@ -35,6 +35,7 @@ therefore registers through paths that unregister BOTH ``("method",
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 
 # Determinism pin — BEFORE any openmm Context can exist in this process
 # (pytest imports test modules during collection; same rationale as
@@ -353,14 +354,16 @@ def test_sinkless_drive_still_runs_and_counts(gamd):
 # ===========================================================================
 
 
-@pytest.mark.cuda
 def test_drive_dispatches_plugin_on_openmm_ala2(tmp_path, gamd):
     plan = Plan.from_dict(gamd_config(
         steps=50,
         input_files={"complex": str(ALA2_PDB), "system": str(ALA2_SYSTEM)},
         output=out(tmp_path)))
     started = time.perf_counter()
-    outcome = drive(plan, sink=LocalDirSink(tmp_path))  # default openmm kernel
+    from neomd.kernel.port import KernelFactory
+
+    outcome = drive(plan, kernel_factory=lambda spec: KernelFactory.create(
+        replace(spec, platform="cpu")), sink=LocalDirSink(tmp_path))
     elapsed = time.perf_counter() - started
 
     assert elapsed < 20.0  # budget: small ala2 fixture, CPU platform

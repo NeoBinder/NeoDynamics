@@ -39,6 +39,14 @@ __all__ = [
     "RunOutcome",
     "run_minimization",
     "run_md",
+    "MDStepper",
+    "positions_digest",
+    "timestep_ps",
+    "write_final_structure",
+    "minimization_settings",
+    "run_minimization_qc",
+
+    "prepare_method_stepper",
     "run_prepared_method",
     "drive",
     "PROGRESS_INTERVAL",
@@ -121,7 +129,8 @@ def _resolve_logger(logger) -> logging.Logger:
     return LOG if logger is None else logger
 
 
-def _positions_sha256(kernel: KernelPort) -> str:
+def positions_digest(kernel: KernelPort) -> str:
+    """SHA256 of float64, C-order positions in nm."""
     positions = np.ascontiguousarray(kernel.positions(), dtype=np.float64)
     return hashlib.sha256(positions.tobytes()).hexdigest()
 
@@ -131,7 +140,7 @@ def _plan_integrator(plan) -> Mapping:
     return integrator if isinstance(integrator, Mapping) else {}
 
 
-def _plan_dt_ps(plan) -> float:
+def timestep_ps(plan) -> float:
     """Integrator timestep in ps (the unit plans carry it in)."""
     return float(_plan_integrator(plan).get("dt", 0.004))
 
@@ -156,7 +165,7 @@ def _default_view_factory(kernel: KernelPort) -> ViewFactory:
     return make_view
 
 
-def _write_last_structure(kernel: KernelPort, sink, wrap: bool = False) -> None:
+def write_final_structure(kernel: KernelPort, sink, wrap: bool = False) -> None:
     """Final positions as a ``last.pdbx`` structure artifact, written
     through the port's negotiated
     :class:`~neomd.kernel.port.StructureWriter` capability (only the openmm
@@ -287,7 +296,8 @@ _MIN_PARAM_ALIASES = {
 }
 
 
-def _minimize_kwargs(plan) -> dict:
+def minimization_settings(plan) -> dict:
+    """Validated minimization keyword spelling, retaining the CLI defaults."""
     params = getattr(plan, "min_params", None) or {}
     if not isinstance(params, Mapping):
         raise ValueError(
@@ -316,7 +326,7 @@ def run_minimization(kernel: KernelPort, plan, sink=None, logger=None) -> MinRes
     without manual bridging.
     """
     log = _resolve_logger(logger)
-    kwargs = _minimize_kwargs(plan)
+    kwargs = minimization_settings(plan)
     log.info(
         "minimizing with tolerance=%s max_iterations=%s",
         kwargs["tolerance"], kwargs["max_iterations"])
@@ -325,11 +335,11 @@ def run_minimization(kernel: KernelPort, plan, sink=None, logger=None) -> MinRes
         blob = kernel.snapshot()
         sink.write_bytes(CHECKPOINT_FILENAME, blob)
         sink.write_bytes(LAST_CHECKPOINT_FILENAME, blob)
-        _write_last_structure(kernel, sink)
+        write_final_structure(kernel, sink)
     report = kernel.energy_forces()
     return MinResult(
         final_energy=report.potential,
-        positions_sha256=_positions_sha256(kernel),
+        positions_sha256=positions_digest(kernel),
     )
 
 
@@ -408,100 +418,110 @@ def run_md(
     Returns :class:`RunResult`.  Probes that define ``finish()`` see it at
     run end (scheduler contract).
     """
-    log = _resolve_logger(logger)
-    scheduler = ProbeScheduler(probes) if scheduler is None else scheduler
-    if view is None:
-        make_view = _default_view_factory(kernel)
-    elif callable(view):
-        make_view = view
-    else:
-        raise TypeError("view must be a callable (kernel, step) -> RunView")
+    runner = MDStepper(kernel, plan, probes, scheduler=scheduler, view=view,
+                       on_step=on_step, on_step_interval=on_step_interval,
+                       log_interval=log_interval, logger=logger, clock=clock,
+                       sink=sink, on_progress=on_progress)
+    while not runner.done:
+        runner.advance(max(1, runner.total - kernel.current_step))
+    return runner.finish()
 
-    total = getattr(plan, "steps", None)
-    if total is None:
-        raise ValueError(
-            f"plan.method {getattr(plan, 'method', None)!r} requires a "
-            "'steps' key (positive integer)")
-    total = int(total)
 
-    dt_ps = _plan_dt_ps(plan)
-    dt_ns = dt_ps / 1000.0
-    log_interval = max(1, int(log_interval))
-    on_step_interval = max(1, int(on_step_interval))
+class MDStepper:
+    """Persistent driver loop; ``advance`` never closes probes or finalizes.
 
-    start_step = kernel.current_step
-    remaining = total - start_step
-    # first log line, byte-for-byte legacy format
-    log.info(f"current steps:{start_step} remaining steps:{remaining}")
+    Budgets add scheduling boundaries, never change absolute hook/probe cadence.
+    ``finish`` closes artifacts exactly once and may also terminate an early run.
+    """
 
-    #: every cadence that must land exactly on a multiple of itself
-    boundaries = {probe.interval for probe in scheduler.probes}
-    boundaries.add(log_interval)
-    if on_step is not None:
-        boundaries.add(on_step_interval)
+    def __init__(self, kernel, plan, probes=(), *, scheduler=None, view=None,
+                 on_step=None, on_step_interval=1, log_interval=PROGRESS_INTERVAL,
+                 logger=None, clock=time.time, sink=None, on_progress=None):
+        self.kernel, self.plan, self.sink = kernel, plan, sink
+        self.log, self.clock = _resolve_logger(logger), clock
+        self.scheduler = ProbeScheduler(probes) if scheduler is None else scheduler
+        if view is not None and not callable(view):
+            raise TypeError("view must be a callable (kernel, step) -> RunView")
+        self.view = _default_view_factory(kernel) if view is None else view
+        total = getattr(plan, "steps", None)
+        if total is None:
+            raise ValueError(f"plan.method {getattr(plan, 'method', None)!r} "
+                             "requires a 'steps' key (positive integer)")
+        self.total = int(total)
+        self.on_step, self.on_progress = on_step, on_progress
+        self.on_step_interval = max(1, int(on_step_interval))
+        self.log_interval = max(1, int(log_interval))
+        self.dt_ns = timestep_ps(plan) / 1000.0
+        self.start_step = kernel.current_step
+        self.remaining = self.total - self.start_step
+        self.log.info(f"current steps:{self.start_step} remaining steps:{self.remaining}")
+        self.start_time = self.clock()
+        self.last_log_time = self.start_time
+        self.steps_since_log = 0
+        self.result = None
 
-    start_time = clock()
-    last_log_time = start_time
-    steps_since_log = 0
-    step_now = start_step
-    while step_now < total:
-        target = _next_boundary(step_now, boundaries, total)
-        chunk = target - step_now
-        kernel.step(chunk)
-        step_now = target
-        steps_since_log += chunk
+    @property
+    def done(self):
+        return self.kernel.current_step >= self.total or self.result is not None
 
-        # -- events at this boundary; the view is built only when one fires
-        fire_hook = on_step is not None and step_now % on_step_interval == 0
-        fire_probe = any(step_now % probe.interval == 0
-                         for probe in scheduler.probes)
-        if fire_probe or fire_hook:
-            boundary_view = make_view(kernel, step_now)
-            scheduler.tick(step_now, boundary_view)  # probes first
-            if on_progress is not None and fire_probe:
-                progress = scheduler.progress()
-                if progress:
-                    on_progress(step_now, progress)
-            if fire_hook:
-                on_step(step_now, boundary_view)
+    def advance(self, max_steps):
+        """Run at most max_steps integration steps; return the absolute step."""
+        if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < 1:
+            raise ValueError("max_steps must be a positive integer")
+        if self.done:
+            return self.kernel.current_step
+        boundaries = {probe.interval for probe in self.scheduler.probes}
+        boundaries.add(self.log_interval)
+        if self.on_step is not None:
+            boundaries.add(self.on_step_interval)
+        cap = min(self.total, self.kernel.current_step + max_steps)
+        while self.kernel.current_step < cap:
+            target = _next_boundary(self.kernel.current_step, boundaries, cap)
+            chunk = target - self.kernel.current_step
+            self.kernel.step(chunk)
+            self.steps_since_log += chunk
+            fire_hook = self.on_step is not None and target % self.on_step_interval == 0
+            fire_probe = any(target % probe.interval == 0 for probe in self.scheduler.probes)
+            if fire_probe or fire_hook:
+                boundary_view = self.view(self.kernel, target)
+                self.scheduler.tick(target, boundary_view)
+                if self.on_progress is not None and fire_probe:
+                    progress = self.scheduler.progress()
+                    if progress:
+                        self.on_progress(target, progress)
+                if fire_hook:
+                    self.on_step(target, boundary_view)
+            if target % self.log_interval == 0 or target == self.total:
+                now = self.clock()
+                _log_progress(self.log, start_time=self.start_time,
+                              last_log_time=self.last_log_time, now=now,
+                              finished_steps=target - self.start_step,
+                              remaining_steps=self.remaining,
+                              chunk_steps=self.steps_since_log, dt_ns=self.dt_ns,
+                              final=target == self.total)
+                if now > self.last_log_time:
+                    self.last_log_time, self.steps_since_log = now, 0
+        return self.kernel.current_step
 
-        # -- progress/rate/ETA
-        if step_now % log_interval == 0 or step_now == total:
-            now = clock()
-            _log_progress(
-                log,
-                start_time=start_time,
-                last_log_time=last_log_time,
-                now=now,
-                finished_steps=step_now - start_step,
-                remaining_steps=remaining,
-                chunk_steps=steps_since_log,
-                dt_ns=dt_ns,
-                final=(step_now == total),
-            )
-            if now > last_log_time:
-                last_log_time = now
-                steps_since_log = 0
-
-    scheduler.finish()
-    if sink is not None:  # per-leg final state: last.ckpt + last.pdbx
-        sink.write_bytes(LAST_CHECKPOINT_FILENAME, kernel.snapshot())
-        _write_last_structure(kernel, sink,
-                              wrap=bool(getattr(plan, "wrap_coordinates",
-                                                True)))
-    report = kernel.energy_forces()
-    elapsed_sec = clock() - start_time
-    stepped = kernel.current_step - start_step
-    ns_per_day = None
-    if elapsed_sec > 0.0 and stepped > 0:
-        ns_per_day = stepped * dt_ns / elapsed_sec * _SECONDS_PER_HOUR * _HOURS_PER_DAY
-    return RunResult(
-        steps_done=kernel.current_step,
-        final_energy=report.potential,
-        positions_sha256=_positions_sha256(kernel),
-        elapsed_sec=elapsed_sec,
-        ns_per_day=ns_per_day,
-    )
+    def finish(self):
+        """Finalize once at the current step, even after early termination."""
+        if self.result is not None:
+            return self.result
+        self.scheduler.finish()
+        if self.sink is not None:
+            self.sink.write_bytes(LAST_CHECKPOINT_FILENAME, self.kernel.snapshot())
+            write_final_structure(self.kernel, self.sink,
+                                  wrap=bool(getattr(self.plan, "wrap_coordinates",
+                                                    True)))
+        report = self.kernel.energy_forces()
+        elapsed = self.clock() - self.start_time
+        stepped = self.kernel.current_step - self.start_step
+        rate = None
+        if elapsed > 0.0 and stepped > 0:
+            rate = stepped * self.dt_ns / elapsed * _SECONDS_PER_HOUR * _HOURS_PER_DAY
+        self.result = RunResult(self.kernel.current_step, report.potential,
+                                positions_digest(self.kernel), elapsed, rate)
+        return self.result
 
 
 # ---------------------------------------------------------------------------
@@ -536,9 +556,8 @@ def _default_probes(plan, sink, resume=None, kernel=None, log=None) -> list:
     from . import registry
 
     trims = resume.trims if resume is not None else {}
-    dt_ps = _plan_dt_ps(plan)
+    dt_ps = timestep_ps(plan)
     trajectory_wrap = _wrap_transform(plan, kernel, log)
-
     def make(name):
         return registry.get("probe", name).make  # KeyError w/ did-you-mean
     probes: list = []
@@ -598,7 +617,7 @@ def _append_restraint_probe(probes: list, plan, sink, kernel,
     ))
 
 
-def _run_min_qc(kernel: KernelPort, plan, sink, log) -> None:
+def run_minimization_qc(kernel: KernelPort, plan, sink, log) -> None:
     """The min-tail QC hook: quality-check the MINIMIZED
     coordinates (minimize can leave broken bonds/angles behind).
 
@@ -692,6 +711,12 @@ class PreparedMethod:
     * ``finish`` — ``finish(run_result) -> result``: the end-of-run
       artifacts (hills/fes, the method checkpoint) plus the MethodResult
       drive() records.
+    * ``preparation`` — optional scientific stage with ``done`` and
+      ``advance(max_steps)``; the driver drains it before production.
+    * ``controls`` / ``update_parameter`` — qualified live scientific
+      parameters, their units/ranges/phase and method-owned validation.
+    * ``checkpoint`` — flush method state such as an empty initial hill
+      ledger without finalizing the method or closing reporting tapes.
     """
 
     on_step: Callable[[int, RunView], None] | None = None
@@ -701,6 +726,10 @@ class PreparedMethod:
     tapes: dict = field(default_factory=dict)
     progress: Callable | None = None
     finish: Callable | None = None
+    preparation: object = None
+    controls: Mapping = field(default_factory=dict)
+    update_parameter: Callable | None = None
+    checkpoint: Callable | None = None
 
 
 #: method-tape artifact filename -> the output switch gating its inclusion
@@ -738,15 +767,40 @@ def run_prepared_method(kernel: KernelPort, plan, prepared: PreparedMethod, *,
     records — or the bare :class:`RunResult` when the method supplied no
     ``finish``.
     """
-    probes = _default_probes(plan, sink, resume=prepared.resume_plan,
-                             kernel=kernel, log=logger)
-    _append_restraint_probe(probes, plan, sink, kernel,
-                            resume=prepared.resume_plan,
-                            independent=restraint_independent,
-                            shared_group=restraint_shared_group)
-    for filename, probe in prepared.tapes.items():
-        if _tape_enabled(plan, filename):
-            probes.append(probe)
+    preparation = prepared.preparation
+    if preparation is not None:
+        while not preparation.done:
+            preparation.advance(5000)
+    runner = prepare_method_stepper(kernel, plan, prepared, sink=sink,
+                                    logger=logger, on_progress=on_progress,
+                                    restraint_independent=restraint_independent,
+                                    restraint_shared_group=restraint_shared_group)
+    while not runner.done:
+        runner.advance(max(1, runner.total - kernel.current_step))
+    result = runner.finish()
+    return result if prepared.finish is None else prepared.finish(result)
+
+
+def prepare_method_stepper(kernel, plan, prepared, *, sink=None, logger=None,
+                           on_progress=None, restraint_independent=None,
+                           restraint_shared_group=None,
+                           probes: Sequence[Probe] | None = None):
+    """Build an unfinalized driver with trusted in-process reporting probes.
+
+    ``None`` keeps default, restraint and enabled method probes. An explicit
+    sequence replaces that reporting list only; scientific hooks, checkpoints
+    and finalization remain independent and can still write artifacts.
+    """
+    if probes is None:
+        probes = _default_probes(plan, sink, resume=prepared.resume_plan,
+                                 kernel=kernel, log=logger)
+        _append_restraint_probe(probes, plan, sink, kernel,
+                                resume=prepared.resume_plan,
+                                independent=restraint_independent,
+                                shared_group=restraint_shared_group)
+        for filename, probe in prepared.tapes.items():
+            if _tape_enabled(plan, filename):
+                probes.append(probe)
 
     # compose the method's own artifact progress (e.g. the hills ledger)
     # into the driver's recorder: the merged hook fires it right after
@@ -766,11 +820,10 @@ def run_prepared_method(kernel: KernelPort, plan, prepared: PreparedMethod, *,
     else:
         on_step = hook
 
-    result = run_md(kernel, plan, probes,
+    return MDStepper(kernel, plan, probes,
                     on_step=on_step,
                     on_step_interval=prepared.on_step_interval,
                     logger=logger, sink=sink, on_progress=on_progress)
-    return result if prepared.finish is None else prepared.finish(result)
 
 
 def _manifest_recorder(manifest, sink):
@@ -807,7 +860,7 @@ def drive(
       :class:`~neomd.probes.RestraintProbe` when the derived
       ``restraint_interval`` asks for it; no probes without a sink).
       The min leg additionally runs the openmm-free QC pass on the
-      MINIMIZED coordinates (``_run_min_qc``; ``qc_report.json`` through
+      MINIMIZED coordinates (``run_minimization_qc``; ``qc_report.json`` through
       the sink, strict mode raises after it is written).
       Anything else dispatches through the method extension rack
       (``registry.get("method", ...)``, did-you-mean on miss) — metadynamics
@@ -911,7 +964,7 @@ def drive(
     results: list = []
     if method in _MIN_METHODS:
         results.append(run_minimization(kernel, plan, sink=sink, logger=log))
-        _run_min_qc(kernel, plan, sink, log)
+        run_minimization_qc(kernel, plan, sink, log)
     elif method in _MD_METHODS:
         from .resume import plan_resume
 

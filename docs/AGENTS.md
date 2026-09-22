@@ -1,62 +1,39 @@
-# docs — documentation placement + method pages
+# Public documentation
 
-Two homes, chosen by audience:
+`docs/` holds user guidance, architecture, accepted ADRs and examples. Working
+plans and drafts stay in ignored `.agents/`; tracked docs must not depend on them.
+Update current descriptions in place while retaining accepted decision rationale.
 
-- **`.agents/` — development docs.** Working plans, design drafts,
-  execution boards, migration records, anything churning with fast
-  iteration. The directory is git-ignored: local-only, never committed.
-- **`docs/` — external docs only.** What a user or outside reader needs:
-  the operation manual (tutorials, configuration reference), technical
-  principles (architecture, per-method pages, ADRs), and examples. Built
-  into the mkdocs site; changes must pass `pixi run docs-build`.
+Schema/vocabulary changes regenerate `docs/reference/configuration.md` with
+`pixi run docs-gen`; retain its sync check. Changes affecting the published site
+use the strict `pixi run docs-build` gate.
 
-Consequences:
+Method pages focus on a brief purpose, runnable usage, artifacts/resume semantics
+and primary-paper links. Keep derivations in papers and design rationale in ADRs.
+Docstrings explain local contracts—units, exactness, producer conventions,
+threshold rationale and attribution—where implemented. Preserve statements pinned
+as contracts by tests; avoid duplicating papers or implementation history.
 
-- Tracked files (code, `docs/`, `README.md`) never reference files under
-  `.agents/` — the link would dangle for everyone else. Reference the
-  GitHub issue or ADR instead.
-- Promote a document by rewriting it for the external audience into
-  `docs/`; do not symlink or copy `.agents/` drafts.
-- Entropy reduction applies everywhere: documents describe the current
-  as-built state. Rewrite in place when something changes — do not layer
-  "previously…" notes, stale version history, or completed-migration
-  narrative into living docs.
+Site tooling/instructions belong under `exclude_docs` (see `mkdocs.yml`), not
+the published site. Distinguish accepted decisions from proposed ADRs; a
+proposed interface is not a shipped capability.
 
-## Build gates
+## Read for the change
 
-The docs env (`mkdocs-material`) builds this site; `pixi run docs-gen`
-re-renders `docs/reference/configuration.md` from `plan.py`/registry
-vocabularies — the generated file is committed and pinned by a sync test,
-so regenerate and commit it together with any schema/vocabulary change.
-`pixi run docs-build` (mkdocs build --strict) is the docs-site gate; CI
-details in `tests/AGENTS.md`.
+- Setup, CI, golden tolerances or docs generation: `docs/development.md`;
+  executable task/environment definitions are in `pyproject.toml`.
+- Public usage: `docs/quickstart.md`; method questions use the relevant page
+  via `docs/methods/index.md`; current limits: `docs/tutorials/coming-soon.md`.
+- Architecture rationale: `docs/architecture.md`, then only the relevant ADR.
+- Service contracts, scientific intake, runtime or result publication:
+  `src/neomd_server/AGENTS.md` routes to the owner document. Preserve
+  feature-tree qualification limits; a main-based documentation change cannot
+  replace newer service behavior or mark pending integration as complete.
 
-## Method pages (docs/methods/) — content policy (issue #17)
-
-In the AI era most procedural documentation is dead weight: the paper IS
-the documentation. Per-method pages therefore keep exactly four things:
-
-1. **原理简述** — a short (≤1 paragraph) statement of what the method
-   does and when to use it; do NOT restate the paper's derivations,
-   full math, or design history.
-2. **使用** — runnable plan/CLI examples and key options.
-3. **产物** — the artifacts it writes and their resume semantics.
-4. **参考文献** — the papers the implementation is based on, with
-   DOI/arXiv links (the user-interaction-point traceability this issue
-   established). Design decisions and issue-delta narratives live in
-   ADRs and issues — link them, never restate them.
-
-## Code docstrings (src/neomd/) — content policy (issue #17)
-
-Same logic as the method-page policy: the paper IS the documentation.
-Module headers are 1–5 lines — one sentence of role + pointers (docs page,
-ADR, issue). Paper restatements, formulas copied from papers, design
-history and issue-delta narratives do NOT live in docstrings; a design
-decision not recorded anywhere else gets merged into the relevant ADR
-instead. Code-internal contracts (bit-exactness seams, unit
-conventions, format/producer conventions, threshold rationale,
-provenance/attribution) are kept — at the docstring of the specific
-function/class implementing them; a genuinely whole-module contract may
-stay in the header as a compressed paragraph (≤6 lines). Tests may pin
-docstring content (e.g. migrate_v1.py's one-shot discipline) — those
-statements are contracts, never delete them.
+Promote development drafts by rewriting for external readers; tracked docs
+never symlink or copy ignored drafts. Method pages keep a one-paragraph purpose,
+runnable usage, artifacts/resume semantics and primary DOI/arXiv references.
+Module docstrings use 1–5 lines for role and documentation/ADR pointers; a
+whole-module contract may use a compressed paragraph of at most six lines.
+Keep narrower unit, exactness, producer, threshold and attribution contracts
+with their implementing function/class.

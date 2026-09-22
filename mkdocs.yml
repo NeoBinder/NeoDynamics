@@ -32,6 +32,7 @@ markdown_extensions:
 # __pycache__ appears when the sync test imports the generator in-place
 exclude_docs: |
   generate_reference.py
+  AGENTS.md
   __pycache__
 
 nav:
@@ -39,11 +40,20 @@ nav:
   - Quick start: quickstart.md
   - Configuration reference: reference/configuration.md
   - Architecture: architecture.md
+  - Interactive service driver: interactive-driver.md
+  - Prepared bundles: prepared-bundle.md
+  - Protein preparation: protein-preparation.md
+  - Service ledger: service-ledger.md
+  - Scientific protocols: scientific-protocol.md
+  - Private service transport: private-transport.md
+  - Runtime qualification: runtime-qualification.md
+  - Resident service: service-runtime.md
+  - Trajectory result evidence: trajectory-results.md
   - Tutorials:
       - Metadynamics: tutorials/metadynamics.md
       - Steered MD: tutorials/steered-md.md
       - Restraints: tutorials/restraints.md
-      - Coming soon: tutorials/coming-soon.md
+      - Scope limits: tutorials/coming-soon.md
   - Methods:
       - Overview: methods/index.md
       - GaMD: methods/gamd.md
@@ -58,3 +68,4 @@ nav:
   - Development:
       - Overview: development.md
       - ADR 0001 — same-repo strangler migration: adr/0001-neomd2-strangler-migration.md
+      - ADR 0008 — interactive service driver: adr/0008-interactive-service-driver.md

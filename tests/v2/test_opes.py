@@ -18,6 +18,7 @@ and compared through the port's bias_energy readout.
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 
 # Determinism pin — BEFORE any openmm Context can exist in this process
 # (pytest imports test modules during collection; same rationale as
@@ -35,7 +36,7 @@ from neomd import md_run, registry
 from neomd.analysis import read_colvar
 from neomd.driver import drive
 from neomd.errors import ConfigKeyError, PlanValidationErrors
-from neomd.kernel import KernelSpec, SystemData
+from neomd.kernel import KernelFactory, KernelSpec, SystemData
 from neomd.kernel._bootstrap import ensure_adapters
 from neomd.kernel.fake import FakeKernel
 from neomd.manifest import RunManifest
@@ -772,7 +773,6 @@ def test_drive_unknown_method_error_lists_opes():
         drive(plan, kernel_factory=lambda spec: FakeKernel(spec))
 
 
-@pytest.mark.cuda
 def test_md_run_end_to_end_yaml_to_artifacts(tmp_path):
     """The facade path: a plan FILE on disk -> md_run -> artifacts (the
     openmm kernel — ``compile(kernel='fake')`` is a documented
@@ -784,7 +784,7 @@ def test_md_run_end_to_end_yaml_to_artifacts(tmp_path):
     plan_file.write_text(yaml.safe_dump(config), encoding="utf-8")
 
     started = time.perf_counter()
-    outcome = md_run(str(tmp_path))  # L0: plan-file discovery inside the dir
+    outcome = md_run(str(tmp_path), platform="cpu")  # L0: plan-file discovery inside the dir
     elapsed = time.perf_counter() - started
 
     assert elapsed < 20.0
@@ -883,11 +883,11 @@ def openmm_opes_config(steps: int, **overrides) -> dict:
     return config
 
 
-@pytest.mark.cuda
 def test_drive_opes_openmm_ala2(tmp_path):
     plan = Plan.from_dict(openmm_opes_config(300, output=out(tmp_path)))
     started = time.perf_counter()
-    outcome = drive(plan, sink=LocalDirSink(tmp_path))
+    outcome = drive(plan, kernel_factory=lambda spec: KernelFactory.create(
+        replace(spec, platform="cpu")), sink=LocalDirSink(tmp_path))
     elapsed = time.perf_counter() - started
 
     assert elapsed < 20.0

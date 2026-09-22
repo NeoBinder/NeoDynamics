@@ -20,14 +20,45 @@ dependencies = [
   "python-box >= 7.3.2",
 ]
 
+[project.optional-dependencies]
+server = [
+  "asyncpg >= 0.31,<0.32",
+  "jsonschema >= 4.26,<5",
+  "rfc8785 >= 0.1.4,<1",
+  "fastapi >= 0.116,<1",
+  "uvicorn >= 0.35,<1",
+  "websockets >= 15,<17",
+  "httpx >= 0.28,<1",
+]
+
 [project.scripts]
 neomd = "neomd.cli:main"
 neomd2 = "neomd.cli:main"  # strangler-period alias, removed with neomd_legacy
+neomd-server = "neomd_server.runtime:main"
 
 [tool.versioningit]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.data-files]
+"share/neodynamics/contracts/imd/v1" = ["contracts/imd/v1/*.json"]
+"share/neodynamics/contracts/scientific-protocol/v1" = ["contracts/scientific-protocol/v1/*.json"]
+"share/neodynamics/contracts/prepared-bundle/v1" = ["contracts/prepared-bundle/v1/*.json"]
+"share/neodynamics/contracts/prepared-bundle/v2" = ["contracts/prepared-bundle/v2/*.json"]
+"share/neodynamics/contracts/assembly-report/v1" = ["contracts/assembly-report/v1/*.json"]
+"share/neodynamics/contracts/topology-view/v1" = ["contracts/topology-view/v1/*.json"]
+"share/neodynamics/contracts/protein-preparation/v1" = ["contracts/protein-preparation/v1/*.json"]
+"share/neodynamics/contracts/trajectory-result/v1" = ["contracts/trajectory-result/v1/*.json"]
+"share/neodynamics/contracts/neoapi-md-publication/v1" = [
+  "contracts/neoapi-md-publication/v1/openapi.yaml",
+  "contracts/neoapi-md-publication/v1/schema.json",
+  "contracts/neoapi-md-publication/v1/snapshot.json",
+  "contracts/neoapi-md-publication/v1/README.md",
+]
+
+[tool.setuptools.package-data]
+neomd_server = ["migrations/*.sql", "fixtures/qualification/*", "fixtures/qualification/sources/*"]
 
 [project.urls]
 Homepage = "https://github.com/NeoBinder/NeoDynamics"
@@ -37,6 +68,7 @@ Issues = "https://github.com/NeoBinder/NeoDynamics/issues"
 markers = [
   "cuda: requires CUDA execution (including the default OpenMM platform); skipped by --skip-cuda",
   "golden: golden-sample parity tests against v1 tapes (run via `pixi run test-golden`)",
+  "server_db: requires an explicitly configured disposable PostgreSQL fixture database",
   "legacy: tests exercising frozen v1 (neomd_legacy) live; excluded from CI after the flip (run via `pixi run test-legacy`)",
 ]
 
@@ -55,7 +87,7 @@ line-length = 100
 select = ["E4", "E7", "E9", "F", "I"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["neomd", "neomd_legacy"]
+known-first-party = ["neomd", "neomd_legacy", "neomd_server"]
 
 # --- pixi workspace (merged from pixi.toml) ---
 
@@ -84,7 +116,28 @@ pytest = "*"
 
 [tool.pixi.feature.test.dependencies]
 pytest = "*"
+jsonschema = ">=4.26,<5"
 pdbfixer = "*"
+
+[tool.pixi.feature.server.pypi-dependencies]
+asyncpg = ">=0.31,<0.32"
+rfc8785 = ">=0.1.4,<1"
+fastapi = ">=0.116,<1"
+uvicorn = ">=0.35,<1"
+websockets = ">=15,<17"
+
+[tool.pixi.feature.server.dependencies]
+# Explicit runtime requirement for the qualified preparation SDK boundary;
+# do not depend on the test feature incidentally installing it.
+pdbfixer = "==1.12.0"
+httpx = ">=0.28,<1"
+
+[tool.pixi.feature.server.activation.env]
+PYTHONNOUSERSITE = "1"
+
+[tool.pixi.feature.server.tasks]
+serve = "neomd-server serve"
+test-server = "pytest tests/server"
 
 [tool.pixi.feature.docs.dependencies]
 mkdocs-material = "*"
@@ -125,6 +178,7 @@ test-ml = "pytest tests/v2/test_mlmm.py -v"
 [tool.pixi.environments]
 default = { features = ["engine"], solve-group = "default" }
 test = { features = ["engine", "test"], solve-group = "default" }
+server = { features = ["engine", "test", "server"], solve-group = "default" }
 dev = { features = ["engine", "dev"], solve-group = "dev" }
 docs = { features = ["engine", "docs"], solve-group = "default" }
 ml = { features = ["ml"], solve-group = "ml" }

@@ -237,6 +237,7 @@ class SMDRun:
         self.shared_group: int | None = None
         #: entry -> {ramp key: current value} in SPEC units (report columns)
         self._current: dict[str, dict] = {}
+        self._overrides: dict[str, dict] = {}
 
     # -- entry point --------------------------------------------------------
 
@@ -335,7 +336,36 @@ class SMDRun:
             resume_plan=resume_plan,
             tapes=tapes,
             finish=self._finish,
+            controls={f"{entry.name}.{key}": {"unit": "nm" if key.endswith("nm")
+                                             else "degree", "minimum": 0.0 if key.endswith("nm") else -180.0,
+                                             "maximum": 100000.0 if key.endswith("nm") else 180.0,
+                                             "replaces_schedule": True}
+                      for entry in self.entries for key in entry.ramps
+                      if key in {"min_nm", "max_nm", "maxRMSD_nm", "min_degree", "max_degree"}},
+            update_parameter=self.update_parameter,
         )
+
+    def update_parameter(self, name, value):
+        """Explicitly replace one ramp by a held target for all future boundaries."""
+        import math
+
+        entry_name, _, key = name.rpartition(".")
+        entry = next((item for item in self.entries if item.name == entry_name), None)
+        allowed = {"min_nm", "max_nm", "maxRMSD_nm", "min_degree", "max_degree"}
+        if entry is None or key not in entry.ramps or key not in allowed:
+            raise ValueError("unknown or unsupported SMD ramp target")
+        value = float(value)
+        if not math.isfinite(value) or (key.endswith("nm") and value < 0):
+            raise ValueError("SMD target must be finite and distances nonnegative")
+        # Selectors and untouched ramps can be nested frozen lists. The public
+        # snapshot API thaws all levels before the candidate is revalidated.
+        candidate = self.plan.to_dict()["smd"]
+        for label, overrides in self._overrides.items():
+            candidate[label].update(overrides)
+        candidate[entry_name][key] = value
+        self.plan.with_(smd=candidate)  # collect-all schema validation before mutation
+        self._overrides.setdefault(entry_name, {})[key] = value
+        self._update_parameters(self.kernel.current_step // UPDATE_INTERVAL * UPDATE_INTERVAL)
 
     def _finish(self, result) -> MethodResult:
         """End-of-run artifacts + the result drive() records."""
@@ -385,6 +415,7 @@ class SMDRun:
         """
         for e in self.entries:
             spec = e.scalar_at(step, self.total_steps)
+            spec.update(self._overrides.get(e.name, {}))
             self._current[e.name] = {key: spec[key] for key in e.ramps}
             for bias in e.entry.make_bias(e.name, spec):
                 for pname, param in bias.params.items():

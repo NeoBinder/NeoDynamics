@@ -1,0 +1,11 @@
+{
+  "id": "77777777-7777-4777-8777-777777777777",
+  "status": "running",
+  "total_bytes": 100000000000,
+  "processed_bytes": 64000000,
+  "total_files": 2,
+  "processed_files": 0,
+  "updated_at": "2026-09-07T00:00:00Z",
+  "failure": null,
+  "artifact_ids": null
+}

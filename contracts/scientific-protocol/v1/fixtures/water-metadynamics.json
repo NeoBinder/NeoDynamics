@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "prepared_revision_id": "e69e1a9a-0580-4a7f-9dfd-be9d026d403b",
+  "method": "metadynamics",
+  "physics": {
+    "temperature_K": 298,
+    "timestep_ps": 0.0005,
+    "friction_per_ps": 1,
+    "seed": 42
+  },
+  "steps": 100,
+  "reporting": {
+    "report_interval_steps": 10
+  },
+  "colvars": [
+    {
+      "id": "68f9b439-a115-5b18-929b-2e5b0179a16e",
+      "type": "distance",
+      "parameters": {
+        "grp1_idx": [
+          "ad2ae3e7-c4fb-4a03-8151-8b0f1d0a49e1"
+        ],
+        "grp2_idx": [
+          "b07b4d8b-0965-42ad-bc8b-be6a963183a4"
+        ],
+        "min_cv_nm": 0,
+        "max_cv_nm": 1,
+        "biasWidth_nm": 0.02,
+        "bins": 50
+      }
+    }
+  ],
+  "metadynamics": {
+    "cv_ids": [
+      "68f9b439-a115-5b18-929b-2e5b0179a16e"
+    ],
+    "bias_factor": 5,
+    "height_kj_mol": 0.1,
+    "frequency_steps": 10
+  }
+}

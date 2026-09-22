@@ -136,14 +136,13 @@ def test_run_kernel_fake_surfaces_the_documented_error(tmp_path):
         main(["run", str(plan_dir), "--kernel", "fake"])
 
 
-@pytest.mark.cuda
 def test_run_silent_prints_nothing(tmp_path, capsys):
     # --silent: no banner/progress on stderr, no summary on stdout, and the
     # logging-level pin is undone after the run
     plan_dir = write_plan_dir(tmp_path, ala2_plan(tmp_path / "out", steps=10))
     before = logging.getLogger("neomd").level
 
-    rc = main(["run", str(plan_dir), "--silent"])
+    rc = main(["run", str(plan_dir), "--silent", "--platform", "cpu"])
 
     assert rc == 0
     captured = capsys.readouterr()

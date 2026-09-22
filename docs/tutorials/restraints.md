@@ -1,10 +1,10 @@
 # Restraints
 
 Static restraints live in the `restraint:` section of any plan; every
-entry needs a `type` plus that restraint type's keys. Nine types are
-registered: `distance`, `dihedral`, `angle`, `funnel`,
-`dist_ref_position`, `xyz_box`, `vec_restraint`, `rmsd`, and `distances`
-(N pairs packed into one force per side — the group-economy type).
+entry needs a `type` plus that restraint type's keys. The generated
+[restraint reference](../reference/configuration.md#restraints) lists every
+registered type and its keys. `distances` packs N pairs into one force per
+side; [Boresch restraints](../methods/boresch.md) provide orientation anchors.
 
 ```yaml
 method: md

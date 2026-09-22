@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "prepared_revision_id": "e69e1a9a-0580-4a7f-9dfd-be9d026d403b",
+  "method": "md",
+  "physics": {
+    "temperature_K": 298,
+    "timestep_ps": 0.0005,
+    "friction_per_ps": 1,
+    "seed": 42
+  },
+  "steps": 100,
+  "reporting": {
+    "report_interval_steps": 10
+  }
+}

@@ -1,12 +1,9 @@
 # Development
 
-The development contract lives in
-[AGENTS.md](https://github.com/NeoBinder/NeoDynamics/blob/main/AGENTS.md)
-in the repository root: architecture, working discipline (the interface
-is the test surface, validation collects everything, source-scan
-guarantees), the settled decisions that are not to be relitigated, and
-the worktree-based workflow (one worktree per task, land on main as one
-squashed commit after confirmation).
+Contributor constraints and the PR-only worktree/confirmation gate live in
+[AGENTS.md](https://github.com/NeoBinder/NeoDynamics/blob/main/AGENTS.md).
+The as-built module responsibilities and settled choices are documented in
+[Architecture](architecture.md).
 
 ## Commands
 
@@ -14,6 +11,8 @@ squashed commit after confirmation).
 pixi run test          # pytest -m 'not golden and not legacy' — the CI gate (~6 min)
 pixi run test-golden   # golden-sample parity vs v1 tapes, bit-exact (~3 min)
 pixi run test-legacy   # frozen v1 live tests (excluded from CI)
+pixi run -e ml test-ml # ML/MM torch tier; separate pinned environment
+uvx ruff check .       # lint gate (configuration/exclusions in pyproject.toml)
 
 pixi run docs-gen      # regenerate docs/reference/configuration.md from the live package
 pixi run docs-build    # mkdocs build --strict — warnings fail the build
@@ -54,3 +53,23 @@ docs/mkdocs/the package and deploys it to GitHub Pages on every push to
   test-golden` and the 3HTB smoke on every PR; pre-commit.ci enforces the
   check-only hooks in `.pre-commit-config.yaml` (run locally with
   `uvx pre-commit run --all-files`).
+
+### Numerical and hardware gates
+
+Golden tapes are bit-stable only on the recording microarchitecture.
+Use bit-exact comparison there; CI uses `NEO_GOLDEN_TOLERANT=1`:
+energy max error 1e-3 / mean error 1e-4 kJ/mol, statistics rtol 1e-3,
+without coordinate-hash identity. These are regression tolerances, not a
+physical-correctness proof.
+
+The separate `ml` environment currently pins OpenMM 8.5.* for
+openmm-torch compatibility; default runtime/private-API gates use 8.6.x.
+See [ADR 0004](adr/0004-mlmm-in-tree-coupling.md) before changing those pins.
+
+CPU-only runs use `PYTEST_ADDOPTS=--skip-cuda`. Mark tests executing CUDA,
+including implicit default-platform execution, with `@pytest.mark.cuda`;
+explicit CPU and fake tests remain enabled. Local runs otherwise include CUDA.
+
+The ML/MM analytical energy test uses the pinned OpenMM Coulomb constant,
+CPU `rtol=1e-6`, and Reference `rtol=1e-12`; retain both tiers when updating
+the fixture or numerical tolerances.

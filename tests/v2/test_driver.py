@@ -11,6 +11,7 @@ test drives openmm on the ala2 fixture (~50 steps).
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 
 # Determinism pin — must happen before the first openmm Context exists in
 # this process (pytest imports every test module during collection, so
@@ -614,7 +615,6 @@ def test_drive_resume_checkpoint_through_continue_md(tmp_path):
 # ===========================================================================
 
 
-@pytest.mark.cuda
 def test_drive_openmm_ala2_with_restraint(tmp_path):
     plan = Plan.from_dict({
         "method": "eq",
@@ -640,7 +640,7 @@ def test_drive_openmm_ala2_with_restraint(tmp_path):
 
     def factory(spec: KernelSpec):
         captured["spec"] = spec
-        captured["kernel"] = default_create(spec)
+        captured["kernel"] = default_create(replace(spec, platform="cpu"))
         return captured["kernel"]
 
     outcome = drive(plan, kernel_factory=factory, sink=LocalDirSink(tmp_path))

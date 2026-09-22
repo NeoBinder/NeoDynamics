@@ -24,8 +24,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      # `environments: default` + `locked: true`: only install the default
-      # environment from the committed pixi.lock. Never solve/install the
+      # The locked server environment includes engine, preparation and service
+      # test dependencies. Never solve/install the
       # `dev` environment here — its pypi deps include a path dependency on
       # ../NeoTopology which does not exist in a CI checkout.
       #
@@ -38,15 +38,15 @@ jobs:
       - uses: prefix-dev/setup-pixi@v0
         with:
           pixi-version: v0.77.1
-          environments: default
+          environments: server
           locked: true
           cache: true
 
       - name: Run tests (excluding golden)
-        run: pixi run test
+        run: pixi run -e server python -m pytest tests/ -m 'not golden and not legacy'
 
       - name: Run golden-sample tests
-        run: pixi run test-golden
+        run: pixi run -e server python -m pytest tests/ -m 'golden and not legacy'
         env:
           # The tapes are bit-stable only on the microarchitecture that
           # recorded them; the hosted runner fleet is heterogeneous, and

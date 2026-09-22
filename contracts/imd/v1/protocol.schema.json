@@ -1,0 +1,2890 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:neomd:imd:v1",
+  "title": "NeoDynamics private IMD protocol v1",
+  "$defs": {
+    "PreparedBinding": {
+      "type": "object",
+      "properties": {
+        "bundle_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "prepared_revision_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "mapping_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "bundle_id",
+        "prepared_revision_id",
+        "manifest_sha256",
+        "mapping_sha256"
+      ],
+      "additionalProperties": false
+    },
+    "ExpectedVersion": {
+      "type": "object",
+      "properties": {
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "epoch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "control_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "prepared_revision_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        }
+      },
+      "required": [
+        "attempt_id",
+        "generation",
+        "epoch",
+        "control_revision",
+        "prepared_revision_id"
+      ],
+      "additionalProperties": false
+    },
+    "ControllerFence": {
+      "type": "object",
+      "properties": {
+        "controller_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "fence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "controller_id",
+        "fence"
+      ],
+      "additionalProperties": false
+    },
+    "Error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid_request",
+            "authentication_required",
+            "forbidden",
+            "not_found",
+            "idempotency_conflict",
+            "version_conflict",
+            "controller_conflict",
+            "command_pending",
+            "generation_fenced",
+            "lease_expired",
+            "session_terminal",
+            "prepared_binding_mismatch",
+            "outcome_indeterminate",
+            "publication_conflict",
+            "artifact_unverified",
+            "queue_expired",
+            "cursor_expired",
+            "upload_expired",
+            "payload_too_large",
+            "integrity_mismatch",
+            "engine_rejected",
+            "method_unavailable",
+            "admission_full",
+            "service_unavailable",
+            "worker_lost",
+            "running_time_limit_exceeded",
+            "request_conflict",
+            "preset_revision_mismatch",
+            "preparation_terminal",
+            "unsupported_structure",
+            "evidence_mismatch"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "additionalProperties": false
+    },
+    "Observation": {
+      "type": "object",
+      "properties": {
+        "step": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "time_ps": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "phase": {
+          "enum": [
+            "minimization",
+            "calibration",
+            "production",
+            "window_boundary"
+          ]
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "fresh_until": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "freshness": {
+          "enum": [
+            "fresh",
+            "stale"
+          ]
+        },
+        "particle_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "step",
+        "time_ps",
+        "phase",
+        "observed_at",
+        "fresh_until",
+        "freshness",
+        "particle_count"
+      ],
+      "additionalProperties": false
+    },
+    "SessionSnapshot": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "attempt_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "epoch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "service_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "control_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "state": {
+          "enum": [
+            "queued",
+            "starting",
+            "running",
+            "paused",
+            "stopping",
+            "completed",
+            "stopped",
+            "failed",
+            "expired",
+            "recovery_required"
+          ]
+        },
+        "prepared": {
+          "$ref": "#/$defs/PreparedBinding"
+        },
+        "observation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Observation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "publication_state": {
+          "enum": [
+            "local",
+            "uploading",
+            "verified",
+            "cleanup_eligible",
+            "cleaned",
+            "failed"
+          ]
+        },
+        "controller": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "controller_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "fence": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "lease_expires_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "controller_id",
+                "fence",
+                "lease_expires_at"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "capabilities": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "commands",
+                "parameters"
+              ],
+              "properties": {
+                "commands": {
+                  "type": "array",
+                  "items": {
+                    "enum": [
+                      "pause",
+                      "resume",
+                      "stop",
+                      "checkpoint",
+                      "set_forces",
+                      "clear_forces",
+                      "set_restraint",
+                      "clear_restraints",
+                      "set_parameter"
+                    ]
+                  },
+                  "uniqueItems": true
+                },
+                "parameters": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "unit"
+                    ],
+                    "properties": {
+                      "unit": {
+                        "enum": [
+                          "nm",
+                          "degree",
+                          "kJ/mol",
+                          "boolean"
+                        ]
+                      },
+                      "minimum": {
+                        "type": "number"
+                      },
+                      "maximum": {
+                        "type": "number"
+                      },
+                      "exclusive_minimum": {
+                        "type": "number"
+                      },
+                      "phase": {
+                        "enum": [
+                          "calibration",
+                          "production",
+                          "minimization"
+                        ]
+                      },
+                      "replaces_schedule": {
+                        "type": "boolean"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "controller_fence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "runtime_budget": {
+          "$ref": "#/$defs/RuntimeBudget"
+        },
+        "finalization": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OutputFinalization"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "session_id",
+        "attempt_id",
+        "generation",
+        "epoch",
+        "service_revision",
+        "control_revision",
+        "state",
+        "prepared",
+        "observation",
+        "publication_state",
+        "controller",
+        "created_at",
+        "updated_at",
+        "capabilities",
+        "controller_fence"
+      ],
+      "additionalProperties": false
+    },
+    "CreatePayload": {
+      "type": "object",
+      "properties": {
+        "prepared": {
+          "$ref": "#/$defs/PreparedBinding"
+        },
+        "protocol_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "method": {
+          "enum": [
+            "min",
+            "eq",
+            "md",
+            "prod",
+            "metadynamics",
+            "smd",
+            "opes",
+            "gamd",
+            "rbfe"
+          ]
+        }
+      },
+      "required": [
+        "prepared",
+        "protocol_id",
+        "method"
+      ],
+      "additionalProperties": false
+    },
+    "CreateRequest": {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "payload_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "payload": {
+          "$ref": "#/$defs/CreatePayload"
+        },
+        "session_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        }
+      },
+      "required": [
+        "request_id",
+        "session_id",
+        "payload_sha256",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    "ControllerRequest": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "request_id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "operation": {
+              "enum": [
+                "acquire"
+              ]
+            },
+            "controller_id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "expected_fence": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "lease_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 300000
+            }
+          },
+          "required": [
+            "request_id",
+            "operation",
+            "controller_id",
+            "expected_fence",
+            "lease_ms"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "request_id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "operation": {
+              "enum": [
+                "renew"
+              ]
+            },
+            "controller_id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "expected_fence": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "lease_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 300000
+            }
+          },
+          "required": [
+            "request_id",
+            "operation",
+            "controller_id",
+            "expected_fence",
+            "lease_ms"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "request_id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "operation": {
+              "enum": [
+                "release"
+              ]
+            },
+            "controller_id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "expected_fence": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "request_id",
+            "operation",
+            "controller_id",
+            "expected_fence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "EngineCommand": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "enum": [
+                "pause"
+              ]
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "enum": [
+                "resume"
+              ]
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "enum": [
+                "stop"
+              ]
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "enum": [
+                "checkpoint"
+              ]
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "enum": [
+                "clear_forces"
+              ]
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "enum": [
+                "set_forces"
+              ]
+            },
+            "atom_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              "minItems": 1,
+              "maxItems": 4096,
+              "uniqueItems": true
+            },
+            "vectors": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "minItems": 1,
+              "maxItems": 4096
+            },
+            "unit": {
+              "enum": [
+                "kJ/mol/nm"
+              ]
+            },
+            "ttl_steps": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000
+            },
+            "ttl_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2000
+            }
+          },
+          "required": [
+            "type",
+            "atom_ids",
+            "vectors",
+            "unit",
+            "ttl_steps",
+            "ttl_ms"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "enum": [
+                "set_restraint"
+              ]
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "atom_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              "minItems": 1,
+              "maxItems": 4096,
+              "uniqueItems": true
+            },
+            "targets": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "minItems": 1,
+              "maxItems": 4096
+            },
+            "k": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "position_unit": {
+              "enum": [
+                "nm"
+              ]
+            },
+            "k_unit": {
+              "enum": [
+                "kJ/mol/nm^2"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "name",
+            "atom_ids",
+            "targets",
+            "k",
+            "position_unit",
+            "k_unit"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "enum": [
+                "clear_restraints"
+              ]
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "enum": [
+                "set_parameter"
+              ]
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "value": {
+              "type": [
+                "number",
+                "boolean"
+              ]
+            },
+            "unit": {
+              "enum": [
+                "nm",
+                "degree",
+                "kJ/mol",
+                "boolean"
+              ]
+            },
+            "replace_schedule": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "type",
+            "name",
+            "value",
+            "unit"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "CommandRequest": {
+      "type": "object",
+      "properties": {
+        "command_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "payload_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expected": {
+          "$ref": "#/$defs/ExpectedVersion"
+        },
+        "controller": {
+          "$ref": "#/$defs/ControllerFence"
+        },
+        "payload": {
+          "$ref": "#/$defs/EngineCommand"
+        }
+      },
+      "required": [
+        "command_id",
+        "payload_sha256",
+        "expected",
+        "controller",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    "CommandReceipt": {
+      "type": "object",
+      "properties": {
+        "command_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "session_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "payload_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "epoch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "status": {
+          "enum": [
+            "accepted",
+            "claimed",
+            "applied",
+            "rejected",
+            "indeterminate"
+          ]
+        },
+        "accepted_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "resolved_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "accepted_step": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "applied_step": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "applied_control_revision": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "service_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Error"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "command_id",
+        "session_id",
+        "payload_sha256",
+        "attempt_id",
+        "generation",
+        "epoch",
+        "status",
+        "accepted_at",
+        "resolved_at",
+        "accepted_step",
+        "applied_step",
+        "applied_control_revision",
+        "service_revision",
+        "error"
+      ],
+      "additionalProperties": false
+    },
+    "SessionEvent": {
+      "type": "object",
+      "properties": {
+        "event_sequence": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "session_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "service_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "type": {
+          "enum": [
+            "created",
+            "admitted",
+            "state_changed",
+            "controller_changed",
+            "command_accepted",
+            "command_claimed",
+            "command_resolved",
+            "publication_changed"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/SessionSnapshot"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommandReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "event_sequence",
+        "session_id",
+        "service_revision",
+        "type",
+        "created_at",
+        "snapshot",
+        "command"
+      ],
+      "additionalProperties": false
+    },
+    "PreviewBinding": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "epoch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "prepared_revision_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "mapping_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "session_id",
+        "attempt_id",
+        "generation",
+        "epoch",
+        "prepared_revision_id",
+        "manifest_sha256",
+        "mapping_sha256"
+      ],
+      "additionalProperties": false
+    },
+    "PreviewLayout": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/PreviewBinding"
+        },
+        "atom_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "minItems": 1,
+          "maxItems": 100000,
+          "uniqueItems": true
+        },
+        "particle_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        "encoding": {
+          "enum": [
+            "float32-le"
+          ]
+        },
+        "coordinate_unit": {
+          "enum": [
+            "nm"
+          ]
+        },
+        "stride_bytes": {
+          "enum": [
+            12
+          ]
+        },
+        "header_bytes": {
+          "enum": [
+            208
+          ]
+        },
+        "system_particle_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "binding",
+        "atom_ids",
+        "particle_count",
+        "encoding",
+        "coordinate_unit",
+        "stride_bytes",
+        "header_bytes",
+        "system_particle_count"
+      ],
+      "additionalProperties": false
+    },
+    "PreviewLayoutMessage": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "layout"
+          ]
+        },
+        "layout_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "layout": {
+          "$ref": "#/$defs/PreviewLayout"
+        }
+      },
+      "required": [
+        "type",
+        "layout_sha256",
+        "layout"
+      ],
+      "additionalProperties": false
+    },
+    "PreviewLayoutAck": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "layout_ack"
+          ]
+        },
+        "layout_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "type",
+        "layout_sha256"
+      ],
+      "additionalProperties": false
+    },
+    "EventHello": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "subscribe"
+          ]
+        },
+        "after_event_sequence": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$"
+        }
+      },
+      "required": [
+        "type",
+        "after_event_sequence"
+      ],
+      "additionalProperties": false
+    },
+    "EventAck": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "event_ack"
+          ]
+        },
+        "event_sequence": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$"
+        }
+      },
+      "required": [
+        "type",
+        "event_sequence"
+      ],
+      "additionalProperties": false
+    },
+    "ArtifactDescriptor": {
+      "type": "object",
+      "properties": {
+        "artifact_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "session_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "kind": {
+          "enum": [
+            "checkpoint",
+            "trajectory",
+            "structure",
+            "method_state",
+            "report"
+          ]
+        },
+        "content_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "publication_state": {
+          "enum": [
+            "local",
+            "uploading",
+            "verified",
+            "cleanup_eligible",
+            "cleaned",
+            "failed"
+          ]
+        },
+        "download_ref": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "original_filename": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "^[^/\\\\\\u0000-\\u001f]+$"
+        },
+        "media_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 127,
+          "pattern": "^[a-zA-Z0-9!#$&^_.+-]+/[a-zA-Z0-9!#$&^_.+-]+$"
+        },
+        "publication_receipt_ref": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "artifact_id",
+        "session_id",
+        "attempt_id",
+        "generation",
+        "kind",
+        "content_sha256",
+        "size_bytes",
+        "publication_state",
+        "download_ref",
+        "original_filename",
+        "media_type",
+        "publication_receipt_ref"
+      ],
+      "additionalProperties": false
+    },
+    "ArtifactList": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ArtifactDescriptor"
+          }
+        }
+      },
+      "required": [
+        "session_id",
+        "artifacts"
+      ],
+      "additionalProperties": false
+    },
+    "EventList": {
+      "type": "object",
+      "properties": {
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SessionEvent"
+          }
+        },
+        "next_event_sequence": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$"
+        }
+      },
+      "required": [
+        "events",
+        "next_event_sequence"
+      ],
+      "additionalProperties": false
+    },
+    "ControllerReceipt": {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "session_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "operation": {
+          "enum": [
+            "acquire",
+            "renew",
+            "release"
+          ]
+        },
+        "controller_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "fence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "lease_expires_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "service_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "request_id",
+        "session_id",
+        "operation",
+        "controller_id",
+        "fence",
+        "lease_expires_at",
+        "service_revision"
+      ],
+      "additionalProperties": false
+    },
+    "PreviewSubscribe": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "subscribe"
+          ]
+        },
+        "atom_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "uniqueItems": true,
+          "minItems": 1,
+          "maxItems": 100000
+        },
+        "target_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 10
+        },
+        "prepared_revision_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        }
+      },
+      "required": [
+        "type",
+        "atom_ids",
+        "target_hz",
+        "prepared_revision_id"
+      ],
+      "additionalProperties": false
+    },
+    "RuntimeCapabilities": {
+      "type": "object",
+      "properties": {
+        "capability_revision": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "fresh_until": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "freshness": {
+          "enum": [
+            "fresh",
+            "stale"
+          ]
+        },
+        "methods": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "method": {
+                "enum": [
+                  "min",
+                  "eq",
+                  "md",
+                  "prod",
+                  "metadynamics",
+                  "smd",
+                  "opes",
+                  "gamd",
+                  "rbfe"
+                ]
+              },
+              "availability": {
+                "enum": [
+                  "available",
+                  "unavailable"
+                ]
+              },
+              "qualification": {
+                "enum": [
+                  "fake",
+                  "cpu",
+                  "cuda",
+                  "unqualified"
+                ]
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "dependency_missing",
+                      "qualification_missing",
+                      "platform_unavailable",
+                      "disabled"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "controls": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "commands",
+                      "parameters"
+                    ],
+                    "properties": {
+                      "commands": {
+                        "type": "array",
+                        "items": {
+                          "enum": [
+                            "pause",
+                            "resume",
+                            "stop",
+                            "checkpoint",
+                            "set_forces",
+                            "clear_forces",
+                            "set_restraint",
+                            "clear_restraints",
+                            "set_parameter"
+                          ]
+                        },
+                        "uniqueItems": true
+                      },
+                      "parameters": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "unit"
+                          ],
+                          "properties": {
+                            "unit": {
+                              "enum": [
+                                "nm",
+                                "degree",
+                                "kJ/mol",
+                                "boolean"
+                              ]
+                            },
+                            "minimum": {
+                              "type": "number"
+                            },
+                            "maximum": {
+                              "type": "number"
+                            },
+                            "exclusive_minimum": {
+                              "type": "number"
+                            },
+                            "phase": {
+                              "enum": [
+                                "calibration",
+                                "production",
+                                "minimization"
+                              ]
+                            },
+                            "replaces_schedule": {
+                              "type": "boolean"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "method",
+              "availability",
+              "qualification",
+              "reason",
+              "controls"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "limits": {
+          "type": "object",
+          "properties": {
+            "max_active": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "max_queued": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "queue_ttl_seconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "max_control_json_bytes": {
+              "const": 1048576
+            },
+            "max_layout_json_bytes": {
+              "const": 8388608
+            },
+            "max_preview_atoms": {
+              "const": 100000
+            },
+            "max_frame_bytes": {
+              "const": 1200208
+            },
+            "max_control_atoms": {
+              "const": 4096
+            },
+            "max_restraint_names": {
+              "const": 64
+            },
+            "max_restraint_atoms_total": {
+              "const": 4096
+            },
+            "max_force_kj_mol_nm": {
+              "const": 10000
+            },
+            "max_restraint_k_kj_mol_nm2": {
+              "const": 1000000
+            },
+            "max_force_ttl_ms": {
+              "const": 2000
+            },
+            "max_force_ttl_steps": {
+              "const": 10000
+            },
+            "max_preview_hz": {
+              "const": 10
+            },
+            "max_controller_lease_ms": {
+              "const": 300000
+            },
+            "max_upload_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "max_upload_part_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "max_upload_parts": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "max_auth_staleness_seconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "max_coordinate_upload_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "max_bias_grid_points": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "max_reference_frames": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "max_reference_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "max_system_particles": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "max_output_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "max_running_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "finalization_timeout_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "max_finalization_files": {
+              "const": 4096
+            },
+            "max_pending_input_operations": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            }
+          },
+          "required": [
+            "max_active",
+            "max_queued",
+            "queue_ttl_seconds",
+            "max_control_json_bytes",
+            "max_layout_json_bytes",
+            "max_preview_atoms",
+            "max_frame_bytes",
+            "max_control_atoms",
+            "max_restraint_names",
+            "max_restraint_atoms_total",
+            "max_force_kj_mol_nm",
+            "max_restraint_k_kj_mol_nm2",
+            "max_force_ttl_ms",
+            "max_force_ttl_steps",
+            "max_preview_hz",
+            "max_controller_lease_ms",
+            "max_upload_bytes",
+            "max_upload_part_bytes",
+            "max_upload_parts",
+            "max_auth_staleness_seconds",
+            "max_coordinate_upload_bytes",
+            "max_running_seconds",
+            "finalization_timeout_seconds",
+            "max_finalization_files",
+            "max_pending_input_operations"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "capability_revision",
+        "observed_at",
+        "fresh_until",
+        "freshness",
+        "methods",
+        "limits"
+      ],
+      "additionalProperties": false
+    },
+    "UploadPart": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^(manifest\\.json|mapping\\.json|coordinates\\.f64le|system\\.xml|topology\\.pdbx|assembly-report\\.json|forcefield/(protein\\.ff14SB|tip3p_standard)\\.xml|sources/[0-9]{4}\\.[a-z0-9]+)$",
+          "maxLength": 128
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "name",
+        "sha256",
+        "size_bytes"
+      ],
+      "additionalProperties": false
+    },
+    "BundleUploadRequest": {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "parts": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 1024,
+          "items": {
+            "$ref": "#/$defs/UploadPart"
+          }
+        }
+      },
+      "required": [
+        "request_id",
+        "manifest_sha256",
+        "parts"
+      ],
+      "additionalProperties": false
+    },
+    "BundleUploadReceipt": {
+      "type": "object",
+      "properties": {
+        "upload_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "state": {
+          "enum": [
+            "receiving",
+            "validated",
+            "rejected",
+            "expired"
+          ]
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "part_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              "descriptor": {
+                "$ref": "#/$defs/UploadPart"
+              },
+              "received": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "part_id",
+              "descriptor",
+              "received"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "prepared": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PreparedBinding"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "upload_id",
+        "request_id",
+        "manifest_sha256",
+        "expires_at",
+        "state",
+        "parts",
+        "prepared"
+      ],
+      "additionalProperties": false
+    },
+    "PreparedAsset": {
+      "type": "object",
+      "properties": {
+        "prepared": {
+          "$ref": "#/$defs/PreparedBinding"
+        },
+        "particle_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "topology_atom_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "prepared",
+        "particle_count",
+        "topology_atom_count",
+        "created_at"
+      ],
+      "additionalProperties": false
+    },
+    "ProtocolRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "prepared",
+        "protocol"
+      ],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "prepared": {
+          "$ref": "#/$defs/PreparedBinding"
+        },
+        "protocol": {
+          "$ref": "urn:neodyn:scientific-protocol:v1"
+        }
+      }
+    },
+    "ProtocolAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_id",
+        "request_id",
+        "prepared",
+        "method",
+        "content_sha256",
+        "created_at"
+      ],
+      "properties": {
+        "protocol_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "prepared": {
+          "$ref": "#/$defs/PreparedBinding"
+        },
+        "method": {
+          "enum": [
+            "min",
+            "eq",
+            "md",
+            "prod",
+            "metadynamics",
+            "smd",
+            "opes",
+            "gamd",
+            "rbfe"
+          ]
+        },
+        "content_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Lowercase SHA256 of RFC 8785 JCS UTF-8 bytes for {\"prepared\": PreparedBinding, \"protocol\": scientific descriptor}, without a trailing newline. Includes the complete prepared binding; excludes request_id and protocol_id. No defaults are inserted before hashing."
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "QueueCancellationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "expected_service_revision"
+      ],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "expected_service_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "QueueCancellationReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "session_id",
+        "outcome",
+        "snapshot"
+      ],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "session_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "outcome": {
+          "const": "cancelled"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/SessionSnapshot"
+        }
+      }
+    },
+    "CoordinateUploadRequest": {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "prepared": {
+          "$ref": "#/$defs/PreparedBinding"
+        },
+        "metadata": {
+          "$ref": "urn:neodyn:coordinate-reference:v1"
+        }
+      },
+      "required": [
+        "request_id",
+        "prepared",
+        "metadata"
+      ],
+      "additionalProperties": false
+    },
+    "CoordinateUploadReceipt": {
+      "type": "object",
+      "properties": {
+        "upload_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "prepared": {
+          "$ref": "#/$defs/PreparedBinding"
+        },
+        "metadata": {
+          "$ref": "urn:neodyn:coordinate-reference:v1"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "state": {
+          "enum": [
+            "receiving",
+            "validated",
+            "rejected",
+            "expired"
+          ]
+        },
+        "received": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "upload_id",
+        "request_id",
+        "prepared",
+        "metadata",
+        "expires_at",
+        "state",
+        "received"
+      ],
+      "additionalProperties": false
+    },
+    "CoordinateAsset": {
+      "type": "object",
+      "properties": {
+        "prepared": {
+          "$ref": "#/$defs/PreparedBinding"
+        },
+        "metadata": {
+          "$ref": "urn:neodyn:coordinate-reference:v1"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "prepared",
+        "metadata",
+        "created_at"
+      ],
+      "additionalProperties": false
+    },
+    "RuntimeBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "limit_ms": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 2147483647000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "elapsed_ms": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "accounting": {
+          "enum": [
+            "not_started",
+            "measured",
+            "unknown",
+            "finalized"
+          ]
+        },
+        "stop": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "request_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "reason": {
+                  "const": "running_time_limit"
+                },
+                "status": {
+                  "enum": [
+                    "requested",
+                    "applied",
+                    "indeterminate"
+                  ]
+                },
+                "applied_step": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "applied_control_revision": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "request_id",
+                "reason",
+                "status",
+                "applied_step",
+                "applied_control_revision"
+              ],
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "status": {
+                        "const": "applied"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "applied_step": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "applied_control_revision": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "applied_step": {
+                        "type": "null"
+                      },
+                      "applied_control_revision": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "limit_ms",
+        "elapsed_ms",
+        "accounting",
+        "stop"
+      ],
+      "description": "Last durable owner-thread running duration; excludes pause, preparation and finalization. Unknown retains the last confirmed lower bound (or null for legacy). No wall-age estimate or automatic recovery.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "accounting": {
+                "const": "not_started"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "elapsed_ms": {
+                "const": 0
+              },
+              "stop": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "accounting": {
+                "enum": [
+                  "measured",
+                  "finalized"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "limit_ms": {
+                "type": "integer",
+                "minimum": 1000,
+                "maximum": 2147483647000
+              },
+              "elapsed_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            }
+          }
+        }
+      ]
+    },
+    "OutputFinalization": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "running",
+            "complete",
+            "failed",
+            "interrupted"
+          ]
+        },
+        "total_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "processed_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "total_files": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "processed_files": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "failure": {
+          "enum": [
+            null,
+            "deadline_exceeded",
+            "integrity_mismatch",
+            "worker_lost",
+            "output_limit_exceeded"
+          ]
+        },
+        "artifact_ids": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              "uniqueItems": true,
+              "maxItems": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "total_bytes",
+        "processed_bytes",
+        "total_files",
+        "processed_files",
+        "updated_at",
+        "failure",
+        "artifact_ids"
+      ],
+      "description": "Output-only state after confirmed engine exit. Scientific terminal state, running duration and control receipts remain unchanged if finalization fails. Complete means local sealed artifacts, never OSS publication. Null total fields occur together only when pre-seal output failure leaves inventory unknown; processed fields remain zero. Numeric totals describe sealed engine outputs; complete adds one generated result manifest, so artifact_ids length equals total_files + 1.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "complete"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "artifact_ids": {
+                "type": "array",
+                "minItems": 1
+              },
+              "failure": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "artifact_ids": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "properties": {
+                  "total_bytes": {
+                    "type": "null"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "total_files": {
+                    "type": "null"
+                  }
+                }
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "total_bytes": {
+                "type": "null"
+              },
+              "total_files": {
+                "type": "null"
+              },
+              "processed_bytes": {
+                "const": 0
+              },
+              "processed_files": {
+                "const": 0
+              },
+              "status": {
+                "enum": [
+                  "failed",
+                  "interrupted"
+                ]
+              },
+              "failure": {
+                "type": "string"
+              },
+              "artifact_ids": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "FinalizedArtifactPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "finalization_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ArtifactDescriptor"
+          },
+          "maxItems": 64
+        },
+        "next_after": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "session_id",
+        "finalization_id",
+        "artifacts",
+        "next_after"
+      ],
+      "description": "A bounded page from one exact completed finalization; historical checkpoint descriptors are excluded. Cursor is a member of its immutable sorted artifact_ids. Missing or mismatched descriptors fail closed."
+    },
+    "CommitInputRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        }
+      },
+      "required": [
+        "request_id"
+      ]
+    },
+    "InputOperationKind": {
+      "type": "string",
+      "enum": [
+        "prepared_commit",
+        "coordinate_commit",
+        "protocol_register"
+      ]
+    },
+    "InputOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "kind": {
+          "$ref": "#/$defs/InputOperationKind"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "accepted",
+            "running",
+            "succeeded",
+            "failed",
+            "interrupted"
+          ]
+        },
+        "upload_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "protocol_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "prepared": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/PreparedBinding"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "result": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/PreparedAsset"
+            },
+            {
+              "$ref": "#/$defs/CoordinateAsset"
+            },
+            {
+              "$ref": "#/$defs/ProtocolAsset"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Error"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "operation_id",
+        "request_id",
+        "kind",
+        "revision",
+        "state",
+        "upload_id",
+        "protocol_id",
+        "prepared",
+        "result",
+        "error",
+        "created_at",
+        "updated_at"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "prepared_commit"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "upload_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              "protocol_id": {
+                "type": "null"
+              },
+              "result": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/PreparedAsset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "coordinate_commit"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "upload_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              "protocol_id": {
+                "type": "null"
+              },
+              "result": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/CoordinateAsset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "prepared": {
+                "$ref": "#/$defs/PreparedBinding"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "protocol_register"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "upload_id": {
+                "type": "null"
+              },
+              "protocol_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              "result": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/ProtocolAsset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "prepared": {
+                "$ref": "#/$defs/PreparedBinding"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "succeeded"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "prepared": {
+                "$ref": "#/$defs/PreparedBinding"
+              },
+              "result": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "error": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "result": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "failed",
+                  "interrupted"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "error": {
+                "$ref": "#/$defs/Error"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "error": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "TopologyView": {
+      "$ref": "urn:neodyn:topology-view:v1:view"
+    },
+    "TopologyPage": {
+      "$ref": "urn:neodyn:topology-view:v1:page"
+    }
+  }
+}

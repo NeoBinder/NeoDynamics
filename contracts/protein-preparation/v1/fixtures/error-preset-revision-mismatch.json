@@ -1,0 +1,9 @@
+{
+  "code": "preset_revision_mismatch",
+  "details": {
+    "current_preset_revision_sha256": "376a4b2138ed3289f024c44d7f7ac3d6e47e7e3bf1be8b225d709d289f1f4fbf"
+  },
+  "message": "Submitted preset revision does not match the current accepted catalog revision.",
+  "request_id": "10000000-0000-4000-8000-000000000020",
+  "retryable": false
+}

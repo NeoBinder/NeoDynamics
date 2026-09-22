@@ -242,6 +242,8 @@ def build_kernel_spec(plan: Plan, *, kind: str = "openmm",
       the openmm adapter takes pressure/frequency from it and defaults
       temperature to the plan temperature;
     * ``particle_masses`` from ``system_modification`` (see above).
+    * ``global_parameters`` from ``alchemical.lambda_values``: each RBFE
+      window starts under its declared lambda, rather than System defaults.
     * ``ml_region`` (ADR-0004) is the RAW section verbatim — the
       openmm adapter assembles the mechanical embedding + NNP force from it
       BEFORE creating a Context (it must never reach system.xml: the NNP
@@ -288,6 +290,7 @@ def build_kernel_spec(plan: Plan, *, kind: str = "openmm",
         dummy_exceptions=_dummy_exceptions(
             getattr(plan, "system_modification", None)),
         ml_region=ml_region,
+        global_parameters=_global_parameters(getattr(plan, "alchemical", None)),
     )
 
 

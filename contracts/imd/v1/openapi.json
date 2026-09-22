@@ -1,0 +1,4644 @@
+{
+ "openapi": "3.1.0",
+ "info": {
+  "title": "NeoDynamics private MD service",
+  "version": "1.0.0"
+ },
+ "servers": [
+  {
+   "url": "/internal/md/v1"
+  }
+ ],
+ "paths": {
+  "/capabilities": {
+   "get": {
+    "operationId": "get__capabilities",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/RuntimeCapabilities"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     }
+    ]
+   }
+  },
+  "/sessions": {
+   "post": {
+    "operationId": "post__sessions",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "202": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/SessionSnapshot"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "protocol.schema.json#/$defs/CreateRequest"
+       }
+      }
+     }
+    }
+   }
+  },
+  "/sessions/by-request/{request_id}": {
+   "get": {
+    "operationId": "get__sessions_by-request_request_id",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/SessionSnapshot"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     },
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ]
+   }
+  },
+  "/sessions/{session_id}": {
+   "get": {
+    "operationId": "get__sessions_session_id",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/SessionSnapshot"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     },
+     {
+      "in": "path",
+      "name": "session_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ]
+   }
+  },
+  "/sessions/{session_id}/controller": {
+   "put": {
+    "operationId": "put__sessions_session_id_controller",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/ControllerReceipt"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     },
+     {
+      "in": "path",
+      "name": "session_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "protocol.schema.json#/$defs/ControllerRequest"
+       }
+      }
+     }
+    }
+   }
+  },
+  "/sessions/{session_id}/controller/requests/{request_id}": {
+   "get": {
+    "operationId": "get__sessions_session_id_controller_requests_request_id",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/ControllerReceipt"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     },
+     {
+      "in": "path",
+      "name": "session_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     },
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ]
+   }
+  },
+  "/sessions/{session_id}/commands": {
+   "post": {
+    "operationId": "post__sessions_session_id_commands",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "202": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/CommandReceipt"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     },
+     {
+      "in": "path",
+      "name": "session_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "protocol.schema.json#/$defs/CommandRequest"
+       }
+      }
+     }
+    }
+   }
+  },
+  "/sessions/{session_id}/commands/{command_id}": {
+   "get": {
+    "operationId": "get__sessions_session_id_commands_command_id",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/CommandReceipt"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     },
+     {
+      "in": "path",
+      "name": "session_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     },
+     {
+      "in": "path",
+      "name": "command_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ]
+   }
+  },
+  "/sessions/{session_id}/events": {
+   "get": {
+    "operationId": "get__sessions_session_id_events",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/EventList"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     },
+     {
+      "in": "path",
+      "name": "session_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     },
+     {
+      "in": "query",
+      "name": "after",
+      "schema": {
+       "type": "string",
+       "pattern": "^(0|[1-9][0-9]*)$"
+      }
+     },
+     {
+      "in": "query",
+      "name": "limit",
+      "schema": {
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 1000
+      }
+     }
+    ]
+   }
+  },
+  "/sessions/{session_id}/artifacts": {
+   "get": {
+    "operationId": "get__sessions_session_id_artifacts",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/ArtifactList"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     },
+     {
+      "in": "path",
+      "name": "session_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ]
+   }
+  },
+  "/prepared-bundles/uploads": {
+   "post": {
+    "operationId": "post__prepared-bundles_uploads",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/BundleUploadReceipt"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "protocol.schema.json#/$defs/BundleUploadRequest"
+       }
+      }
+     }
+    }
+   }
+  },
+  "/prepared-bundles/uploads/by-request/{request_id}": {
+   "get": {
+    "operationId": "get__prepared-bundles_uploads_by-request_request_id",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/BundleUploadReceipt"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     },
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ]
+   }
+  },
+  "/prepared-bundles/uploads/{upload_id}": {
+   "get": {
+    "operationId": "get__prepared-bundles_uploads_upload_id",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/BundleUploadReceipt"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     },
+     {
+      "in": "path",
+      "name": "upload_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ]
+   }
+  },
+  "/prepared-bundles/uploads/{upload_id}/commit": {
+   "post": {
+    "operationId": "post__prepared-bundles_uploads_upload_id_commit",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "202": {
+      "description": "Durably accepted input verification operation; poll by operation or original request ID. A replay returns the same operation.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/InputOperation"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     },
+     {
+      "in": "path",
+      "name": "upload_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "protocol.schema.json#/$defs/CommitInputRequest"
+       }
+      }
+     }
+    }
+   }
+  },
+  "/prepared-bundles/{bundle_id}": {
+   "get": {
+    "operationId": "get__prepared-bundles_bundle_id",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/PreparedAsset"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     },
+     {
+      "in": "path",
+      "name": "bundle_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ]
+   }
+  },
+  "/prepared-bundles/uploads/{upload_id}/parts/{part_id}": {
+   "put": {
+    "operationId": "put_upload_part",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "parameters": [
+     {
+      "in": "path",
+      "name": "upload_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     },
+     {
+      "in": "path",
+      "name": "part_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/octet-stream": {
+       "schema": {
+        "type": "string",
+        "format": "binary"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Part hash and size verified; identical PUT is idempotent"
+     },
+     "422": {
+      "description": "Integrity failure",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/protocols": {
+   "post": {
+    "operationId": "post__protocols",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "202": {
+      "description": "Durably accepted input verification operation; poll by operation or original request ID. A replay returns the same operation.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/InputOperation"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "protocol.schema.json#/$defs/ProtocolRequest"
+       }
+      }
+     }
+    }
+   }
+  },
+  "/protocols/{protocol_id}": {
+   "get": {
+    "operationId": "get__protocols_protocol_id",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Validated immutable scientific protocol asset",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/ProtocolAsset"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "path",
+      "name": "protocol_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ]
+   }
+  },
+  "/protocols/by-request/{request_id}": {
+   "get": {
+    "operationId": "get__protocols_by-request_request_id",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Validated immutable scientific protocol asset",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/ProtocolAsset"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ]
+   }
+  },
+  "/sessions/{session_id}/queue-cancellation": {
+   "post": {
+    "operationId": "post_session_queue_cancellation",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "200": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/QueueCancellationReceipt"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     },
+     {
+      "in": "path",
+      "name": "session_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "protocol.schema.json#/$defs/QueueCancellationRequest"
+       }
+      }
+     }
+    }
+   }
+  },
+  "/sessions/{session_id}/queue-cancellation/requests/{request_id}": {
+   "get": {
+    "operationId": "get_queue_cancellation_request",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/QueueCancellationReceipt"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     },
+     {
+      "in": "path",
+      "name": "session_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     },
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ]
+   }
+  },
+  "/coordinate-references/uploads": {
+   "post": {
+    "operationId": "post__coordinate-references_uploads",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/CoordinateUploadReceipt"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "protocol.schema.json#/$defs/CoordinateUploadRequest"
+       }
+      }
+     }
+    }
+   }
+  },
+  "/coordinate-references/uploads/by-request/{request_id}": {
+   "get": {
+    "operationId": "get__coordinate-references_uploads_by-request_request_id",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/CoordinateUploadReceipt"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     },
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ]
+   }
+  },
+  "/coordinate-references/uploads/{upload_id}": {
+   "get": {
+    "operationId": "get__coordinate-references_uploads_upload_id",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/CoordinateUploadReceipt"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     },
+     {
+      "in": "path",
+      "name": "upload_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ]
+   }
+  },
+  "/coordinate-references/uploads/{upload_id}/commit": {
+   "post": {
+    "operationId": "post__coordinate-references_uploads_upload_id_commit",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "202": {
+      "description": "Durably accepted input verification operation; poll by operation or original request ID. A replay returns the same operation.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/InputOperation"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     },
+     {
+      "in": "path",
+      "name": "upload_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "protocol.schema.json#/$defs/CommitInputRequest"
+       }
+      }
+     }
+    }
+   }
+  },
+  "/coordinate-references/{reference_id}": {
+   "get": {
+    "operationId": "get__coordinate-references_reference_id",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/CoordinateAsset"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     },
+     {
+      "in": "path",
+      "name": "reference_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ]
+   }
+  },
+  "/coordinate-references/uploads/{upload_id}/content": {
+   "put": {
+    "operationId": "put_coordinate_reference_content",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "parameters": [
+     {
+      "in": "path",
+      "name": "upload_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/octet-stream": {
+       "schema": {
+        "type": "string",
+        "format": "binary"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Part hash and size verified; identical PUT is idempotent"
+     },
+     "422": {
+      "description": "Integrity failure",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/sessions/{session_id}/finalizations/{finalization_id}/artifacts": {
+   "get": {
+    "operationId": "get_finalized_artifact_page",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Exact finalized artifact descriptors, bounded to 64 entries",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/FinalizedArtifactPage"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "path",
+      "name": "session_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     },
+     {
+      "in": "path",
+      "name": "finalization_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     },
+     {
+      "in": "query",
+      "name": "after",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "description": "Canonical UUID member of this exact immutable finalized artifact set."
+     },
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 64,
+       "default": 64
+      }
+     }
+    ]
+   }
+  },
+  "/input-operations/{operation_id}": {
+   "get": {
+    "operationId": "get__input_operations_operation_id",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/InputOperation"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "name": "operation_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ]
+   }
+  },
+  "/input-operations/by-request/{kind}/{request_id}": {
+   "get": {
+    "operationId": "get__input_operations_by_request_kind_request_id",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Durable result; accepted does not mean applied",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/InputOperation"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "name": "kind",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "enum": [
+        "prepared_commit",
+        "coordinate_commit",
+        "protocol_register"
+       ]
+      }
+     },
+     {
+      "name": "request_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ]
+   }
+  },
+  "/prepared-bundles/{bundle_id}/topology": {
+   "get": {
+    "operationId": "get_prepared_topology",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Exact canonical immutable topology bytes; no executable System or receipt authority",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/TopologyView"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     },
+     {
+      "in": "path",
+      "name": "bundle_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     }
+    ],
+    "description": "Owner-scoped committed topology only; legacy missing views return service_unavailable. Query fields are rejected; page path indices use canonical decimal spelling. No re-verification is performed on GET."
+   }
+  },
+  "/prepared-bundles/{bundle_id}/topology/{view_sha256}/{kind}/{page_index}": {
+   "get": {
+    "operationId": "get_prepared_topology_page",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Exact canonical immutable topology bytes; no executable System or receipt authority",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/TopologyPage"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "invalid_request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "authentication_required",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "forbidden",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "not_found",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "410": {
+      "description": "queue_expired; cursor_expired; upload_expired",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "413": {
+      "description": "payload_too_large",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "integrity_mismatch; engine_rejected; method_unavailable",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "admission_full",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "service_unavailable; worker_lost",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "protocol.schema.json#/$defs/Error"
+        }
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "in": "header",
+      "name": "X-Request-ID",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128
+      },
+      "description": "Diagnostic trace only; never an idempotency key"
+     },
+     {
+      "in": "path",
+      "name": "bundle_id",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+     },
+     {
+      "name": "view_sha256",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[0-9a-f]{64}$"
+      }
+     },
+     {
+      "name": "kind",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "enum": [
+        "atoms",
+        "residues",
+        "bonds",
+        "particles",
+        "topology_particle_indices"
+       ]
+      }
+     },
+     {
+      "name": "page_index",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "minimum": 0,
+       "maximum": 4095
+      }
+     }
+    ],
+    "description": "Owner-scoped committed topology only; legacy missing views return service_unavailable. Query fields are rejected; page path indices use canonical decimal spelling. No re-verification is performed on GET."
+   }
+  },
+  "/preparations/catalog": {
+   "get": {
+    "operationId": "get__preparations_catalog",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Accepted preparation preset catalog with execution limits and availability.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "../protein-preparation/v1/catalog.schema.json"
+        }
+       }
+      }
+     },
+     "description": "content"
+    },
+    "parameters": []
+   }
+  },
+  "/preparations/source-uploads": {
+   "post": {
+    "operationId": "post__preparations_source_uploads",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Registered canonical source upload. A replay with the same declared bytes returns the same upload; a different declaration is idempotency_conflict.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "../protein-preparation/v1/operation.schema.json#/$defs/SourceUploadReceipt"
+        }
+       }
+      }
+     },
+     "description": "content"
+    },
+    "parameters": [],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "../protein-preparation/v1/operation.schema.json#/$defs/SourceUploadBeginRequest"
+       }
+      }
+     }
+    }
+   }
+  },
+  "/preparations/source-uploads/by-request/{request_id}": {
+   "get": {
+    "operationId": "get__preparations_source_upload_by_request",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Source upload receipt recovered by its original request ID.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "../protein-preparation/v1/operation.schema.json#/$defs/SourceUploadReceipt"
+        }
+       }
+      }
+     },
+     "description": "content"
+    },
+    "parameters": []
+   }
+  },
+  "/preparations/source-uploads/{upload_id}": {
+   "get": {
+    "operationId": "get__preparations_source_upload",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Source upload receipt.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "../protein-preparation/v1/operation.schema.json#/$defs/SourceUploadReceipt"
+        }
+       }
+      }
+     },
+     "description": "content"
+    },
+    "parameters": []
+   }
+  },
+  "/preparations/source-uploads/{upload_id}/content": {
+   "put": {
+    "operationId": "put__preparations_source_upload_content",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Exact declared canonical source bytes stored after hash and size verification."
+     },
+     "description": "content"
+    },
+    "parameters": [],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/octet-stream": {
+       "schema": {
+        "type": "string",
+        "format": "binary"
+       }
+      }
+     }
+    }
+   }
+  },
+  "/preparations": {
+   "post": {
+    "operationId": "post__preparations",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "202": {
+      "description": "Durably accepted preparation operation; poll by operation or original request ID. A replay with the same immutable body hash returns the original operation.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "../protein-preparation/v1/operation.schema.json#/$defs/PreparationOperation"
+        }
+       }
+      }
+     },
+     "description": "content"
+    },
+    "parameters": [],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "../protein-preparation/v1/operation.schema.json#/$defs/PreparationRequest"
+       }
+      }
+     }
+    }
+   }
+  },
+  "/preparations/by-request/{request_id}": {
+   "get": {
+    "operationId": "get__preparation_by_request",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Preparation operation recovered by its original request ID after an uncertain response.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "../protein-preparation/v1/operation.schema.json#/$defs/PreparationOperation"
+        }
+       }
+      }
+     },
+     "description": "content"
+    },
+    "parameters": []
+   }
+  },
+  "/preparations/{operation_id}": {
+   "get": {
+    "operationId": "get__preparation",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Current preparation operation snapshot. Cross-owner and unknown identities are both not_found.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "../protein-preparation/v1/operation.schema.json#/$defs/PreparationOperation"
+        }
+       }
+      }
+     },
+     "description": "content"
+    },
+    "parameters": []
+   }
+  },
+  "/preparations/{operation_id}/cancel": {
+   "post": {
+    "operationId": "post__preparation_cancel",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Cancellation is idempotent through the state machine; the current operation is returned. Terminal operations conflict.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "../protein-preparation/v1/operation.schema.json#/$defs/PreparationOperation"
+        }
+       }
+      }
+     },
+     "description": "content"
+    },
+    "parameters": []
+   }
+  },
+  "/preparations/{operation_id}/inventory": {
+   "get": {
+    "operationId": "get__preparation_inventory",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Complete verified artifact inventory of a succeeded operation.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "../protein-preparation/v1/inventory.schema.json"
+        }
+       }
+      }
+     },
+     "description": "content"
+    },
+    "parameters": []
+   }
+  },
+  "/preparations/{operation_id}/qc": {
+   "get": {
+    "operationId": "get__preparation_qc",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "QC summary derived from the independently verified manifest and assembly report.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "../protein-preparation/v1/qc.schema.json"
+        }
+       }
+      }
+     },
+     "description": "content"
+    },
+    "parameters": []
+   }
+  },
+  "/preparations/{operation_id}/artifacts/{artifact_id}/content": {
+   "get": {
+    "operationId": "get__preparation_artifact_content",
+    "security": [
+     {
+      "ServiceBearer": [],
+      "OwnerScope": []
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Exact bytes of one inventoried artifact.",
+      "content": {
+       "application/octet-stream": {
+        "schema": {
+         "type": "string",
+         "format": "binary"
+        }
+       }
+      }
+     },
+     "description": "content"
+    },
+    "parameters": []
+   }
+  }
+ },
+ "components": {
+  "securitySchemes": {
+   "ServiceBearer": {
+    "type": "http",
+    "scheme": "bearer",
+    "description": "Independent configured service credential; never a public user token"
+   },
+   "OwnerScope": {
+    "type": "apiKey",
+    "in": "header",
+    "name": "X-Neomd-Scope",
+    "description": "Opaque UUID asserted by authenticated gateway"
+   }
+  }
+ },
+ "x-websockets": {
+  "/sessions/{session_id}/events/ws": {
+   "client": [
+    "EventHello",
+    "EventAck"
+   ],
+   "server": [
+    "SessionEvent",
+    "Error"
+   ],
+   "lossy": false
+  },
+  "/sessions/{session_id}/preview/ws": {
+   "client": [
+    "PreviewSubscribe",
+    "PreviewLayoutAck"
+   ],
+   "server": [
+    "PreviewLayoutMessage",
+    "binary-preview-v1",
+    "Error"
+   ],
+   "lossy": true
+  }
+ }
+}

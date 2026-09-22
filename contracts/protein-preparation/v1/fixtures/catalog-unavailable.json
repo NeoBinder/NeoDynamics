@@ -1,0 +1,80 @@
+{
+ "limits": {
+  "max_concurrent_operations": 1,
+  "max_queued_per_owner": 8,
+  "max_result_bytes": 536870912,
+  "max_source_bytes": 67108864,
+  "memory_limit_bytes": 4294967296,
+  "time_limit_seconds": 3600
+ },
+ "loader": {
+  "name": "openmm.PDBxFile",
+  "version": "8.6",
+  "atom_order": "preparation_input"
+ },
+ "presets": [
+  {
+   "accepted_parameters": {
+    "box_shape": "cubic",
+    "constraints": "HBonds",
+    "ewald_error_tolerance": 0.0005,
+    "exceptions_use_periodic_boundary_conditions": false,
+    "existing_water": "retain_and_solvate",
+    "flexible_constraints": false,
+    "hydrogen_mass_amu": 4.0,
+    "ionic_strength_mol_per_l": 0.15,
+    "negative_ion": "Cl-",
+    "neutralize": true,
+    "nonbonded_cutoff_nm": 1.0,
+    "nonbonded_method": "pme",
+    "padding_nm": 1.0,
+    "ph": 7.0,
+    "positive_ion": "Na+",
+    "remove_cm_motion": false,
+    "rigid_water": true,
+    "switch_distance_nm": null,
+    "use_dispersion_correction": true,
+    "water_geometry": "tip3p"
+   },
+   "editable_parameters": [
+    "ionic_strength_mol_per_l",
+    "padding_nm",
+    "ph"
+   ],
+   "preset_id": "protein.ff14sb.tip3p",
+   "preset_revision_sha256": "376a4b2138ed3289f024c44d7f7ac3d6e47e7e3bf1be8b225d709d289f1f4fbf",
+   "repair": {
+    "hydrogens": true,
+    "ligands_metals_nucleic_acids": "block",
+    "missing_stretches": "block",
+    "nonstandard_residues": "block",
+    "standard_residue_heavy_atoms": true
+   },
+   "resources": [
+    {
+     "package": "openmmforcefields",
+     "package_version": "0.16.0",
+     "resource_id": "amber/protein.ff14SB.xml",
+     "role": "protein",
+     "sha256": "0b97e85f13ec31e547904cf6da42b7f668a6374fcbd9ced7172748b396482d53",
+     "size_bytes": 2451811
+    },
+    {
+     "package": "openmmforcefields",
+     "package_version": "0.16.0",
+     "resource_id": "amber/tip3p_standard.xml",
+     "role": "water_and_ions",
+     "sha256": "25e7c59e70de8ad52fbc5b2f7cafb1f9e80d677676a4148760482323c0184d8f",
+     "size_bytes": 3210
+    }
+   ]
+  }
+ ],
+ "schema_version": 1,
+ "system_assembly_available": true,
+ "unavailable": {
+  "reason": "executor_unavailable",
+  "detail": "The preparation executor is not running on this service instance."
+ },
+ "unresolved_parameters": []
+}

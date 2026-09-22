@@ -3,8 +3,8 @@
 - 状态：已确认（2026-09-03，Boresch restraint triple 出 ADR，RBFE 实装前生效）
 - 决策者：项目维护者
 - 关联：[issue #8](https://github.com/NeoBinder/NeoDynamics/issues/8)（RBFE）、
-  [ADR-0001](0001-neomd2-strangler-migration.md)、AGENTS.md §Settled decisions
-  （#5 双轨、#6 无永久兼容层、#8 多腿编排、#10 上游版本 pin 纪律）
+  [ADR-0001](0001-neomd2-strangler-migration.md)、[架构约束](../architecture.md#settled-decisions)
+  （双轨、无永久兼容层、多腿编排边界、上游版本 pin 纪律）
 
 ## 背景
 
@@ -12,7 +12,7 @@ RBFE（relative binding free energy）引擎需要四块：
 
 1. **alchemical 物理**：softcore 静电/色散形式、alchemical region 记账、
    λ 全局参数化 —— 微妙且必须经热力学检验的化学；
-2. **λ 窗口编排**：N 个窗口各自成段动力学（settled decision #8 把多腿编排放到
+2. **λ 窗口编排**：N 个窗口各自成段动力学（多腿编排边界将通用编排放到
    2.x，这里是第一次真实 revisit，见"后果"）；
 3. **分析**：BAR/MBAR（`neomd.analysis` 的既有范围）；
 4. **基准**：CDK2/trypsin 对拍文献。
@@ -20,7 +20,7 @@ RBFE（relative binding free energy）引擎需要四块：
 v2 的架构约束（映射依据，均已核实）：
 
 - **KernelPort 三适配器纪律**：openmm（生产）/ fake（毫秒级确定性 CI）/
-  replay（金带回放）。fake 按 decision #9 只实现教科书物理，**不得**生长
+  replay（金带回放）。fake 按金样仅证行为的原则，只实现教科书物理，**不得**生长
   OpenMM corner-case 模仿。
 - **alchemical 变换的 v2 先例已经存在**：barostat / `dummy_exceptions` /
   （ML/MM 计划中的）`ml_region` 都走同一条路 —— **System 形状的修改**，在
@@ -65,13 +65,13 @@ attribution，逐字移植纪律）实现于 openmm 边界模块内；不整体�
    Context 全局参数下置（`set_bias_param` 同一 seam 的
    `setParameter` 机制）；窗口间不共享 Context。
 3. **窗口编排**：RBFE 实装自带一个**薄的** per-window 循环（N 次 `drive()`，
-   共享 runner 级 manifest/账本），这是 decision #8 多腿编排的**受控最小
+   共享 runner 级 manifest/账本），这是对多腿编排边界的**受控最小
    revisit** —— 不是通用 `min → eq → prod` 管线（那仍是 2.x）。
 4. **分析**：BAR/MBAR 落 `neomd.analysis`，读各窗口的
    `output.state`/λ-轨迹新带。
 5. **基准**：CDK2/trypsin 对拍文献值（OpenFE 公开基准数据可直接作参照
-   数字），这是物理正确性的唯一裁判（decision #9：金带只证行为不变）。
-6. **版本纪律**：openmmtools pin 进 `pyproject.toml` ([tool.pixi])（decision #10 同款事件：
+   数字），这是物理正确性的唯一裁判（金样仅证行为的原则：金带只证行为不变）。
+6. **版本纪律**：openmmtools pin 进 `pyproject.toml` ([tool.pixi])（同样遵守显式版本升级纪律：
   显式 pin + 复核 `openmm_privates.py` 门 + 我们自身的 openmm 8.6.x pin
   与 openmmtools 的兼容矩阵核对）。
 
@@ -90,12 +90,12 @@ attribution，逐字移植纪律）实现于 openmm 边界模块内；不整体�
 ### 全自研 softcore（KernelPort 扩展）
 
 - v1 无 softcore 先例（已核实），意味着**写新物理**而非逐字移植 —— 与
-  settled decision #2 的精神（物理来自可查证的出处）相悖时需要极强的
+  物理逐字移植原则的精神（物理来自可查证的出处）相悖时需要极强的
   测试理由支撑
 - softcore 静电/色散形式 + alchemical 异常记账 + 热力学一致性检验
   （ΔΔG 循环闭合、双精度数值路径）是 openmmtools 社区多年锤打过的微妙
   物理；自研等于重走这条路，且 fake kernel 无法复现其 corner-case
-  （decision #9），测试只能全压在 openmm + 基准上
+  （金样仅证行为的原则），测试只能全压在 openmm + 基准上
 - 若走 KernelPort 新 bias kind 路线，还要动 port 面 —— 与"port 扩展集中
   管理"的冲突管控原则（计划 §四）不必要地相撞
 
