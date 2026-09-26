@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import shutil
 import subprocess
 import sys
@@ -144,7 +145,14 @@ def prep(tmp_path_factory):
     import time
 
     started = time.time()
-    bundle = prepare_system(config)  # the DEFAULT gaff route (no hook)
+    # OpenMM's Modeller.addHydrogens uses Python's global RNG for initial
+    # hydrogen positions. Pin this fixture without changing later test RNG.
+    rng_state = random.getstate()
+    try:
+        random.seed(0)
+        bundle = prepare_system(config)  # the DEFAULT gaff route (no hook)
+    finally:
+        random.setstate(rng_state)
     seconds = time.time() - started
 
     return {
