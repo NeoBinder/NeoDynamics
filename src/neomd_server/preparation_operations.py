@@ -30,8 +30,11 @@ from .preparation import preparation_catalog
 from .preparation_execution import (
     SCHEMA,
     _prepare_process,
+    _prepare_topology_process,
     _validate_source_process,
+    _validate_topology_source_process,
     _verify_process,
+    _verify_topology_process,
 )
 
 CATALOG = "urn:neodyn:protein-preparation:v1:catalog"
@@ -41,7 +44,13 @@ QC = "urn:neodyn:protein-preparation:v1:qc"
 BEGIN = f"{SCHEMA}#/$defs/SourceUploadBeginRequest"
 UPLOAD_RECEIPT = f"{SCHEMA}#/$defs/SourceUploadReceipt"
 PREPARATION_REQUEST = f"{SCHEMA}#/$defs/PreparationRequest"
+TOPOLOGY_SCHEMA = "urn:neodyn:protein-preparation:v2:operation"
+TOPOLOGY_CATALOG = "urn:neodyn:protein-preparation:v2:catalog"
+TOPOLOGY_BEGIN = f"{TOPOLOGY_SCHEMA}#/$defs/SourceUploadBeginRequest"
+TOPOLOGY_UPLOAD_RECEIPT = f"{TOPOLOGY_SCHEMA}#/$defs/SourceUploadReceipt"
+TOPOLOGY_REQUEST = "urn:neodyn:protein-preparation:v2:request"
 KIND = "protein_preparation"
+TOPOLOGY_KIND = "topology_preparation"
 PENDING = {"queued", "running"}
 SYSTEM_PARAMETERS = {
     "hydrogen_mass_amu": 4.0, "constraints": "HBonds", "rigid_water": True,
@@ -54,6 +63,8 @@ ROLES = (
     ("manifest.json", "manifest"), ("topology.pdbx", "topology"), ("system.xml", "system"),
     ("coordinates.f64le", "coordinates"), ("mapping.json", "mapping"),
     ("assembly-report.json", "report"), ("preparation.log", "log"),
+    ("source-topology-map.json", "mapping"), ("topology-changes.json", "mapping"),
+    ("ligand.json", "ligand"),
 )
 
 
@@ -127,6 +138,9 @@ class PreparationStore:
         self._initialized = False
         catalog = preparation_catalog()
         self._preset = catalog["presets"][0]
+        from .preparation import topology_preparation_catalog
+
+        self._topology_preset = topology_preparation_catalog()["presets"][0]
 
     @staticmethod
     def check_catalog_limits(limits: PreparationLimits):
@@ -216,6 +230,20 @@ class PreparationStore:
         validate(CATALOG, catalog)
         return catalog
 
+    async def topology_catalog(self, scope_id):
+        from .preparation import topology_preparation_catalog
+
+        if self.faulted:
+            raise LedgerError("service_unavailable")
+        catalog = topology_preparation_catalog()
+        if self.closing or not self._initialized:
+            catalog["unavailable"] = {
+                "reason": "executor_unavailable",
+                "detail": "The preparation executor is not running on this service instance.",
+            }
+        validate(TOPOLOGY_CATALOG, catalog)
+        return catalog
+
     # --- source upload lane --------------------------------------------------
 
     def _upload_directory(self, upload_id):
@@ -234,7 +262,8 @@ class PreparationStore:
         )
 
     async def begin_source(self, scope_id, request):
-        validate(BEGIN, request)
+        topology = request.get("schema_version") == 2
+        validate(TOPOLOGY_BEGIN if topology else BEGIN, request)
         if self.faulted or not self._initialized:
             raise LedgerError("service_unavailable")
         if request["size_bytes"] > self.limits.max_source_bytes:
@@ -261,16 +290,20 @@ class PreparationStore:
                 raise LedgerError("admission_full")
             now = await connection.fetchval("SELECT clock_timestamp()")
             receipt = {
-                "schema_version": 1,
+                "schema_version": 2 if topology else 1,
                 "upload_id": str(uuid4()),
                 "request_id": request["request_id"],
                 "format": request["format"],
-                "canonical_bytes_sha256": request["canonical_bytes_sha256"],
                 "size_bytes": request["size_bytes"],
                 "state": "registered",
                 "created_at": _stamp(now),
             }
-            validate(UPLOAD_RECEIPT, receipt)
+            if topology:
+                receipt.update({key: request[key] for key in (
+                    "schema_id", "content_sha256", "decoded_size_bytes", "topology_revision_id")})
+            else:
+                receipt["canonical_bytes_sha256"] = request["canonical_bytes_sha256"]
+            validate(TOPOLOGY_UPLOAD_RECEIPT if topology else UPLOAD_RECEIPT, receipt)
             await connection.execute(
                 """INSERT INTO neomd_service.preparation_source_uploads
                 (upload_id,scope_id,request_id,pool_id,content_sha256,request,receipt,reserved_bytes)
@@ -290,6 +323,18 @@ class PreparationStore:
             raise LedgerError("not_found")
         return receipt
 
+    async def topology_source_upload(self, scope_id, upload_id):
+        receipt = await self.source_upload(scope_id, upload_id)
+        if receipt["schema_version"] != 2:
+            raise LedgerError("not_found")
+        return receipt
+
+    async def protein_source_upload(self, scope_id, upload_id):
+        receipt = await self.source_upload(scope_id, upload_id)
+        if receipt["schema_version"] != 1:
+            raise LedgerError("not_found")
+        return receipt
+
     async def source_upload_by_request(self, scope_id, request_id):
         async with self.ledger.pool.acquire() as connection:
             receipt = await connection.fetchval(
@@ -297,6 +342,18 @@ class PreparationStore:
                 _uuid(scope_id), _uuid(request_id),
             )
         if receipt is None:
+            raise LedgerError("not_found")
+        return receipt
+
+    async def topology_source_upload_by_request(self, scope_id, request_id):
+        receipt = await self.source_upload_by_request(scope_id, request_id)
+        if receipt["schema_version"] != 2:
+            raise LedgerError("not_found")
+        return receipt
+
+    async def protein_source_upload_by_request(self, scope_id, request_id):
+        receipt = await self.source_upload_by_request(scope_id, request_id)
+        if receipt["schema_version"] != 1:
             raise LedgerError("not_found")
         return receipt
 
@@ -332,12 +389,15 @@ class PreparationStore:
                         await asyncio.to_thread(handle.write, chunk)
                     await asyncio.to_thread(handle.flush)
                     await asyncio.to_thread(os.fsync, handle.fileno())
-                if count != receipt["size_bytes"] or digest.hexdigest() != receipt["canonical_bytes_sha256"]:
+                expected_sha = (receipt["content_sha256"] if receipt["schema_version"] == 2
+                                else receipt["canonical_bytes_sha256"])
+                if count != receipt["size_bytes"] or digest.hexdigest() != expected_sha:
                     raise LedgerError("integrity_mismatch")
                 await asyncio.to_thread(os.replace, temporary, destination)
                 await asyncio.to_thread(sync_directories, destination.parent, root=self.root)
                 receipt["state"] = "stored"
-                validate(UPLOAD_RECEIPT, receipt)
+                validate(TOPOLOGY_UPLOAD_RECEIPT if receipt["schema_version"] == 2
+                         else UPLOAD_RECEIPT, receipt)
                 await connection.execute(
                     """UPDATE neomd_service.preparation_source_uploads
                     SET receipt=$2,updated_at=clock_timestamp() WHERE upload_id=$1""",
@@ -352,19 +412,33 @@ class PreparationStore:
 
     async def submit(self, scope_id, request):
         # Bound validation admission before retaining requests or spawning children.
+        if request.get("schema_version") != 1:
+            raise LedgerError("invalid_request")
+        if self._submission_slot.locked():
+            raise LedgerError("admission_full")
+        async with self._submission_slot:
+            return await self._submit(scope_id, request, validated=False)
+
+    async def submit_topology(self, scope_id, request):
+        if request.get("schema_version") != 2:
+            raise LedgerError("invalid_request")
         if self._submission_slot.locked():
             raise LedgerError("admission_full")
         async with self._submission_slot:
             return await self._submit(scope_id, request, validated=False)
 
     async def _submit(self, scope_id, request, *, validated):
-        validate(PREPARATION_REQUEST, request)
+        topology = request.get("schema_version") == 2
+        validate(TOPOLOGY_REQUEST if topology else PREPARATION_REQUEST, request)
         if self.closing or self.faulted or not self._initialized:
             raise LedgerError("service_unavailable")
         serialized = json.dumps(request, allow_nan=False, separators=(",", ":")).encode()
         if len(serialized) > self.limits.max_request_bytes:
             raise LedgerError("payload_too_large")
-        if request["preset_revision_sha256"] != self._preset["preset_revision_sha256"]:
+        preset = self._topology_preset if topology else self._preset
+        kind = TOPOLOGY_KIND if topology else KIND
+        if (request["preset_id"] != preset["preset_id"]
+                or request["preset_revision_sha256"] != preset["preset_revision_sha256"]):
             raise LedgerError("preset_revision_mismatch")
         source = request["source"]
         scope = _uuid(scope_id)
@@ -379,7 +453,7 @@ class PreparationStore:
             existing = await connection.fetchrow(
                 """SELECT request_sha256,snapshot FROM neomd_service.preparation_operations
                 WHERE scope_id=$1 AND kind=$2 AND request_id=$3""",
-                scope, KIND, _uuid(request["request_id"]),
+                scope, kind, _uuid(request["request_id"]),
             )
             if existing is not None:
                 if existing["request_sha256"] != digest:
@@ -393,9 +467,15 @@ class PreparationStore:
             if upload is None:
                 raise LedgerError("evidence_mismatch")
             receipt = upload["receipt"]
+            source_sha = "content_sha256" if topology else "canonical_bytes_sha256"
             if (receipt["state"] != "stored"
-                    or receipt["canonical_bytes_sha256"] != source["canonical_bytes_sha256"]
+                    or receipt["schema_version"] != (2 if topology else 1)
+                    or receipt[source_sha] != source[source_sha]
                     or receipt["size_bytes"] != source["size_bytes"]):
+                raise LedgerError("evidence_mismatch")
+            if topology and (receipt["decoded_size_bytes"] != source["decoded_size_bytes"]
+                             or receipt["topology_revision_id"] != source["topology_revision_id"]
+                             or receipt["schema_id"] != source["schema_id"]):
                 raise LedgerError("evidence_mismatch")
             referenced = await connection.fetchval(
                 """SELECT EXISTS(SELECT 1 FROM neomd_service.preparation_operations
@@ -413,17 +493,19 @@ class PreparationStore:
                 raise LedgerError("admission_full")
             if self.limits.max_result_bytes > capacity - await self._used_capacity(connection):
                 raise LedgerError("admission_full")
-            descriptor = source["descriptor"]
-            binding = descriptor["sources"][0]
-            if len(descriptor["sources"]) != 1 or binding["content_sha256"] != source["canonical_bytes_sha256"]:
-                raise LedgerError("evidence_mismatch")
+            binding = None
+            if not topology:
+                descriptor = source["descriptor"]
+                binding = descriptor["sources"][0]
+                if len(descriptor["sources"]) != 1 or binding["content_sha256"] != source[source_sha]:
+                    raise LedgerError("evidence_mismatch")
             now = await connection.fetchval("SELECT clock_timestamp()")
             operation_id = uuid4()
             operation = {
-                "schema_version": 1,
+                "schema_version": 2 if topology else 1,
                 "operation_id": str(operation_id),
                 "request_id": request["request_id"],
-                "kind": KIND,
+                "kind": kind,
                 "revision": 1,
                 "state": "queued",
                 "request": request,
@@ -433,7 +515,7 @@ class PreparationStore:
                 "created_at": _stamp(now),
                 "updated_at": _stamp(now),
             }
-            validate(SCHEMA, operation)
+            validate(TOPOLOGY_SCHEMA if topology else SCHEMA, operation)
             seed = secrets.randbelow(2147483647) + 1
             deadline = now + timedelta(seconds=self.limits.time_limit_seconds)
             if validated:
@@ -442,7 +524,7 @@ class PreparationStore:
                     (operation_id,scope_id,request_id,pool_id,kind,request_sha256,request,snapshot,
                     source_upload_id,preparation_seed,state,revision,owner_id,deadline_at,reserved_output_bytes)
                     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'queued',1,$11,$12,$13)""",
-                    operation_id, scope, _uuid(request["request_id"]), self.pool_id, KIND, digest,
+                    operation_id, scope, _uuid(request["request_id"]), self.pool_id, kind, digest,
                     request, operation, _uuid(source["source_upload_id"]), seed,
                     self.owner_id, deadline, self.limits.max_result_bytes,
                 )
@@ -454,14 +536,21 @@ class PreparationStore:
         job = {
             "root": str(self.root), "upload_id": source["source_upload_id"],
             "format": source["format"],
-            "canonical_bytes_sha256": source["canonical_bytes_sha256"],
-            "binding": binding, "memory_limit_bytes": self.limits.memory_limit_bytes,
+            "memory_limit_bytes": self.limits.memory_limit_bytes,
         }
+        if topology:
+            job["reference"] = {key: source[key] for key in (
+                "format", "schema_id", "content_sha256", "size_bytes",
+                "decoded_size_bytes", "topology_revision_id")}
+        else:
+            job.update(canonical_bytes_sha256=source[source_sha], binding=binding)
         await self._validate_source(job, time.monotonic() + min(self.limits.time_limit_seconds, 600))
         return await self._submit(scope_id, request, validated=True)
 
     async def _validate_source(self, job, deadline):
-        outcome = await self._run_child(_validate_source_process, job, deadline)
+        child = (_validate_topology_source_process if "reference" in job
+                 else _validate_source_process)
+        outcome = await self._run_child(child, job, deadline)
         if "error" in outcome:
             raise LedgerError(outcome["error"])
         if not outcome.get("ok"):
@@ -479,6 +568,18 @@ class PreparationStore:
             raise LedgerError("not_found")
         return value
 
+    async def get_topology(self, scope_id, operation_id):
+        operation = await self.get(scope_id, operation_id)
+        if operation["kind"] != TOPOLOGY_KIND:
+            raise LedgerError("not_found")
+        return operation
+
+    async def get_protein(self, scope_id, operation_id):
+        operation = await self.get(scope_id, operation_id)
+        if operation["kind"] != KIND:
+            raise LedgerError("not_found")
+        return operation
+
     async def by_request(self, scope_id, request_id):
         if self.faulted:
             raise LedgerError("service_unavailable")
@@ -490,6 +591,26 @@ class PreparationStore:
         if value is None:
             raise LedgerError("not_found")
         return value
+
+    async def topology_by_request(self, scope_id, request_id):
+        if self.faulted:
+            raise LedgerError("service_unavailable")
+        async with self.ledger.pool.acquire() as connection:
+            value = await connection.fetchval(
+                "SELECT snapshot FROM neomd_service.preparation_operations WHERE scope_id=$1 AND kind=$2 AND request_id=$3",
+                _uuid(scope_id), TOPOLOGY_KIND, _uuid(request_id),
+            )
+        if value is None:
+            raise LedgerError("not_found")
+        return value
+
+    async def cancel_topology(self, scope_id, operation_id):
+        await self.get_topology(scope_id, operation_id)
+        return await self.cancel(scope_id, operation_id)
+
+    async def cancel_protein(self, scope_id, operation_id):
+        await self.get_protein(scope_id, operation_id)
+        return await self.cancel(scope_id, operation_id)
 
     async def cancel(self, scope_id, operation_id):
         """Idempotent through the state machine; terminal operations conflict."""
@@ -522,9 +643,11 @@ class PreparationStore:
     # --- result access ---------------------------------------------------------
 
     async def inventory(self, scope_id, operation_id):
+        await self.get_protein(scope_id, operation_id)
         return await self._result_document(scope_id, operation_id, "inventory")
 
     async def qc(self, scope_id, operation_id):
+        await self.get_protein(scope_id, operation_id)
         return await self._result_document(scope_id, operation_id, "qc")
 
     async def _result_document(self, scope_id, operation_id, column):
@@ -570,7 +693,7 @@ class PreparationStore:
                 "code": code, "message": message or code, "retryable": False,
                 "request_id": snapshot["request_id"],
             }
-        validate(SCHEMA, snapshot)
+        validate(TOPOLOGY_SCHEMA if snapshot["schema_version"] == 2 else SCHEMA, snapshot)
         if row["state"] == "queued" and state not in PENDING:
             # A never-claimed operation owns no output writer or staging files.
             await connection.execute(
@@ -660,9 +783,19 @@ class PreparationStore:
                     await asyncio.to_thread(process.join, 5)
                     raise LedgerError("preparation_time_limit_exceeded")
                 await asyncio.sleep(0.05)
+            # A child may publish its bounded result before the interpreter
+            # finishes releasing OpenMM/RDKit resources. Wait for clean exit
+            # within the existing operation deadline instead of declaring a
+            # successful scientific result lost after an arbitrary one second.
+            while process.is_alive() and time.monotonic() < deadline:
+                if cancel_check is not None and await cancel_check():
+                    process.kill()
+                    await asyncio.to_thread(process.join, 5)
+                    raise LedgerError("preparation_terminal")
+                await asyncio.to_thread(process.join, min(0.25, max(0, deadline - time.monotonic())))
             if process.is_alive():
-                await asyncio.to_thread(process.join, min(1, max(0, deadline - time.monotonic())))
-            if received is None or process.is_alive() or process.exitcode != 0:
+                raise LedgerError("preparation_time_limit_exceeded")
+            if received is None or process.exitcode != 0:
                 raise LedgerError("worker_lost")
             return received
         finally:
@@ -734,11 +867,10 @@ class PreparationStore:
         staging = self._staging(operation_id)
         await asyncio.to_thread(shutil.rmtree, staging, True)
         source = request["source"]
+        topology = request["schema_version"] == 2
         job = {
             "root": str(self.root), "upload_id": source["source_upload_id"],
             "format": source["format"],
-            "canonical_bytes_sha256": source["canonical_bytes_sha256"],
-            "binding": source["descriptor"]["sources"][0],
             "staging": str(staging),
             "parameters": request["parameters"],
             "system_parameters": SYSTEM_PARAMETERS,
@@ -746,12 +878,21 @@ class PreparationStore:
             "memory_limit_bytes": self.limits.memory_limit_bytes,
             "max_result_bytes": self.limits.max_result_bytes,
         }
+        if topology:
+            job["reference"] = {key: source[key] for key in (
+                "format", "schema_id", "content_sha256", "size_bytes",
+                "decoded_size_bytes", "topology_revision_id")}
+        else:
+            job.update(canonical_bytes_sha256=source["canonical_bytes_sha256"],
+                       binding=source["descriptor"]["sources"][0])
 
         async def cancelled():
             return await self._cancel_requested(operation_id)
 
         try:
-            prepared = await self._run_child(_prepare_process, job, deadline, cancel_check=cancelled)
+            prepare_child = _prepare_topology_process if topology else _prepare_process
+            prepared = await self._run_child(prepare_child, job, deadline,
+                                             cancel_check=cancelled)
             if "error" in prepared:
                 code = "verification_failed" if prepared["error"] == "unsupported_structure" \
                     else prepared["error"]
@@ -763,7 +904,8 @@ class PreparationStore:
                 "manifest_sha256": prepared["manifest_sha256"],
                 "memory_limit_bytes": self.limits.memory_limit_bytes,
             }
-            verified = await self._run_child(_verify_process, verify_job, deadline,
+            verify_child = _verify_topology_process if topology else _verify_process
+            verified = await self._run_child(verify_child, verify_job, deadline,
                                              cancel_check=cancelled)
             if "error" in verified:
                 await self._fail(claimed, verified["error"], staging)
@@ -771,7 +913,10 @@ class PreparationStore:
             if verified["prepared_revision_id"] != prepared["prepared_revision_id"]:
                 await self._fail(claimed, "verification_failed", staging)
                 return
-            await self._publish(claimed, prepared, verified, staging)
+            if topology:
+                await self._publish_topology(claimed, prepared, verified, staging)
+            else:
+                await self._publish(claimed, prepared, verified, staging)
         except LedgerError as error:
             if error.code == "preparation_terminal":
                 await self._fail(claimed, "preparation_terminal", staging, state="cancelled",
@@ -781,8 +926,10 @@ class PreparationStore:
                                  message="The isolated executor exited without a verifiable result.")
             elif error.code in {"preparation_time_limit_exceeded", "preparation_memory_limit_exceeded",
                                 "result_too_large", "protonation_conflict", "verification_failed",
-                                "evidence_mismatch", "integrity_mismatch"}:
-                await self._fail(claimed, error.code, staging)
+                                "evidence_mismatch", "integrity_mismatch",
+                                "connectivity_incomplete", "invalid_topology_record"}:
+                await self._fail(claimed, "verification_failed" if error.code == "integrity_mismatch"
+                                 else error.code, staging)
             else:
                 raise
         finally:
@@ -868,6 +1015,80 @@ class PreparationStore:
         except LedgerError as error:
             if error.code in {"preparation_terminal", "preparation_time_limit_exceeded"}:
                 # No database publication occurred; only this operation owns final.
+                await asyncio.to_thread(shutil.rmtree, final)
+            raise
+
+    async def _publish_topology(self, claimed, prepared, verified, staging):
+        """Durably publish a verified explicit-topology result for its owner."""
+        operation_id = claimed["operation_id"]
+        bundle = staging / "prepared" / prepared["prepared_revision_id"]
+        final = self._final(operation_id)
+        if final.exists():
+            raise LedgerError("integrity_mismatch")
+        artifacts = []
+        for item in prepared["artifacts"]:
+            path = bundle / item["path"]
+            digest = await asyncio.to_thread(_digest, path)
+            size = (await asyncio.to_thread(path.lstat)).st_size
+            if digest != item["sha256"] or size != item["size_bytes"]:
+                raise LedgerError("integrity_mismatch")
+            artifacts.append({**item, "role": _role(item["path"]),
+                              "artifact_id": str(uuid4())})
+        if sum(item["size_bytes"] for item in artifacts) > claimed["reserved_output_bytes"]:
+            raise LedgerError("result_too_large")
+        request = claimed["request"]
+        now = _stamp(datetime.now(timezone.utc))
+        parameters = dict(self._topology_preset["accepted_parameters"])
+        parameters.update(request["parameters"])
+        receipt = {
+            "schema_version": 2,
+            "receipt_id": str(uuid4()),
+            "operation_id": str(operation_id),
+            "request_id": request["request_id"],
+            "owner_scope": str(claimed["scope_id"]),
+            "backend": {"provider": "neodynamics", "pool_id": self.pool_id},
+            "source": request["source"],
+            "preset": {"preset_id": self._topology_preset["preset_id"],
+                       "preset_revision_sha256": self._topology_preset["preset_revision_sha256"]},
+            "parameters": parameters,
+            "provenance": {
+                "versions": verified["versions"],
+                "openmm_build": prepared["openmm_build"],
+                "platform": "CPU",
+                "resources": self._topology_preset["resources"],
+                "wall_time_seconds": prepared["wall_time_seconds"],
+                "limits_applied": {
+                    "max_source_bytes": self.limits.max_source_bytes,
+                    "max_result_bytes": self.limits.max_result_bytes,
+                    "time_limit_seconds": self.limits.time_limit_seconds,
+                    "memory_limit_bytes": self.limits.memory_limit_bytes,
+                },
+            },
+            "verification": {
+                "profile": "explicit_topology_full_preparation_v2",
+                "verifier": "neomd.topology_preparation.verify_explicit_topology_preparation",
+                "prepared_revision_id": verified["prepared_revision_id"],
+                "manifest_sha256": prepared["manifest_sha256"],
+                "mapping_sha256": verified["mapping_sha256"],
+                "changes_sha256": verified["changes_sha256"],
+                "verified_at": now,
+            },
+            "artifacts": [{key: row[key] for key in
+                           ("artifact_id", "role", "sha256", "size_bytes")}
+                          for row in artifacts],
+            "qc": verified["qc"],
+            "created_at": now,
+        }
+        validate("urn:neodyn:protein-preparation:v2:receipt", receipt)
+        await asyncio.to_thread(self.root.joinpath("preparations").mkdir, exist_ok=True)
+        await asyncio.to_thread(os.rename, bundle, final)
+        await asyncio.to_thread(sync_directories, final, root=self.root)
+        await asyncio.to_thread(shutil.rmtree, staging)
+        try:
+            await self._finish(claimed, "succeeded", receipt=receipt, artifacts=artifacts,
+                               release_reservation=True)
+        except LedgerError as error:
+            if error.code in {"preparation_terminal", "preparation_time_limit_exceeded"}:
                 await asyncio.to_thread(shutil.rmtree, final)
             raise
 

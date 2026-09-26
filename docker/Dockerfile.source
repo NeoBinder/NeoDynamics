@@ -2,6 +2,11 @@
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 USER 0:0
+RUN if ! getent group 65532 >/dev/null; then groupadd --gid 65532 neomd; fi \
+    && if ! getent passwd 65532 >/dev/null; then \
+         useradd --uid 65532 --gid 65532 --home-dir /home/neomd \
+           --shell /usr/sbin/nologin --no-create-home neomd; \
+       fi
 ARG WHEEL_PATH
 COPY ${WHEEL_PATH} /tmp/neodynamics-install/
 RUN python -m pip install --no-deps --force-reinstall /tmp/neodynamics-install/*.whl \

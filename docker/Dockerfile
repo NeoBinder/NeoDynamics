@@ -8,6 +8,9 @@ RUN chmod -R a+rX /opt/neodynamics/.pixi/envs/default
 
 FROM docker.io/library/ubuntu:noble@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
 COPY --from=dependencies /opt/neodynamics/.pixi/envs/default /opt/neodynamics/.pixi/envs/default
+RUN groupadd --gid 65532 neomd \
+    && useradd --uid 65532 --gid 65532 --home-dir /home/neomd \
+       --shell /usr/sbin/nologin --no-create-home neomd
 ENV PATH="/opt/neodynamics/.pixi/envs/default/bin:${PATH}" \
     PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     HOME=/home/neomd NVIDIA_VISIBLE_DEVICES=all NVIDIA_DRIVER_CAPABILITIES=compute,utility

@@ -61,7 +61,7 @@ no host address or credential value belongs in these manifests.
 | `neodynamics-migration-secret` | `NEOMD_SERVER_PG_DSN` | `neodynamics_migrator` role, migration Job only |
 
 The migrator owns the `neomd_service` schema and runs the packaged migrations
-(currently 001–011) through `neomd-server migrate`. It needs the corresponding
+(currently 001–012) through `neomd-server migrate`. It needs the corresponding
 schema-creation/DDL authority in this database only. The runtime role is not the
 database/schema owner and needs CONNECT, schema USAGE, table SELECT/INSERT/UPDATE/
 DELETE, and sequence USAGE/SELECT in `neomd_service`. The database operator must

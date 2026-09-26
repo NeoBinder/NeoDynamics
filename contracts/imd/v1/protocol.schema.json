@@ -126,7 +126,15 @@
             "preset_revision_mismatch",
             "preparation_terminal",
             "unsupported_structure",
-            "evidence_mismatch"
+            "evidence_mismatch",
+            "connectivity_incomplete",
+            "invalid_topology_record",
+            "unsupported_relation",
+            "verification_failed",
+            "protonation_conflict",
+            "preparation_time_limit_exceeded",
+            "preparation_memory_limit_exceeded",
+            "result_too_large"
           ]
         },
         "message": {
