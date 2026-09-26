@@ -15,6 +15,10 @@ service package. For that boundary, read the [interactive driver](interactive-dr
 and [ADR 0008](adr/0008-interactive-service-driver.md); persistent service state
 and publication ownership are specified in the [service ledger](service-ledger.md).
 
+For external algorithm packaging, workflow ownership and Agent boundaries, see
+[algorithm integration](algorithm-integration.md). Its accepted direction does
+not replace the current implementation described here.
+
 ## The pieces
 
 | Piece | Module | Role |

@@ -44,6 +44,7 @@ nav:
   - Configuration reference: reference/configuration.md
   - SDK design:
       - Architecture: architecture.md
+      - Algorithm integration: algorithm-integration.md
       - Extending NeoDynamics: extending.md
   - Interactive service driver: interactive-driver.md
   - Prepared bundles: prepared-bundle.md
