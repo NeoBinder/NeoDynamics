@@ -1,0 +1,64 @@
+name: Golden same-runner diagnostic
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/golden-diagnostic.yml
+      - .github/scripts/golden_diagnostic.py
+  push:
+    branches: [fix/golden-parity-investigation, fix/golden-parity-main-integration]
+    paths:
+      - .github/workflows/golden-diagnostic.yml
+      - .github/scripts/golden_diagnostic.py
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      OPENMM_CPU_THREADS: "1"
+      PYTHONNOUSERSITE: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Stub the dev path dependency
+        run: mkdir -p ../NeoTopology
+      - uses: prefix-dev/setup-pixi@v0
+        with:
+          pixi-version: v0.77.1
+          environments: test
+          locked: true
+          cache: true
+      - name: Record runner and prepare unchanged base
+        run: |
+          mkdir -p "$RUNNER_TEMP/golden-diagnostics"
+          lscpu > "$RUNNER_TEMP/golden-diagnostics/cpu.txt"
+          git worktree add -b fix/golden-diagnostic-base .worktrees/golden-base 909c920893a8204593546a957942076f1bcf8978
+      - name: Collect base and head on this runner
+        run: |
+          diagnostic_python="$GITHUB_WORKSPACE/.pixi/envs/test/bin/python"
+          diagnostic_script="$GITHUB_WORKSPACE/.github/scripts/golden_diagnostic.py"
+          diagnostic_failed=0
+          for implementation in v2 legacy; do
+            "$diagnostic_python" "$diagnostic_script" \
+              --checkout "$GITHUB_WORKSPACE/.worktrees/golden-base" \
+              --implementation "$implementation" \
+              --scenario solv_eq_resume \
+              --output "$RUNNER_TEMP/golden-diagnostics/base-$implementation" || diagnostic_failed=1
+            "$diagnostic_python" "$diagnostic_script" \
+              --checkout "$GITHUB_WORKSPACE" \
+              --implementation "$implementation" \
+              --scenario solv_eq_resume \
+              --output "$RUNNER_TEMP/golden-diagnostics/head-$implementation" || diagnostic_failed=1
+          done
+          exit "$diagnostic_failed"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: golden-same-runner
+          path: ${{ runner.temp }}/golden-diagnostics
