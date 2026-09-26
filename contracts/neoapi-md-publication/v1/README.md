@@ -1,19 +1,20 @@
 # NeoAPI MD publication v1 consumer
 
-This directory is an attributed, independent consumer snapshot of NeoAPI-rs
-`openapi/internal/md-publication-v1.yaml`, SHA256
+This directory is an attributed, independent consumer snapshot of `<NeoAPI-rs>`
+MD publication v1 OpenAPI, SHA256
 `7c43f5341e6effa21d8c8731418ceeb9ac87ba1d21cf3e1a14b250c21335ea22`.
-NeoAPI owns this interface; it is separate from Dynamics' opposite-direction
+`<NeoAPI-rs>` owns this interface; it is separate from Dynamics' opposite-direction
 `contracts/imd/v1`. No sibling repository is imported at runtime.
 
 `openapi.yaml` is byte-for-byte upstream. `schema.json` copies only
 `components.schemas` and rewrites local component references to `$defs`.
 `snapshot.json` records provenance, every copied file hash and the frozen error
 status mapping. No network schema retrieval is permitted. Refresh/check from
-an explicit local upstream checkout with:
+an explicit local upstream checkout. Set `UPSTREAM_OPENAPI_DIR` to its OpenAPI
+directory, then run:
 
 ```sh
-python contracts/neoapi-md-publication/v1/refresh.py /path/to/NeoAPI-rs/openapi --check
+python contracts/neoapi-md-publication/v1/refresh.py "$UPSTREAM_OPENAPI_DIR" --check
 ```
 
 The three upstream OutputSet fixtures retain their exact JSON, RFC8785 JCS

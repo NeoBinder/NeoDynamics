@@ -77,6 +77,7 @@ For your own system, follow the [plan walkthrough](docs/quickstart.md) or the
 | Find output files or resume a run | [Run outputs and continuation](docs/running.md) |
 | Integrate an interactive service | [Resident service](docs/service-runtime.md) · [Container setup](docker/README.md) |
 | Understand or extend the SDK | [Architecture](docs/architecture.md) · [Plugins](docs/extending.md) |
+| Integrate an algorithm package or Agent | [Algorithm integration](docs/algorithm-integration.md) |
 
 The [documentation home](docs/index.md) links to tutorials, scientific contracts
 and service qualification limits.

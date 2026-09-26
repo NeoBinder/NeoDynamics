@@ -99,3 +99,20 @@ the input file's header box; a fresh start takes its initial box from the
 structure file's header, falling back to the System default. Vacuum
 systems never gain a box record. v1 8d04b0c semantics.
 _Avoid_: box correction (implies a transformation), CRYST1 fix
+
+### Extension boundaries
+
+**SDK plugin**:
+A trusted installed extension contributing a method, restraint, collective
+variable or probe to the engine registry.
+_Avoid_: remote plugin
+
+**Algorithm package**:
+A versioned scientific executor release with declared inputs, outputs, resources
+and provenance.
+_Avoid_: SDK plugin (when referring to a deployed executor)
+
+**Preparation variant**:
+A scientific preparation procedure with explicit input requirements and output
+guarantees, distinct from another method's preparation.
+_Avoid_: generic prepare

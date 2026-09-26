@@ -28,6 +28,9 @@ supported SDK workflows from service intake and remote operation limits.
 
 ## Methods
 
+For algorithm packages, workflows and Agent boundaries, see
+[algorithm integration](algorithm-integration.md).
+
 The [method index](methods/index.md) links to GaMD/LiGaMD, OPES, RBFE,
 ML/MM, collective variables, analysis and quality checks. Each method page
 covers configuration, outputs, continuation and scientific references.

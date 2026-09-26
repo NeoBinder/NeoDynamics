@@ -49,3 +49,7 @@ Load `src/neomd/AGENTS.md` for SDK architecture, `tests/AGENTS.md` for test
 tiers, and `docs/AGENTS.md` for documentation/docstring policy before editing
 those areas. When main moves, merge it into the task worktree and resolve
 there; preserve shared history. Never clean across `.worktrees/`.
+
+For algorithm packages, workflow ownership or Agent integration, read
+`docs/algorithm-integration.md`; its accepted direction does not establish
+deployed availability.
