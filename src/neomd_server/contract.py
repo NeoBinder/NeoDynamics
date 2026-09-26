@@ -39,7 +39,8 @@ def validator(name):
     registry = Registry()
     scientific_schemas = {}
     for folder in ("scientific-protocol/v1", "prepared-bundle/v1", "prepared-bundle/v2",
-                   "protein-preparation/v1", "trajectory-result/v1", "topology-view/v1"):
+                   "protein-preparation/v1", "protein-preparation/v2",
+                   "molecular-topology/v1", "trajectory-result/v1", "topology-view/v1"):
         for path in (contracts / folder).glob("*.schema.json"):
             scientific = json.loads(path.read_text())
             scientific_schemas[scientific["$id"]] = scientific

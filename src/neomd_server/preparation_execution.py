@@ -8,8 +8,10 @@ artifact bytes stay in host-owned staging directories and never enter IPC.
 from __future__ import annotations
 
 import hashlib
+import json
 import time
 from pathlib import Path
+from uuid import UUID
 
 from .ledger import LedgerError
 from .processes import arm_parent_death
@@ -38,6 +40,24 @@ def _source_file(root, job):
     if not path.is_file():
         raise LedgerError("integrity_mismatch")
     return path
+
+
+def load_explicit_topology_source(job, *, require_complete=False):
+    """Load an owner-authorized v2 source in the isolated scientific child.
+
+    ``job`` must come from a scoped upload lookup, not a client path. The file
+    name is fixed by the format identity and the upload UUID; immutable content,
+    decoded size and revision are checked by the SDK before OpenMM sees records.
+    """
+    from neomd.topology_intake import load_topology_artifact
+
+    upload_id = UUID(str(job["upload_id"]))
+    reference = job["reference"]
+    path = (Path(job["root"]) / "preparation-uploads" / str(upload_id) /
+            "source.molecular-topology-v1+gzip")
+    if not path.is_file():
+        raise LedgerError("integrity_mismatch")
+    return load_topology_artifact(path, reference, require_complete=require_complete)
 
 
 def _load_source(job):
@@ -223,6 +243,120 @@ def _verify_process(job, result, parent_pid):
         outcome = {"error": "preparation_memory_limit_exceeded"}
     except Exception as error:
         outcome = {"error": _validation_errors(error, stage="verify")}
+    result.put(outcome, timeout=1)
+    result.flush_until(time.monotonic() + 1)
+    result.close()
+
+
+def _validate_topology_source_process(job, result, parent_pid):
+    """Admit only a complete immutable source before creating operation intent."""
+    arm_parent_death(parent_pid)
+    try:
+        _address_limit(job["memory_limit_bytes"])
+        load_explicit_topology_source(job, require_complete=True)
+        outcome = {"ok": True}
+    except LedgerError as error:
+        outcome = {"error": error.code}
+    except Exception as error:
+        from neomd.topology_adapter import ConnectivityPrerequisiteError
+        from neomd.topology_records import TopologyRecordError
+
+        if isinstance(error, ConnectivityPrerequisiteError):
+            outcome = {"error": "connectivity_incomplete"}
+        elif isinstance(error, TopologyRecordError):
+            outcome = {"error": "invalid_topology_record"}
+        else:
+            outcome = {"error": "evidence_mismatch"}
+    result.put(outcome, timeout=1)
+    result.flush_until(time.monotonic() + 1)
+    result.close()
+
+
+def _prepare_topology_process(job, result, parent_pid):
+    """Full explicit-bond ff14SB/TIP3P/GAFF preparation in an isolated child."""
+    arm_parent_death(parent_pid)
+    started = time.monotonic()
+    try:
+        _address_limit(job["memory_limit_bytes"])
+        from neomd.topology_preparation import prepare_explicit_topology
+
+        staging = Path(job["staging"])
+        staging.mkdir(parents=True, exist_ok=True)
+        source = _source_file(job["root"], job)
+        bundle = prepare_explicit_topology(
+            source, job["reference"], staging,
+            ph=job["parameters"]["ph"],
+            ionic_strength_molar=job["parameters"]["ionic_strength_mol_per_l"],
+            padding_nm=job["parameters"]["padding_nm"],
+        )
+        manifest = Path(bundle.prepared_manifest)
+        directory = manifest.parent
+        artifacts = [{"path": path.relative_to(directory).as_posix(),
+                      "sha256": _digest(path), "size_bytes": path.stat().st_size}
+                     for path in sorted(directory.rglob("*")) if path.is_file()]
+        total = sum(item["size_bytes"] for item in artifacts)
+        if total > job["max_result_bytes"]:
+            raise LedgerError("result_too_large")
+        import openmm
+
+        outcome = {"ok": True, "prepared_revision_id": directory.name,
+                   "manifest_sha256": _digest(manifest), "artifacts": artifacts,
+                   "total_size_bytes": total,
+                   "wall_time_seconds": round(time.monotonic() - started, 3),
+                   "openmm_build": openmm.version.full_version}
+    except LedgerError as error:
+        outcome = {"error": error.code}
+    except MemoryError:
+        outcome = {"error": "preparation_memory_limit_exceeded"}
+    except Exception as error:
+        from neomd.topology_adapter import ConnectivityPrerequisiteError
+        from neomd.topology_records import TopologyRecordError
+
+        if isinstance(error, ConnectivityPrerequisiteError):
+            outcome = {"error": "connectivity_incomplete"}
+        elif isinstance(error, TopologyRecordError):
+            outcome = {"error": "invalid_topology_record"}
+        else:
+            outcome = {"error": _validation_errors(error, stage="prepare")}
+    result.put(outcome, timeout=1)
+    result.flush_until(time.monotonic() + 1)
+    result.close()
+
+
+def _verify_topology_process(job, result, parent_pid):
+    """Reopen the exact bundle and verify source, additions and System size."""
+    arm_parent_death(parent_pid)
+    try:
+        _address_limit(job["memory_limit_bytes"])
+        from neomd.topology_preparation import verify_explicit_topology_preparation
+
+        manifest_path = (Path(job["staging"]) / "prepared" /
+                         job["prepared_revision_id"] / "manifest.json")
+        manifest = verify_explicit_topology_preparation(
+            manifest_path, expected_sha256=job["manifest_sha256"])
+        changes = json.loads(
+            (manifest_path.parent / "topology-changes.json").read_text())
+        outcome = {
+            "ok": True, "prepared_revision_id": manifest["prepared_revision_id"],
+            "mapping_sha256": manifest["artifacts"]["source-topology-map.json"]["sha256"],
+            "changes_sha256": manifest["artifacts"]["topology-changes.json"]["sha256"],
+            "particle_count": manifest["particle_count"],
+            "versions": _versions(),
+            "qc": {
+                "source_atom_count": len(manifest["sources"][0]["atoms"]),
+                "retained_source_bond_count": changes["source_bond_count"],
+                "added_hydrogen_bond_count": len(changes["added_hydrogen_bonds"]),
+                "added_solvation_bond_count": len(changes["added_solvation_bonds"]),
+                "particle_count": manifest["particle_count"],
+                "box_vectors_nm": manifest["box_vectors_nm"],
+            },
+        }
+    except LedgerError as error:
+        outcome = {"error": error.code}
+    except MemoryError:
+        outcome = {"error": "preparation_memory_limit_exceeded"}
+    except Exception:
+        outcome = {"error": "verification_failed"}
     result.put(outcome, timeout=1)
     result.flush_until(time.monotonic() + 1)
     result.close()

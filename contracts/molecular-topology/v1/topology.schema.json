@@ -1,0 +1,676 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:neodyn:molecular-topology:v1",
+  "title": "Canonical explicit molecular topology transfer v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_id": {
+      "const": "urn:neodyn:molecular-topology:v1"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "topology_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "revision_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "parent_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "coverage": {
+      "$ref": "#/$defs/coverage"
+    },
+    "chains": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/chain"
+      }
+    },
+    "residues": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/residue"
+      }
+    },
+    "atoms": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/atom"
+      }
+    },
+    "bonds": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/bond"
+      }
+    },
+    "relations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/relation"
+      }
+    },
+    "frames": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/frame"
+      },
+      "minItems": 1
+    },
+    "source_mappings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/source_mapping"
+      }
+    }
+  },
+  "required": [
+    "schema_id",
+    "schema_version",
+    "topology_id",
+    "revision_id",
+    "parent_revision_id",
+    "coverage",
+    "chains",
+    "residues",
+    "atoms",
+    "bonds",
+    "relations",
+    "frames",
+    "source_mappings"
+  ],
+  "$defs": {
+    "decimalId": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,19}$"
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "const": "topology"
+        },
+        "state": {
+          "enum": [
+            "complete",
+            "partial",
+            "unknown"
+          ]
+        },
+        "provenance": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        }
+      },
+      "required": [
+        "scope",
+        "state",
+        "provenance"
+      ]
+    },
+    "chain": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/decimalId"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "properties": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "source",
+        "properties"
+      ]
+    },
+    "residue": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/decimalId"
+        },
+        "chain_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/decimalId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "entity_kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "properties": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "chain_id",
+        "name",
+        "entity_kind",
+        "source",
+        "properties"
+      ]
+    },
+    "atom": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/decimalId"
+        },
+        "residue_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/decimalId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "element": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "formal_charge": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "isotope": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "aromatic": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stereochemistry": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "occupancy": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "b_factor": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "properties": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "residue_id",
+        "name",
+        "element",
+        "formal_charge",
+        "isotope",
+        "aromatic",
+        "stereochemistry",
+        "occupancy",
+        "b_factor",
+        "source",
+        "properties"
+      ]
+    },
+    "bond": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "atom_ids": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/decimalId"
+            },
+            {
+              "$ref": "#/$defs/decimalId"
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "order": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "unknown",
+                "single",
+                "double",
+                "triple",
+                "aromatic",
+                "other"
+              ]
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 65536
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ]
+        },
+        "kind": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "unknown",
+                "covalent",
+                "disulfide",
+                "other"
+              ]
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 65536
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ]
+        },
+        "provenance": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/provenance"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "atom_ids",
+        "order",
+        "kind",
+        "provenance"
+      ]
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "source_record",
+            "authorized_edit",
+            "template_reconstruction"
+          ]
+        },
+        "reference": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "properties": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "reference",
+        "properties"
+      ]
+    },
+    "relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/decimalId"
+        },
+        "kind": {
+          "enum": [
+            "coordination",
+            "hydrogen_contact",
+            "other"
+          ]
+        },
+        "atom_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/decimalId"
+          },
+          "minItems": 2
+        },
+        "directed": {
+          "type": "boolean"
+        },
+        "properties": {
+          "type": "object"
+        },
+        "provenance": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/provenance"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "atom_ids",
+        "directed",
+        "properties",
+        "provenance"
+      ]
+    },
+    "position": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "atom_id": {
+          "$ref": "#/$defs/decimalId"
+        },
+        "xyz": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "minItems": 3,
+          "maxItems": 3
+        }
+      },
+      "required": [
+        "atom_id",
+        "xyz"
+      ]
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "unit": {
+          "enum": [
+            "nm",
+            "angstrom"
+          ]
+        },
+        "positions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/position"
+          }
+        },
+        "time_ps": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "box": {
+          "anyOf": [
+            {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ],
+                  "minItems": 3,
+                  "maxItems": 3
+                },
+                {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ],
+                  "minItems": 3,
+                  "maxItems": 3
+                },
+                {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ],
+                  "minItems": 3,
+                  "maxItems": 3
+                }
+              ],
+              "minItems": 3,
+              "maxItems": 3
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "model",
+        "unit",
+        "positions",
+        "time_ps",
+        "box"
+      ]
+    },
+    "source_mapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source_document_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "block": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "source_atom_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "atom_id": {
+          "$ref": "#/$defs/decimalId"
+        }
+      },
+      "required": [
+        "source_document_id",
+        "block",
+        "model",
+        "source_atom_ref",
+        "atom_id"
+      ]
+    }
+  }
+}

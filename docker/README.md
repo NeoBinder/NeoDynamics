@@ -30,6 +30,8 @@ The full Dockerfile resolves the pinned dedicated Pixi environment into the
 runtime image. `Dockerfile.source` pulls the supplied digest, requires its recorded
 environment-lock hash to match, and force-reinstalls only the new wheel without
 resolving dependencies. A changed lock requires a reviewed full runtime build.
+Both images register the runtime UID/GID 65532 as `neomd` so installed Python
+toolkits can resolve the nonroot account inside Kubernetes.
 Both paths use `podman build --network host`; workstation proxies/credentials are
 not portable Dockerfile configuration. Keep container lock, OpenMM pin and driver
 CUDA compatibility aligned; do not copy a newer development CUDA lock blindly.

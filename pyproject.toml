@@ -49,6 +49,8 @@ where = ["src"]
 "share/neodynamics/contracts/assembly-report/v1" = ["contracts/assembly-report/v1/*.json"]
 "share/neodynamics/contracts/topology-view/v1" = ["contracts/topology-view/v1/*.json"]
 "share/neodynamics/contracts/protein-preparation/v1" = ["contracts/protein-preparation/v1/*.json"]
+"share/neodynamics/contracts/protein-preparation/v2" = ["contracts/protein-preparation/v2/*.json"]
+"share/neodynamics/contracts/molecular-topology/v1" = ["contracts/molecular-topology/v1/*.json"]
 "share/neodynamics/contracts/trajectory-result/v1" = ["contracts/trajectory-result/v1/*.json"]
 "share/neodynamics/contracts/neoapi-md-publication/v1" = [
   "contracts/neoapi-md-publication/v1/openapi.yaml",

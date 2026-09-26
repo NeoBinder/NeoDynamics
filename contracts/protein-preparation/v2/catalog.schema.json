@@ -1,0 +1,346 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:neodyn:protein-preparation:v2:catalog",
+  "title": "Accepted explicit-topology protein and ligand preparation catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "presets",
+    "system_assembly_available",
+    "loader",
+    "limits",
+    "unresolved_parameters"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "loader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "atom_order"
+      ],
+      "properties": {
+        "name": {
+          "const": "neomd.canonical_topology_adapter"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "atom_order": {
+          "const": "preparation_input"
+        }
+      }
+    },
+    "presets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "preset_id",
+          "resources",
+          "accepted_parameters",
+          "editable_parameters",
+          "repair",
+          "preset_revision_sha256",
+          "source_topology",
+          "ligand_parameterizer"
+        ],
+        "properties": {
+          "preset_id": {
+            "const": "protein.ff14sb.tip3p.gaff.explicit"
+          },
+          "resources": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "role",
+                "resource_id",
+                "package",
+                "package_version",
+                "sha256",
+                "size_bytes"
+              ],
+              "properties": {
+                "role": {
+                  "enum": [
+                    "protein",
+                    "water_and_ions"
+                  ]
+                },
+                "resource_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "package": {
+                  "const": "openmmforcefields"
+                },
+                "package_version": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "size_bytes": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "accepted_parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "water_geometry",
+              "positive_ion",
+              "negative_ion",
+              "ionic_strength_mol_per_l",
+              "neutralize",
+              "box_shape",
+              "padding_nm",
+              "ph",
+              "existing_water",
+              "hydrogen_mass_amu",
+              "constraints",
+              "rigid_water",
+              "remove_cm_motion",
+              "nonbonded_method",
+              "nonbonded_cutoff_nm",
+              "ewald_error_tolerance",
+              "use_dispersion_correction",
+              "switch_distance_nm",
+              "exceptions_use_periodic_boundary_conditions",
+              "flexible_constraints"
+            ],
+            "properties": {
+              "water_geometry": {
+                "const": "tip3p"
+              },
+              "positive_ion": {
+                "const": "Na+"
+              },
+              "negative_ion": {
+                "const": "Cl-"
+              },
+              "ionic_strength_mol_per_l": {
+                "const": 0.1
+              },
+              "neutralize": {
+                "const": true
+              },
+              "box_shape": {
+                "const": "source_orthorhombic"
+              },
+              "padding_nm": {
+                "const": 1.0
+              },
+              "ph": {
+                "const": 7.0
+              },
+              "existing_water": {
+                "const": "retain_and_solvate"
+              },
+              "hydrogen_mass_amu": {
+                "const": 4.0
+              },
+              "constraints": {
+                "const": "HBonds"
+              },
+              "rigid_water": {
+                "const": true
+              },
+              "remove_cm_motion": {
+                "const": false
+              },
+              "nonbonded_method": {
+                "const": "pme"
+              },
+              "nonbonded_cutoff_nm": {
+                "const": 1.0
+              },
+              "ewald_error_tolerance": {
+                "const": 0.0005
+              },
+              "use_dispersion_correction": {
+                "const": true
+              },
+              "switch_distance_nm": {
+                "const": null
+              },
+              "exceptions_use_periodic_boundary_conditions": {
+                "const": false
+              },
+              "flexible_constraints": {
+                "const": false
+              }
+            }
+          },
+          "editable_parameters": {
+            "const": [
+              "ionic_strength_mol_per_l",
+              "padding_nm",
+              "ph"
+            ]
+          },
+          "repair": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "hydrogens",
+              "standard_residue_heavy_atoms",
+              "missing_stretches",
+              "nonstandard_residues",
+              "ligands_metals_nucleic_acids"
+            ],
+            "properties": {
+              "hydrogens": {
+                "const": true
+              },
+              "standard_residue_heavy_atoms": {
+                "const": false
+              },
+              "missing_stretches": {
+                "const": "block"
+              },
+              "nonstandard_residues": {
+                "const": "declared_ligand_graph_only"
+              },
+              "ligands_metals_nucleic_acids": {
+                "const": "declared_ligands_only"
+              }
+            }
+          },
+          "preset_revision_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "source_topology": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "schema_id",
+              "coverage",
+              "ligand_role",
+              "box_policy",
+              "covalent_protein_ligand"
+            ],
+            "properties": {
+              "schema_id": {
+                "const": "urn:neodyn:molecular-topology:v1"
+              },
+              "coverage": {
+                "const": "complete_asserted"
+              },
+              "ligand_role": {
+                "const": "residue.properties.parameter_role=ligand"
+              },
+              "box_policy": {
+                "const": "orthorhombic_source_box_meets_padding"
+              },
+              "covalent_protein_ligand": {
+                "const": "unsupported"
+              }
+            }
+          },
+          "ligand_parameterizer": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "openmmforcefields_version",
+              "openff_toolkit_version"
+            ],
+            "properties": {
+              "name": {
+                "const": "GAFFTemplateGenerator"
+              },
+              "openmmforcefields_version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "openff_toolkit_version": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "system_assembly_available": {
+      "type": "boolean"
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_source_bytes",
+        "max_result_bytes",
+        "time_limit_seconds",
+        "memory_limit_bytes",
+        "max_concurrent_operations",
+        "max_queued_per_owner"
+      ],
+      "properties": {
+        "max_source_bytes": {
+          "const": 67108864
+        },
+        "max_result_bytes": {
+          "const": 536870912
+        },
+        "time_limit_seconds": {
+          "const": 3600
+        },
+        "memory_limit_bytes": {
+          "const": 4294967296
+        },
+        "max_concurrent_operations": {
+          "const": 1
+        },
+        "max_queued_per_owner": {
+          "const": 8
+        }
+      }
+    },
+    "unavailable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason",
+        "detail"
+      ],
+      "properties": {
+        "reason": {
+          "enum": [
+            "execution_not_qualified",
+            "executor_unavailable",
+            "maintenance"
+          ]
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      }
+    },
+    "unresolved_parameters": {
+      "const": []
+    }
+  }
+}

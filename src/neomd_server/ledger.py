@@ -232,9 +232,9 @@ class Ledger:
                 if exists
                 else None
             )
-            if version is not None and version not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}:
+            if version is not None and version not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}:
                 raise RuntimeError("unsupported service ledger schema version")
-            for number in range((version or 0) + 1, 12):
+            for number in range((version or 0) + 1, 13):
                 script = (Path(__file__).parent / f"migrations/{number:03d}.sql").read_text()
                 await connection.execute(script)
 

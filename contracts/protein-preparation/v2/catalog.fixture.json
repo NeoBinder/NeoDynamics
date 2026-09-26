@@ -1,0 +1,88 @@
+{
+  "schema_version": 2,
+  "presets": [
+    {
+      "preset_id": "protein.ff14sb.tip3p.gaff.explicit",
+      "resources": [
+        {
+          "role": "protein",
+          "resource_id": "amber/protein.ff14SB.xml",
+          "package": "openmmforcefields",
+          "package_version": "0.16.0",
+          "sha256": "062f99635106ea7e00ab98b9827299ae48ac82875569832a6dea2cb875e0b078",
+          "size_bytes": 230532
+        },
+        {
+          "role": "water_and_ions",
+          "resource_id": "amber/tip3p_standard.xml",
+          "package": "openmmforcefields",
+          "package_version": "0.16.0",
+          "sha256": "fc528100bfb3587f632c0492166026ed5658c897026de0408f371604a79271fc",
+          "size_bytes": 19123
+        }
+      ],
+      "accepted_parameters": {
+        "water_geometry": "tip3p",
+        "positive_ion": "Na+",
+        "negative_ion": "Cl-",
+        "ionic_strength_mol_per_l": 0.1,
+        "neutralize": true,
+        "box_shape": "source_orthorhombic",
+        "padding_nm": 1.0,
+        "ph": 7.0,
+        "existing_water": "retain_and_solvate",
+        "hydrogen_mass_amu": 4.0,
+        "constraints": "HBonds",
+        "rigid_water": true,
+        "remove_cm_motion": false,
+        "nonbonded_method": "pme",
+        "nonbonded_cutoff_nm": 1.0,
+        "ewald_error_tolerance": 0.0005,
+        "use_dispersion_correction": true,
+        "switch_distance_nm": null,
+        "exceptions_use_periodic_boundary_conditions": false,
+        "flexible_constraints": false
+      },
+      "editable_parameters": [
+        "ionic_strength_mol_per_l",
+        "padding_nm",
+        "ph"
+      ],
+      "repair": {
+        "hydrogens": true,
+        "standard_residue_heavy_atoms": false,
+        "missing_stretches": "block",
+        "nonstandard_residues": "declared_ligand_graph_only",
+        "ligands_metals_nucleic_acids": "declared_ligands_only"
+      },
+      "source_topology": {
+        "schema_id": "urn:neodyn:molecular-topology:v1",
+        "coverage": "complete_asserted",
+        "ligand_role": "residue.properties.parameter_role=ligand",
+        "box_policy": "orthorhombic_source_box_meets_padding",
+        "covalent_protein_ligand": "unsupported"
+      },
+      "ligand_parameterizer": {
+        "name": "GAFFTemplateGenerator",
+        "openmmforcefields_version": "0.16.0",
+        "openff_toolkit_version": "0.19.0"
+      },
+      "preset_revision_sha256": "12fd9f508734b48066c1ff30d6b774972201956d847437ee80f55ec96e6c900c"
+    }
+  ],
+  "system_assembly_available": true,
+  "loader": {
+    "name": "neomd.canonical_topology_adapter",
+    "version": "1",
+    "atom_order": "preparation_input"
+  },
+  "limits": {
+    "max_source_bytes": 67108864,
+    "max_result_bytes": 536870912,
+    "time_limit_seconds": 3600,
+    "memory_limit_bytes": 4294967296,
+    "max_concurrent_operations": 1,
+    "max_queued_per_owner": 8
+  },
+  "unresolved_parameters": []
+}

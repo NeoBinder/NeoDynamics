@@ -30,7 +30,15 @@
     "preset_revision_mismatch": 409,
     "preparation_terminal": 409,
     "unsupported_structure": 422,
-    "evidence_mismatch": 422
+    "evidence_mismatch": 422,
+    "connectivity_incomplete": 422,
+    "invalid_topology_record": 422,
+    "unsupported_relation": 422,
+    "verification_failed": 422,
+    "protonation_conflict": 422,
+    "preparation_time_limit_exceeded": 409,
+    "preparation_memory_limit_exceeded": 422,
+    "result_too_large": 413
   },
   "message_policy": "Public-safe fixed descriptions only; local paths, exception strings, credentials and provider details are not forwarded."
 }

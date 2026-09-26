@@ -6,6 +6,7 @@ import hashlib
 import importlib.metadata
 import importlib.resources
 import json
+from copy import deepcopy
 
 
 def preparation_catalog():
@@ -55,3 +56,44 @@ def preparation_catalog():
     # independent verification all pass through the isolated executor.
     return {"schema_version": 1, "presets": [preset], "system_assembly_available": True,
             "loader": loader, "limits": limits, "unresolved_parameters": []}
+
+
+def topology_preparation_catalog():
+    """The explicit-bond ff14SB/TIP3P/GAFF profile qualified on 3HTB."""
+    original = preparation_catalog()
+    preset = deepcopy(original["presets"][0])
+    preset["preset_id"] = "protein.ff14sb.tip3p.gaff.explicit"
+    preset["repair"] = {
+        "hydrogens": True,
+        "standard_residue_heavy_atoms": False,
+        "missing_stretches": "block",
+        "nonstandard_residues": "declared_ligand_graph_only",
+        "ligands_metals_nucleic_acids": "declared_ligands_only",
+    }
+    preset["source_topology"] = {
+        "schema_id": "urn:neodyn:molecular-topology:v1",
+        "coverage": "complete_asserted",
+        "ligand_role": "residue.properties.parameter_role=ligand",
+        "box_policy": "orthorhombic_source_box_meets_padding",
+        "covalent_protein_ligand": "unsupported",
+    }
+    preset["ligand_parameterizer"] = {
+        "name": "GAFFTemplateGenerator",
+        "openmmforcefields_version": importlib.metadata.version("openmmforcefields"),
+        "openff_toolkit_version": importlib.metadata.version("openff-toolkit"),
+    }
+    preset["accepted_parameters"]["ionic_strength_mol_per_l"] = 0.1
+    preset["accepted_parameters"]["padding_nm"] = 1.0
+    preset["accepted_parameters"]["box_shape"] = "source_orthorhombic"
+    preset.pop("preset_revision_sha256")
+    encoded = json.dumps(preset, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    preset["preset_revision_sha256"] = hashlib.sha256(encoded).hexdigest()
+    return {
+        "schema_version": 2,
+        "presets": [preset],
+        "system_assembly_available": True,
+        "loader": {"name": "neomd.canonical_topology_adapter", "version": "1",
+                   "atom_order": "preparation_input"},
+        "limits": original["limits"],
+        "unresolved_parameters": [],
+    }

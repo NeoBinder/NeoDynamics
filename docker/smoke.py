@@ -29,6 +29,9 @@ CONTRACTS = (
     "prepared-bundle/v2/mapping.schema.json", "prepared-bundle/v2/source-input.schema.json",
     "assembly-report/v1/report.schema.json", "topology-view/v1/page.schema.json",
     "topology-view/v1/view.schema.json", "protein-preparation/v1/catalog.schema.json",
+    "molecular-topology/v1/topology.schema.json",
+    "protein-preparation/v2/catalog.schema.json", "protein-preparation/v2/request.schema.json",
+    "protein-preparation/v2/operation.schema.json", "protein-preparation/v2/receipt.schema.json",
     "trajectory-result/v1/manifest.schema.json", "neoapi-md-publication/v1/openapi.yaml",
     "neoapi-md-publication/v1/schema.json", "neoapi-md-publication/v1/snapshot.json",
     "neoapi-md-publication/v1/README.md",
@@ -141,10 +144,10 @@ def check_installation(provenance_path: Path) -> dict:
     importlib.import_module("pdbfixer")
     server = Path(origins["neomd_server"]).parent
     migrations = server / "migrations"
-    if {path.name for path in migrations.glob("*.sql")} != {f"{n:03d}.sql" for n in range(1, 12)}:
-        raise SmokeError("installed migrations must contain exactly 001.sql through 011.sql")
+    if {path.name for path in migrations.glob("*.sql")} != {f"{n:03d}.sql" for n in range(1, 13)}:
+        raise SmokeError("installed migrations must contain exactly 001.sql through 012.sql")
     contracts = Path(sysconfig.get_path("data")) / "share/neodynamics/contracts"
-    assets = [(f"migrations/{n:03d}.sql", migrations / f"{n:03d}.sql") for n in range(1, 12)]
+    assets = [(f"migrations/{n:03d}.sql", migrations / f"{n:03d}.sql") for n in range(1, 13)]
     assets += [(f"contracts/{name}", contracts / name) for name in CONTRACTS]
     assets += [(f"fixture/{name}", server / "fixtures/qualification" / name) for name in FIXTURE_FILES]
     inventory = {}

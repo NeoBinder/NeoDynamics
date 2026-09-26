@@ -409,10 +409,10 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
           preparing(lambda s, p, b, r: preparations.begin_source(s, b)))
     route("GET", "/preparations/source-uploads/by-request/{request_id}", None,
           f"{PREPARATION}:operation#/$defs/SourceUploadReceipt",
-          preparing(lambda s, p, b, r: preparations.source_upload_by_request(s, p["request_id"])))
+          preparing(lambda s, p, b, r: preparations.protein_source_upload_by_request(s, p["request_id"])))
     route("GET", "/preparations/source-uploads/{upload_id}", None,
           f"{PREPARATION}:operation#/$defs/SourceUploadReceipt",
-          preparing(lambda s, p, b, r: preparations.source_upload(s, p["upload_id"])))
+          preparing(lambda s, p, b, r: preparations.protein_source_upload(s, p["upload_id"])))
     route("POST", "/preparations", f"{PREPARATION}:operation#/$defs/PreparationRequest",
           f"{PREPARATION}:operation", preparing(lambda s, p, b, r: preparations.submit(s, b)), 202,
           PREPARATION_LIMIT)
@@ -424,11 +424,44 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
     route("GET", "/preparations/{operation_id}/qc", None, f"{PREPARATION}:qc",
           preparing(lambda s, p, b, r: preparations.qc(s, p["operation_id"])))
     route("POST", "/preparations/{operation_id}/cancel", None, f"{PREPARATION}:operation",
-          preparing(lambda s, p, b, r: preparations.cancel(s, p["operation_id"])), 200,
+          preparing(lambda s, p, b, r: preparations.cancel_protein(s, p["operation_id"])), 200,
           PREPARATION_LIMIT)
     route("GET", "/preparations/{operation_id}", None, f"{PREPARATION}:operation",
-          preparing(lambda s, p, b, r: preparations.get(s, p["operation_id"])), 200,
+          preparing(lambda s, p, b, r: preparations.get_protein(s, p["operation_id"])), 200,
           PREPARATION_LIMIT)
+
+    TOPOLOGY_PREPARATION = "urn:neodyn:protein-preparation:v2"
+    route("GET", "/topology-preparations/catalog", None,
+          f"{TOPOLOGY_PREPARATION}:catalog",
+          preparing(lambda s, p, b, r: preparations.topology_catalog(s)))
+    route("POST", "/topology-preparations/source-uploads",
+          f"{TOPOLOGY_PREPARATION}:operation#/$defs/SourceUploadBeginRequest",
+          f"{TOPOLOGY_PREPARATION}:operation#/$defs/SourceUploadReceipt",
+          preparing(lambda s, p, b, r: preparations.begin_source(s, b)))
+    route("GET", "/topology-preparations/source-uploads/by-request/{request_id}", None,
+          f"{TOPOLOGY_PREPARATION}:operation#/$defs/SourceUploadReceipt",
+          preparing(lambda s, p, b, r: preparations.topology_source_upload_by_request(
+              s, p["request_id"])))
+    route("GET", "/topology-preparations/source-uploads/{upload_id}", None,
+          f"{TOPOLOGY_PREPARATION}:operation#/$defs/SourceUploadReceipt",
+          preparing(lambda s, p, b, r: preparations.topology_source_upload(
+              s, p["upload_id"])))
+    route("POST", "/topology-preparations", f"{TOPOLOGY_PREPARATION}:request",
+          f"{TOPOLOGY_PREPARATION}:operation",
+          preparing(lambda s, p, b, r: preparations.submit_topology(s, b)), 202,
+          PREPARATION_LIMIT)
+    route("GET", "/topology-preparations/by-request/{request_id}", None,
+          f"{TOPOLOGY_PREPARATION}:operation",
+          preparing(lambda s, p, b, r: preparations.topology_by_request(s, p["request_id"])),
+          200, PREPARATION_LIMIT)
+    route("POST", "/topology-preparations/{operation_id}/cancel", None,
+          f"{TOPOLOGY_PREPARATION}:operation",
+          preparing(lambda s, p, b, r: preparations.cancel_topology(s, p["operation_id"])),
+          200, PREPARATION_LIMIT)
+    route("GET", "/topology-preparations/{operation_id}", None,
+          f"{TOPOLOGY_PREPARATION}:operation",
+          preparing(lambda s, p, b, r: preparations.get_topology(s, p["operation_id"])),
+          200, PREPARATION_LIMIT)
 
     @app.put(PREFIX + "/preparations/source-uploads/{upload_id}/content")
     async def upload_preparation_source(request: Request):
@@ -436,6 +469,19 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
         if preparations is None:
             raise LedgerError("service_unavailable")
         upload_id = _canonical_id(request.path_params["upload_id"])
+        await preparations.protein_source_upload(request.state.owner_scope, upload_id)
+        limit = preparations.limits.max_source_bytes if preparations.limits else CONTROL_LIMIT
+        await preparations.put_source_content(request.state.owner_scope, upload_id,
+                                              _chunks(request, limit, settings))
+        return Response(status_code=200, headers={"Cache-Control": "no-store"})
+
+    @app.put(PREFIX + "/topology-preparations/source-uploads/{upload_id}/content")
+    async def upload_topology_source(request: Request):
+        _content_type(request, "application/octet-stream")
+        if preparations is None:
+            raise LedgerError("service_unavailable")
+        upload_id = _canonical_id(request.path_params["upload_id"])
+        await preparations.topology_source_upload(request.state.owner_scope, upload_id)
         limit = preparations.limits.max_source_bytes if preparations.limits else CONTROL_LIMIT
         await preparations.put_source_content(request.state.owner_scope, upload_id,
                                               _chunks(request, limit, settings))
@@ -446,8 +492,20 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
         if preparations is None:
             raise LedgerError("service_unavailable")
         params = {key: _canonical_id(value) for key, value in request.path_params.items()}
+        await preparations.get_protein(request.state.owner_scope, params["operation_id"])
         data = await preparations.artifact_content(request.state.owner_scope, params["operation_id"],
                                                    params["artifact_id"])
+        return Response(data, media_type="application/octet-stream",
+                        headers={"Cache-Control": "no-store"})
+
+    @app.get(PREFIX + "/topology-preparations/{operation_id}/artifacts/{artifact_id}/content")
+    async def topology_preparation_artifact_content(request: Request):
+        if preparations is None:
+            raise LedgerError("service_unavailable")
+        params = {key: _canonical_id(value) for key, value in request.path_params.items()}
+        await preparations.get_topology(request.state.owner_scope, params["operation_id"])
+        data = await preparations.artifact_content(request.state.owner_scope,
+                                                   params["operation_id"], params["artifact_id"])
         return Response(data, media_type="application/octet-stream",
                         headers={"Cache-Control": "no-store"})
 
