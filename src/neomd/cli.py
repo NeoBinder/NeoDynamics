@@ -53,6 +53,13 @@ def build_parser() -> argparse.ArgumentParser:
                      help="L1 override of the plan's top-level 'steps'")
     run.add_argument("--platform", choices=("cuda", "cpu"), default="cuda",
                      help="openmm platform (default: cuda)")
+    run.add_argument("--device-index", "--cuda-index", dest="device_index",
+                     default="0", metavar="IDX",
+                     help="CUDA device to run on: an ordinal among the "
+                          "devices CUDA makes visible (CUDA_VISIBLE_DEVICES "
+                          "filters and renumbers them, so a host pinned to "
+                          "one GPU uses 0); hardware, not plan state — "
+                          "ignored by --platform cpu (default: 0)")
     run.add_argument("--kernel", choices=("openmm", "fake", "replay"),
                      default="openmm",
                      help="kernel adapter (default: openmm; replay plays a "
@@ -211,6 +218,7 @@ def _cmd_run(args) -> int:
     try:
         outcome = md_run(args.target, platform=args.platform,
                          kernel=args.kernel,
+                         device_index=args.device_index,
                          wrap_coordinates=args.wrap_coordinates,
                          debug=args.debug,
                          **overrides)

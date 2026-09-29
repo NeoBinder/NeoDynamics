@@ -3,7 +3,9 @@
 
 v1 surface kept: `run_generic_md.py CONFIG [--platform] [--cuda_index]`.
 A v1 YAML is translated by the one-shot `neomd.migrate` tool, then run via
-`neomd run` semantics (md_run).
+`neomd run` semantics (md_run).  `--cuda_index` reaches md_run's
+`device_index` (v1's `cuda_index` and v2's CUDA DeviceIndex are the same
+thing: an ordinal among the devices CUDA makes visible).
 """
 import argparse
 import os
@@ -29,7 +31,7 @@ def main(argv=None):
     translated = translate(raw, source=args.config,
                            base_dir=os.path.dirname(os.path.abspath(args.config)))
     outcome = md_run(Plan.from_dict(translated, source=args.config),
-                     platform=args.platform)
+                     platform=args.platform, device_index=args.cuda_index)
     print("phases:", outcome.phases_run, "| fgroups:", outcome.fgroups,
           "| manifest:", outcome.manifest_path)
     return 0

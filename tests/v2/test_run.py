@@ -333,3 +333,91 @@ def test_direct_drive_and_compile_share_one_kernel_spec(tmp_path):
     # ...and the rich v1 fields survive the drive() path too
     assert captured["spec"].barostat == compiled.barostat
     assert captured["spec"].particle_masses == compiled.particle_masses
+
+
+# ---------------------------------------------------------------------------
+# CUDA device selection (hardware, deliberately NOT plan state)
+# ---------------------------------------------------------------------------
+
+
+def _device_plan(tmp_path):
+    """A minimal plan: the spec builder only carries these paths, so the
+    files need not exist (nothing constructs a Context here)."""
+    return Plan.from_dict({
+        "method": "eq", "steps": 10,
+        "input_files": {"complex": "unused.pdb", "system": "unused.xml"},
+        "output": {"output_dir": str(tmp_path)},
+    })
+
+
+def test_build_kernel_spec_carries_the_cuda_device_index(tmp_path):
+    """Default ordinal 0; an explicit index (str or int) reaches the spec;
+    openmm's comma-separated multi-device spelling survives verbatim."""
+    from neomd.run import build_kernel_spec
+
+    plan = _device_plan(tmp_path)
+
+    assert build_kernel_spec(plan).device_index == "0"
+    assert build_kernel_spec(plan, device_index="2").device_index == "2"
+    assert build_kernel_spec(plan, device_index=1).device_index == "1"
+    assert build_kernel_spec(plan, device_index="0,1").device_index == "0,1"
+
+
+def test_device_index_is_validated_and_is_not_a_plan_key(tmp_path):
+    """The one definition of a valid DeviceIndex lives on the port
+    (check_device_index); a malformed one is a rendered user error, and the
+    knob cannot enter the Plan — hardware must not move the fingerprint."""
+    from neomd.errors import ConfigValueError
+    from neomd.kernel.port import check_device_index
+    from neomd.run import build_kernel_spec
+
+    plan = _device_plan(tmp_path)
+    raw = {"method": "eq", "steps": 10,
+           "input_files": {"complex": "unused.pdb", "system": "unused.xml"},
+           "output": {"output_dir": str(tmp_path)}}
+
+    for bad in ("gpu1", "-1", "0,", "1 2", "", True, 1.5, None):
+        with pytest.raises(ConfigValueError) as info:
+            build_kernel_spec(plan, device_index=bad)
+        assert "device_index" in str(info.value)
+
+    with pytest.raises(ConfigValueError):
+        check_device_index("one")
+
+    # ...and the Plan schema stays machine-free
+    with pytest.raises(ConfigKeyError):
+        Plan.from_dict({**raw, "device_index": 1})
+
+
+def test_compile_and_md_run_forward_the_device_index(tmp_path, monkeypatch):
+    """Both public entry points hand the index to the ONE spec builder: the
+    CLI path (md_run -> compile -> build_kernel_spec -> KernelSpec) has no
+    second, weaker route, so the ordinal cannot be dropped on the way."""
+    import neomd.run as run_module
+    from neomd.kernel.port import KernelFactory
+
+    raw = {"method": "eq", "steps": 10,
+           "input_files": {"complex": "unused.pdb", "system": "unused.xml"},
+           "output": {"output_dir": str(tmp_path)}}
+
+    captured: dict = {}
+    monkeypatch.setattr(KernelFactory, "create",
+                        lambda spec: captured.setdefault("spec", spec))
+    compile_run(Plan.from_dict(raw), platform="cuda", device_index="1")
+    assert captured["spec"].device_index == "1"
+    assert captured["spec"].platform == "cuda"
+
+    calls: dict = {}
+
+    class _Compiled:
+        def run(self):
+            return "ran"
+
+    def fake_compile(plan_arg, **kwargs):
+        calls.update(kwargs)
+        return _Compiled()
+
+    monkeypatch.setattr(run_module, "compile", fake_compile)
+    assert md_run(raw, platform="cpu", device_index=3) == "ran"
+    assert calls["device_index"] == 3
+    assert calls["platform"] == "cpu"

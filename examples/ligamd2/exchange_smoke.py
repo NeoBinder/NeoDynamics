@@ -20,6 +20,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', default='/tmp/neomd-ligamd2-exchange-smoke')
     parser.add_argument('--platform', choices=('cpu', 'cuda'), default='cpu')
+    parser.add_argument('--device-index', default='0',
+                        help='CUDA device ordinal among the devices CUDA makes '
+                             'visible (CUDA_VISIBLE_DEVICES filters and '
+                             'renumbers them)')
     args = parser.parse_args()
     output = Path(args.output).resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -79,7 +83,7 @@ def main():
                               'interval': 1, 'cutoff_nm': 0.7, 'periodic': True}},
     }
     (output / 'plan.json').write_text(json.dumps(plan, indent=2))
-    md_run(plan, platform=args.platform)
+    md_run(plan, platform=args.platform, device_index=args.device_index)
 
 
 if __name__ == '__main__':

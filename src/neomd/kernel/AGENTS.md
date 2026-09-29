@@ -39,3 +39,10 @@ table bias is a single method-side force and keeps its own group.
 periodicity (snapshotted before any install): a periodic restraint flag
 cannot flip a non-periodic system — wrap/volume stay off where no force
 applies PBC.
+
+**Device selection**: `KernelSpec.device_index` is an ordinal in openmm's own
+enumeration, i.e. AFTER `CUDA_VISIBLE_DEVICES` filtered and renumbered the
+visible devices — that variable is the outer pin, never a second source the
+adapter re-derives the index from (doing so asked for an invisible device;
+openmm #2613). `check_device_index` in `port.py` is its one validator; it is
+a call argument (`md_run`/`compile`/`--device-index`), never a plan key.

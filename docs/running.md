@@ -5,6 +5,35 @@ A run produces scientific results and the state needed to continue it. Start wit
 files and control coordinate output. Method-specific files are documented in the
 [method guides](methods/index.md).
 
+## Platform and GPU selection
+
+`neomd run` defaults to `--platform cuda`; `--platform cpu` runs the OpenMM
+kernel on CPU. On a multi-GPU host `--device-index N` (also spelled
+`--cuda-index`, and `md_run(..., device_index=N)` from Python) picks the CUDA
+device:
+
+```bash
+neomd run run_dir --device-index 1                           # second device of the host
+CUDA_VISIBLE_DEVICES=2 neomd run run_dir                     # pin GPU 2 (needs no --device-index)
+CUDA_VISIBLE_DEVICES=2,3 neomd run run_dir --device-index 1  # device 3, the list's second entry
+```
+
+The index is an ordinal in OpenMM's own enumeration, i.e. **after**
+`CUDA_VISIBLE_DEVICES` filtering and renumbering: that variable is the outer
+pin schedulers and containers use for a single GPU id, and CUDA then exposes
+the visible devices as ordinals `0..n-1`. Pinning one GPU therefore needs no
+`--device-index` at all — with `CUDA_VISIBLE_DEVICES=2`, ordinal `0` already
+is that GPU — while a host exposing `0,1` selects the second with
+`--device-index 1`. An out-of-range ordinal is rejected by OpenMM when the
+Context is created; a malformed one (`gpu1`, `-1`, `1 2`) is a rendered user
+error before anything runs.
+
+Device selection is hardware, not science: it is a call argument rather than a
+plan key, so it never enters the Plan, its sha256 fingerprint or the run's
+artifacts, and the plan file stays machine-independent. Resume is not gated on
+it (bit-exact continuation remains a property of the same GPU and driver, as
+with any checkpoint).
+
 ## Output files
 
 | File | Writer | Content |
