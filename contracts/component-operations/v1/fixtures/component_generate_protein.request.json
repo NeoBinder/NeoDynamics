@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "request_id": "00000000-0000-4000-8000-000000000008",
+  "kind": "component_generate",
+  "inputs": [
+    {
+      "name": "states/protein.json",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size_bytes": 300,
+      "operation_id": "00000000-0000-4000-8000-000000000009",
+      "artifact_id": "00000000-0000-4000-8000-00000000000a"
+    }
+  ],
+  "options": {
+    "method_id": "amber-ff14sb",
+    "repair_seed": 2,
+    "hydrogen_seed": 3,
+    "ph": 7.0
+  }
+}

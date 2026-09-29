@@ -1,0 +1,74 @@
+{
+  "artifact-reference-unsafe-path": {
+    "kind": "artifact-reference",
+    "code": "invalid_reference"
+  },
+  "artifact-reference-oversized": {
+    "kind": "artifact-reference",
+    "code": "oversized_payload"
+  },
+  "artifact-reference-hash-shape": {
+    "kind": "artifact-reference",
+    "code": "invalid_reference"
+  },
+  "chemical-state-charge-sum": {
+    "kind": "chemical-state",
+    "code": "mapping_mismatch"
+  },
+  "chemical-state-duplicate-atom": {
+    "kind": "chemical-state",
+    "code": "mapping_mismatch"
+  },
+  "chemical-state-duplicate-bond": {
+    "kind": "chemical-state",
+    "code": "mapping_mismatch"
+  },
+  "chemical-state-unresolved-stereo": {
+    "kind": "chemical-state",
+    "code": "chemistry_unresolved"
+  },
+  "component-instance-duplicate-source": {
+    "kind": "component-instance",
+    "code": "mapping_mismatch"
+  },
+  "component-instance-missing-binding": {
+    "kind": "component-instance",
+    "code": "mapping_mismatch"
+  },
+  "parameter-package-unsafe-asset": {
+    "kind": "parameter-package",
+    "code": "invalid_reference"
+  },
+  "parameter-package-charge-sum": {
+    "kind": "parameter-package",
+    "code": "mapping_mismatch"
+  },
+  "preparation-recipe-duplicate-assignment": {
+    "kind": "preparation-recipe",
+    "code": "mapping_mismatch"
+  },
+  "preparation-recipe-version": {
+    "kind": "preparation-recipe",
+    "code": "contract_version_mismatch"
+  },
+  "preparation-recipe-wrong-package-hash": {
+    "kind": "preparation-recipe",
+    "code": "mapping_mismatch"
+  },
+  "preparation-recipe-missing-solvation-seed": {
+    "kind": "preparation-recipe",
+    "code": "invalid_reference"
+  },
+  "preparation-recipe-oversized-solvation-seed": {
+    "kind": "preparation-recipe",
+    "code": "invalid_reference"
+  },
+  "capability-catalog-false-qualification": {
+    "kind": "capability-catalog",
+    "code": "invalid_reference"
+  },
+  "diagnostic-bad-pointer": {
+    "kind": "diagnostic",
+    "code": "invalid_reference"
+  }
+}

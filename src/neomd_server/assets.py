@@ -10,6 +10,7 @@ import os
 import queue
 import stat
 import struct
+import tempfile
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -17,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from .contract import content_hash, validate
+from .contract import ContractError, content_hash, validate
 from .durability import sync_directories
 from .input_operations import InputOperations
 from .ipc import Channel, RawChannel
@@ -47,8 +48,11 @@ async def _readable(channels, process, deadline):
         if not ready.done():
             ready.set_result(None)
 
-    descriptors = [channel.connection.fileno() for channel in channels
-                   if channel is not None and not channel.eof]
+    descriptors = [
+        channel.connection.fileno()
+        for channel in channels
+        if channel is not None and not channel.eof
+    ]
     if process.is_alive():
         descriptors.append(process.sentinel)
     if not descriptors:
@@ -82,6 +86,17 @@ def _read_json(path):
     return json.loads(
         Path(path).read_text(encoding="utf-8"), object_pairs_hook=pairs, parse_constant=constant
     )
+
+
+def _artifact_bytes(directory, manifest, name):
+    descriptor = manifest["artifacts"][name]
+    target = (directory / name).resolve(strict=True)
+    if not target.is_relative_to(directory) or target.stat().st_size != descriptor["size_bytes"]:
+        raise LedgerError("integrity_mismatch")
+    data = target.read_bytes()
+    if hashlib.sha256(data).hexdigest() != descriptor["sha256"]:
+        raise LedgerError("integrity_mismatch")
+    return data
 
 
 @dataclass(frozen=True)
@@ -178,31 +193,109 @@ def _verify_bundle_impl(job, limits, *, sender):
     validate_system_xml(
         directory / "system.xml", max_bytes=limits["max_xml_bytes"], max_forces=limits["max_forces"]
     )
-    del manifest  # The engine returns its independently verified manifest.
     authority = job.get("preparation_authority")
-    if authority is not None:
+    if authority is not None and authority["receipt"]["kind"] == "component_assemble":
+        from neomd.component_system_qc import read_component_system_qc_report
+        from neomd.prepared import read_prepared_bundle
+
+        from .template_binding import write_component_topology_bridge
+
+        claimed = authority["receipt"]
+        if (
+            version != 2
+            or claimed["result"]["object_type"] != "prepared_bundle"
+            or claimed["result"]["sha256"] != receipt["manifest_sha256"]
+            or claimed["result"]["id"] != manifest["prepared_revision_id"]
+            or claimed["verification"]["profile"] != "component_assemble_v1"
+        ):
+            raise LedgerError("integrity_mismatch")
+        qc_sha = claimed["verification"]["report_sha256"]
+        qc_bytes = _artifact_bytes(directory, manifest, "qc/component-system-qc.json")
+        qc = read_component_system_qc_report(qc_bytes, expected_sha256=qc_sha)
+        assembly_bytes = _artifact_bytes(directory, manifest, "assembly/manifest.json")
+        assembly = _read_json(directory / "assembly/manifest.json")
+        report = _read_json(directory / "assembly/report.json")
+        parameters = manifest["parameters"]
+        if (
+            qc["status"] != "numerically_executable"
+            or qc["assembly_manifest_sha256"] != hashlib.sha256(assembly_bytes).hexdigest()
+            or qc["recipe_sha256"] != assembly["recipe_sha256"]
+            or qc["source_content_sha256"] != assembly["source_content_sha256"]
+            or report["recipe_sha256"] != qc["recipe_sha256"]
+            or report["source_content_sha256"] != qc["source_content_sha256"]
+            or parameters
+            != {
+                "component_assembly_manifest_sha256": qc["assembly_manifest_sha256"],
+                "component_qc_status": qc["status"],
+                "component_system_qc_sha256": qc_sha,
+                "recipe_sha256": qc["recipe_sha256"],
+                "source_content_sha256": qc["source_content_sha256"],
+            }
+            or len(manifest["sources"]) != 1
+            or manifest["sources"][0]["content_sha256"] != qc["source_content_sha256"]
+        ):
+            raise LedgerError("integrity_mismatch")
+        assembly_artifacts = {
+            "topology_json": "assembly/topology.json",
+            "positions_f64le": manifest["coordinates"]["artifact"],
+            "system_xml": "system.xml",
+            "report_json": "assembly/report.json",
+        }
+        if set(assembly["artifacts"]) != set(assembly_artifacts) or any(
+            assembly["artifacts"][key] != manifest["artifacts"][name]
+            for key, name in assembly_artifacts.items()
+        ):
+            raise LedgerError("integrity_mismatch")
+        # The producer's same-owner operation certifies the immutable input
+        # recipe and independent QC. Intake additionally checks actual OpenMM
+        # System, source-bound topology and coordinates against those bytes.
+        read_prepared_bundle(
+            directory / "manifest.json", expected_sha256=receipt["manifest_sha256"]
+        )
+        with tempfile.TemporaryDirectory(prefix="neomd-component-intake-") as temporary:
+            bridge = write_component_topology_bridge(
+                manifest, directory, Path(temporary) / "topology.pdbx"
+            )
+            verified = verify_prepared_system(
+                directory / "manifest.json",
+                expected_sha256=receipt["manifest_sha256"],
+                trusted_topology_file=bridge,
+                expected_system_constraints=report["system"]["constraint_count"],
+                expected_force_types=report["system"]["force_types"],
+            )
+    elif authority is not None:
         from neomd.prepared_pipeline import verify_protein_preparation
 
-        if (version != 2 or authority["receipt"]["verification"]["manifest_sha256"]
-                != receipt["manifest_sha256"]):
+        if (
+            version != 2
+            or authority["receipt"]["verification"]["manifest_sha256"] != receipt["manifest_sha256"]
+        ):
             raise LedgerError("integrity_mismatch")
         verified = verify_protein_preparation(
-            directory / "manifest.json", expected_sha256=receipt["manifest_sha256"],
+            directory / "manifest.json",
+            expected_sha256=receipt["manifest_sha256"],
         )
         verification = authority["receipt"]["verification"]
-        if (verified["prepared_revision_id"] != verification["prepared_revision_id"]
-                or verified["artifacts"]["mapping.json"]["sha256"] != verification["mapping_sha256"]
-                or verified["artifacts"]["assembly-report.json"]["sha256"]
-                != verification["assembly_report_sha256"]):
+        if (
+            verified["prepared_revision_id"] != verification["prepared_revision_id"]
+            or verified["artifacts"]["mapping.json"]["sha256"] != verification["mapping_sha256"]
+            or verified["artifacts"]["assembly-report.json"]["sha256"]
+            != verification["assembly_report_sha256"]
+        ):
             raise LedgerError("integrity_mismatch")
     else:
         verified = verify_prepared_system(
-            directory / "manifest.json", expected_sha256=receipt["manifest_sha256"],
+            directory / "manifest.json",
+            expected_sha256=receipt["manifest_sha256"],
             profile="canonical_protein_load_v1" if version == 2 else None,
         )
     mapping = _read_json(directory / "mapping.json")
-    if (not isinstance(mapping, dict) or mapping.get("schema_version") != version
-            or version == 2 and type(mapping.get("schema_version")) is not int):
+    if (
+        not isinstance(mapping, dict)
+        or mapping.get("schema_version") != version
+        or version == 2
+        and type(mapping.get("schema_version")) is not int
+    ):
         raise LedgerError("integrity_mismatch")
     validate_prepared("mapping", mapping)
     del mapping
@@ -226,7 +319,9 @@ def _verify_bundle_impl(job, limits, *, sender):
         },
         "particle_count": verified["particle_count"],
         "topology_atom_count": verified["topology_atom_count"],
-        "particle_identity_sha256": content_hash([row["identity_id"] for row in verified["particles"]]),
+        "particle_identity_sha256": content_hash(
+            [row["identity_id"] for row in verified["particles"]]
+        ),
         "preview_projection_sha256": projection.hexdigest(),
     }
     proof["topology"] = sender.project(verified, proof["prepared"])
@@ -237,10 +332,62 @@ def _verify_bundle_impl(job, limits, *, sender):
     return proof
 
 
+def _verify_template_bind_process(job, limits, result, parent_pid):
+    """Bounded child: exact source-lineage preview, with no durable mutation."""
+    from .template_binding import bind_protocol_template
+
+    arm_parent_death(parent_pid)
+    try:
+        root = Path(job["root"])
+        references = {
+            key: CoordinateReference(
+                value["metadata"], root / "uploads" / value["upload_id"] / "coordinates.f64le"
+            )
+            for key, value in job["references"].items()
+        }
+        outcome = bind_protocol_template(
+            job["request"],
+            prepared_directory=root / "prepared" / job["request"]["prepared"]["bundle_id"],
+            reference_resolver=references.__getitem__,
+            limits=ScientificLimits(**job["scientific_limits"]),
+        )
+    except ContractError:
+        outcome = {"error": "invalid_request"}
+    except Exception:
+        outcome = {"error": "integrity_mismatch"}
+    result.put(outcome, timeout=1)
+    result.flush_until(time.monotonic() + 1)
+    result.close()
+
+
+def _verify_continuation_process(job, limits, result, parent_pid):
+    """Read sealed source bytes outside the resident host before offering advancement."""
+    from neomd.prepared import read_prepared_bundle
+
+    from .continuation import verify_continuation_input
+
+    arm_parent_death(parent_pid)
+    try:
+        data = job["input"]
+        manifest = read_prepared_bundle(
+            Path(job["bundle_directory"]) / "manifest.json",
+            expected_sha256=data["prepared"]["manifest_sha256"],
+        )
+        verify_continuation_input(data, manifest)
+        outcome = {"verified": True}
+    except Exception:
+        outcome = {"verified": False}
+    result.put(outcome, timeout=1)
+    result.flush_until(time.monotonic() + 1)
+    result.close()
+
+
 def _verify_bundle_process(job, limits, result, parent_pid, raw, deadline):
     arm_parent_death(parent_pid)
     try:
-        verified = _verify_bundle_impl(job, limits, sender=TopologySender(result, raw, job["fence"], deadline))
+        verified = _verify_bundle_impl(
+            job, limits, sender=TopologySender(result, raw, job["fence"], deadline)
+        )
     except TopologyLimitError:
         verified = {"error": "payload_too_large"}
     except LedgerError as error:
@@ -261,9 +408,13 @@ def _verify_other_input_process(job, limits, result, parent_pid):
         if job["kind"] == "coordinate_commit":
             import numpy as np
 
-            path = Path(job["root"]) / "uploads" / source["receipt"]["upload_id"] / "coordinates.f64le"
+            path = (
+                Path(job["root"]) / "uploads" / source["receipt"]["upload_id"] / "coordinates.f64le"
+            )
             metadata = source["receipt"]["metadata"]
-            before = _check_part(path, {"size_bytes": metadata["size_bytes"], "sha256": metadata["content_sha256"]})
+            before = _check_part(
+                path, {"size_bytes": metadata["size_bytes"], "sha256": metadata["content_sha256"]}
+            )
             with path.open("rb") as stream:
                 while data := stream.read(1024 * 1024):
                     if len(data) % 8 or not np.isfinite(np.frombuffer(data, dtype="<f8")).all():
@@ -274,25 +425,54 @@ def _verify_other_input_process(job, limits, result, parent_pid):
         else:
             prepared = source["asset"]["binding"]
             bundle = Path(job["root"]) / "prepared" / prepared["bundle_id"]
-            manifest_identity = _check_part(bundle / "manifest.json", {"size_bytes": (bundle / "manifest.json").lstat().st_size, "sha256": prepared["manifest_sha256"]})
+            manifest_identity = _check_part(
+                bundle / "manifest.json",
+                {
+                    "size_bytes": (bundle / "manifest.json").lstat().st_size,
+                    "sha256": prepared["manifest_sha256"],
+                },
+            )
             manifest = _read_json(bundle / "manifest.json")
             references = {
-                key: CoordinateReference(value["metadata"], Path(job["root"]) / "uploads" / value["upload_id"] / "coordinates.f64le")
+                key: CoordinateReference(
+                    value["metadata"],
+                    Path(job["root"]) / "uploads" / value["upload_id"] / "coordinates.f64le",
+                )
                 for key, value in source["references"].items()
             }
-            identities = {path: _file_identity(path) for path in
-                          [bundle / name for name in manifest["artifacts"]] + [value.path for value in references.values()]}
+            identities = {
+                path: _file_identity(path)
+                for path in [bundle / name for name in manifest["artifacts"]]
+                + [value.path for value in references.values()]
+            }
             # Validation owns no output files. The engine materializes references
             # later, after checking its actual output reservation.
             scratch = Path(job["root"]) / "validation" / job["protocol_id"]
-            compiled = compile_protocol(
-                job["request"]["protocol"], prepared_manifest=manifest,
-                prepared_directory=bundle, output_directory=scratch / "output",
-                protocol_directory=scratch / "references", reference_resolver=references.__getitem__,
-                limits=ScientificLimits(**job["scientific_limits"]), materialize_references=False,
-            )
-            if (_file_identity(bundle / "manifest.json") != manifest_identity
-                    or any(_file_identity(path) != identity for path, identity in identities.items())):
+            with tempfile.TemporaryDirectory(prefix="neomd-protocol-check-") as temporary:
+                topology_bridge = None
+                if (
+                    manifest.get("schema_version") == 2
+                    and "topology.pdbx" not in manifest["artifacts"]
+                ):
+                    from .template_binding import write_component_topology_bridge
+
+                    topology_bridge = write_component_topology_bridge(
+                        manifest, bundle, Path(temporary) / "topology.pdbx"
+                    )
+                compiled = compile_protocol(
+                    job["request"]["protocol"],
+                    prepared_manifest=manifest,
+                    prepared_directory=bundle,
+                    output_directory=scratch / "output",
+                    protocol_directory=scratch / "references",
+                    reference_resolver=references.__getitem__,
+                    limits=ScientificLimits(**job["scientific_limits"]),
+                    materialize_references=False,
+                    trusted_topology_file=topology_bridge,
+                )
+            if _file_identity(bundle / "manifest.json") != manifest_identity or any(
+                _file_identity(path) != identity for path, identity in identities.items()
+            ):
                 raise LedgerError("integrity_mismatch")
             proof = {"source_sha256": content_hash(source), "method": compiled.plan.method}
         result.put(proof, timeout=1)
@@ -331,12 +511,18 @@ class InputStore:
         ):
             raise ValueError("verification timeout must be a positive integer")
         self.verification_timeout_seconds = verification_timeout_seconds
-        if type(max_pending_input_operations) is not int or not 1 <= max_pending_input_operations <= 2**31 - 1:
+        if (
+            type(max_pending_input_operations) is not int
+            or not 1 <= max_pending_input_operations <= 2**31 - 1
+        ):
             raise ValueError("pending input operation limit must be in 1..2147483647")
         self.max_pending_input_operations = max_pending_input_operations
         if type(shutdown_timeout_seconds) is not int or shutdown_timeout_seconds < 1:
             raise ValueError("input shutdown timeout must be a positive integer")
         self.shutdown_timeout_seconds = shutdown_timeout_seconds
+        # The Supervisor sets this from the configured queue and startup
+        # bounds. Standalone local input stores have no publication margin.
+        self.continuation_admission_margin_seconds = 0
         self.faulted = False
         self.operations = InputOperations(self)
         self._verification_slots = asyncio.Semaphore(1)
@@ -397,12 +583,14 @@ class InputStore:
         finally:
             self._verification_slots.release()
 
-    async def _run_verifier(self, job, deadline, *, target=None, operation=None):
+    async def _run_verifier(
+        self, job, deadline, *, target=None, operation=None, result_max_bytes=4096
+    ):
         context = multiprocessing.get_context("spawn")
         result = child_result = raw = child_raw = None
         process = None
         try:
-            result, child_result = Channel.pair(max_message_bytes=4096)
+            result, child_result = Channel.pair(max_message_bytes=result_max_bytes)
             arguments = (job, vars(self.limits), child_result, os.getpid())
             staging = None
             if target is None:
@@ -459,7 +647,12 @@ class InputStore:
                     result.put_nowait(ack)
                     header = document = None
                 if not process.is_alive() and result.eof and (raw is None or raw.eof):
-                    if process.exitcode != 0 or received is None or header is not None or document is not None:
+                    if (
+                        process.exitcode != 0
+                        or received is None
+                        or header is not None
+                        or document is not None
+                    ):
                         raise LedgerError("integrity_mismatch")
                     if staging is not None:
                         staging.confirm(received)
@@ -491,32 +684,53 @@ class InputStore:
         receipt = job["receipt"]
         if set(verified) == {"error"}:
             code = verified["error"]
-            raise LedgerError(code if code in {"integrity_mismatch", "payload_too_large"}
-                              else "integrity_mismatch")
+            raise LedgerError(
+                code
+                if code in {"integrity_mismatch", "payload_too_large"}
+                else "integrity_mismatch"
+            )
         if set(verified) != {
-            "upload_id", "request_sha256", "snapshot_sha256", "prepared",
-            "particle_count", "topology_atom_count",
-            "particle_identity_sha256", "preview_projection_sha256",
+            "upload_id",
+            "request_sha256",
+            "snapshot_sha256",
+            "prepared",
+            "particle_count",
+            "topology_atom_count",
+            "particle_identity_sha256",
+            "preview_projection_sha256",
             "topology",
         }:
             raise LedgerError("integrity_mismatch")
         prepared = verified["prepared"]
         validate("PreparedBinding", prepared)
-        mapping = next((part["descriptor"] for part in receipt["parts"]
-                        if part["descriptor"]["name"] == "mapping.json"), None)
+        mapping = next(
+            (
+                part["descriptor"]
+                for part in receipt["parts"]
+                if part["descriptor"]["name"] == "mapping.json"
+            ),
+            None,
+        )
         if (
             verified["upload_id"] != receipt["upload_id"]
             or verified["request_sha256"] != job["request_sha256"]
             or verified["snapshot_sha256"] != content_hash(receipt)
             or prepared["bundle_id"] != receipt["upload_id"]
             or prepared["manifest_sha256"] != receipt["manifest_sha256"]
-            or mapping is None or prepared["mapping_sha256"] != mapping["sha256"]
-            or any(type(verified[key]) is not int or not 0 <= verified[key] <= self.limits.max_particles
-                   for key in ("particle_count", "topology_atom_count"))
+            or mapping is None
+            or prepared["mapping_sha256"] != mapping["sha256"]
+            or any(
+                type(verified[key]) is not int
+                or not 0 <= verified[key] <= self.limits.max_particles
+                for key in ("particle_count", "topology_atom_count")
+            )
             or verified["topology_atom_count"] > verified["particle_count"]
-            or any(not isinstance(verified[key], str) or len(verified[key]) != 64
-                   or any(character not in "0123456789abcdef" for character in verified[key])
-                   for key in ("particle_identity_sha256", "preview_projection_sha256"))
+            or any(
+                not isinstance(verified[key], str)
+                or len(verified[key]) != 64
+                or any(character not in "0123456789abcdef" for character in verified[key])
+                for key in ("particle_identity_sha256", "preview_projection_sha256")
+            )
         ):
             raise LedgerError("integrity_mismatch")
         return prepared
@@ -639,7 +853,8 @@ class InputStore:
             if await connection.fetchval(
                 """SELECT EXISTS(SELECT 1 FROM neomd_service.input_operations WHERE scope_id=$1
                 AND upload_id=$2 AND (state IN ('accepted','running') OR active_reserved))""",
-                row["scope_id"], row["upload_id"],
+                row["scope_id"],
+                row["upload_id"],
             ):
                 raise LedgerError("version_conflict")
             self._live(receipt, await connection.fetchval("SELECT clock_timestamp()"))
@@ -699,7 +914,9 @@ class InputStore:
                 temporary.unlink(missing_ok=True)
 
     async def commit_bundle(self, scope_id, upload_id, request):
-        return await self.operations.submit(scope_id, "prepared_commit", request, upload_id=str(_uuid(upload_id)))
+        return await self.operations.submit(
+            scope_id, "prepared_commit", request, upload_id=str(_uuid(upload_id))
+        )
 
     async def input_operation(self, scope_id, operation_id):
         return await self.operations.get(scope_id, operation_id)
@@ -710,15 +927,24 @@ class InputStore:
     async def _prepared_row(self, connection, scope_id, prepared):
         row = await connection.fetchrow(
             "SELECT * FROM neomd_service.prepared_assets WHERE scope_id=$1 AND bundle_id=$2",
-            _uuid(scope_id), _uuid(prepared["bundle_id"]),
+            _uuid(scope_id),
+            _uuid(prepared["bundle_id"]),
         )
         if row is None or row["binding"] != prepared:
             raise LedgerError("prepared_binding_mismatch")
         if row["particle_identity_sha256"] is None or row["preview_projection_sha256"] is None:
             # Legacy registrations need an explicit new verification operation.
             raise LedgerError("service_unavailable")
-        return {key: row[key] for key in ("binding", "particle_count", "topology_atom_count",
-                                        "particle_identity_sha256", "preview_projection_sha256")}
+        return {
+            key: row[key]
+            for key in (
+                "binding",
+                "particle_count",
+                "topology_atom_count",
+                "particle_identity_sha256",
+                "preview_projection_sha256",
+            )
+        }
 
     async def _reference_rows(self, connection, scope_id, descriptor):
         found = set()
@@ -738,7 +964,8 @@ class InputStore:
         for reference_id in sorted(found):
             row = await connection.fetchrow(
                 "SELECT * FROM neomd_service.coordinate_assets WHERE scope_id=$1 AND reference_id=$2",
-                _uuid(scope_id), _uuid(reference_id),
+                _uuid(scope_id),
+                _uuid(reference_id),
             )
             if row is None:
                 raise LedgerError("not_found")
@@ -751,14 +978,18 @@ class InputStore:
             references = await self._reference_rows(connection, scope, request["protocol"])
             existing = await connection.fetchrow(
                 "SELECT protocol_id,content_sha256 FROM neomd_service.protocol_assets WHERE scope_id=$1 AND request_id=$2",
-                scope, _uuid(request["request_id"]),
+                scope,
+                _uuid(request["request_id"]),
             )
             if existing is not None and existing["content_sha256"] != content_hash(
                 {"prepared": request["prepared"], "protocol": request["protocol"]}
             ):
                 raise LedgerError("idempotency_conflict")
-            source = {"asset": asset, "references": references,
-                      "existing_protocol_id": str(existing["protocol_id"]) if existing else None}
+            source = {
+                "asset": asset,
+                "references": references,
+                "existing_protocol_id": str(existing["protocol_id"]) if existing else None,
+            }
             return source, request["prepared"], None
         row = await self._upload(connection, scope, upload_id, lock=True)
         if row["kind"] != {"prepared_commit": "prepared", "coordinate_commit": "coordinates"}[kind]:
@@ -773,10 +1004,18 @@ class InputStore:
             expiry = None
         else:
             raise LedgerError("version_conflict")
-        received = all(part["received"] for part in receipt["parts"]) if kind == "prepared_commit" else receipt["received"]
+        received = (
+            all(part["received"] for part in receipt["parts"])
+            if kind == "prepared_commit"
+            else receipt["received"]
+        )
         if not received:
             raise LedgerError("integrity_mismatch")
-        source = {"receipt": receipt, "request": row["request"], "request_sha256": row["content_sha256"]}
+        source = {
+            "receipt": receipt,
+            "request": row["request"],
+            "request_sha256": row["content_sha256"],
+        }
         prepared = receipt["prepared"]
         if kind == "coordinate_commit":
             source["asset"] = await self._prepared_row(connection, scope, prepared)
@@ -786,47 +1025,114 @@ class InputStore:
             authority = await connection.fetchrow(
                 """SELECT operation_id,receipt,inventory FROM neomd_service.preparation_operations
                 WHERE scope_id=$1 AND pool_id=$2 AND state='succeeded'
-                AND receipt->'verification'->>'manifest_sha256'=$3""",
-                scope, self.pool_id, receipt["manifest_sha256"],
+                AND (receipt->'verification'->>'manifest_sha256'=$3
+                     OR (kind='component_assemble' AND receipt->'result'->>'sha256'=$3))
+                ORDER BY operation_id LIMIT 1""",
+                scope,
+                self.pool_id,
+                receipt["manifest_sha256"],
             )
             if authority is not None:
-                expected = {item["path"]: (item["sha256"], item["size_bytes"])
-                            for item in authority["inventory"]["artifacts"] if item["role"] != "log"}
-                actual = {part["descriptor"]["name"]: (part["descriptor"]["sha256"],
-                                                       part["descriptor"]["size_bytes"])
-                          for part in receipt["parts"]}
-                if (expected != actual or authority["receipt"]["owner_scope"] != str(scope)
-                        or authority["receipt"]["backend"]["pool_id"] != self.pool_id):
+                component = authority["receipt"]["kind"] == "component_assemble"
+                inventory_rows = authority["inventory"]["artifacts"]
+                if (
+                    authority["receipt"]["operation_id"] != str(authority["operation_id"])
+                    or authority["inventory"]["operation_id"] != str(authority["operation_id"])
+                    or authority["inventory"]["receipt_id"] != authority["receipt"]["receipt_id"]
+                    or {
+                        tuple(row[key] for key in ("artifact_id", "role", "sha256", "size_bytes"))
+                        for row in inventory_rows
+                    }
+                    != {
+                        tuple(row[key] for key in ("artifact_id", "role", "sha256", "size_bytes"))
+                        for row in authority["receipt"]["artifacts"]
+                    }
+                ):
+                    raise LedgerError("integrity_mismatch")
+                expected = {
+                    item["path"].removeprefix("prepared/") if component else item["path"]: (
+                        item["sha256"],
+                        item["size_bytes"],
+                    )
+                    for item in inventory_rows
+                    if (item["role"] == "prepared" if component else item["role"] != "log")
+                }
+                actual = {
+                    part["descriptor"]["name"]: (
+                        part["descriptor"]["sha256"],
+                        part["descriptor"]["size_bytes"],
+                    )
+                    for part in receipt["parts"]
+                }
+                if (
+                    expected != actual
+                    or authority["receipt"]["owner_scope"] != str(scope)
+                    or authority["receipt"]["backend"]["pool_id"] != self.pool_id
+                    or component
+                    and (
+                        authority["receipt"]["result"]["object_type"] != "prepared_bundle"
+                        or authority["receipt"]["result"]["sha256"] != receipt["manifest_sha256"]
+                        or authority["receipt"]["verification"]["profile"]
+                        != "component_assemble_v1"
+                        or not any(
+                            row["role"] == "qc"
+                            and row["sha256"]
+                            == authority["receipt"]["verification"]["report_sha256"]
+                            for row in inventory_rows
+                        )
+                    )
+                ):
                     raise LedgerError("integrity_mismatch")
                 source["preparation_authority"] = {
                     "operation_id": str(authority["operation_id"]),
-                    "receipt": authority["receipt"], "inventory": authority["inventory"],
+                    "receipt": authority["receipt"],
+                    "inventory": authority["inventory"],
                 }
         return source, prepared, expiry
 
     async def _input_execute(self, operation, deadline):
         source = operation["source_snapshot"]
         if operation["kind"] == "prepared_commit":
-            job = {"root": str(self.root), "receipt": source["receipt"],
-                   "request_sha256": source["request_sha256"], "fence": fence(operation)}
+            job = {
+                "root": str(self.root),
+                "receipt": source["receipt"],
+                "request_sha256": source["request_sha256"],
+                "fence": fence(operation),
+            }
             if "preparation_authority" in source:
                 job["preparation_authority"] = source["preparation_authority"]
             async with self._verification_slot(job, deadline):
                 verified = await self._run_verifier(job, deadline, operation=operation)
                 self._verified_receipt(job, verified)
                 return verified
-        job = {"root": str(self.root), "source": source, "kind": operation["kind"],
-               "request": operation["request"], "protocol_id": str(operation["protocol_id"]),
-               "scientific_limits": vars(self.scientific_limits)}
+        job = {
+            "root": str(self.root),
+            "source": source,
+            "kind": operation["kind"],
+            "request": operation["request"],
+            "protocol_id": str(operation["protocol_id"]),
+            "scientific_limits": vars(self.scientific_limits),
+        }
         async with self._verification_slot(job, deadline):
             verified = await self._run_verifier(job, deadline, target=_verify_other_input_process)
         if set(verified) == {"error"}:
-            raise LedgerError(verified["error"] if verified["error"] in
-                              {"integrity_mismatch", "invalid_request", "payload_too_large"} else "integrity_mismatch")
-        keys = {"source_sha256", "method"} if operation["kind"] == "protocol_register" else {"source_sha256"}
+            raise LedgerError(
+                verified["error"]
+                if verified["error"]
+                in {"integrity_mismatch", "invalid_request", "payload_too_large"}
+                else "integrity_mismatch"
+            )
+        keys = (
+            {"source_sha256", "method"}
+            if operation["kind"] == "protocol_register"
+            else {"source_sha256"}
+        )
         if set(verified) != keys or verified["source_sha256"] != content_hash(source):
             raise LedgerError("integrity_mismatch")
-        if "method" in verified and verified["method"] != operation["request"]["protocol"]["method"]:
+        if (
+            "method" in verified
+            and verified["method"] != operation["request"]["protocol"]["method"]
+        ):
             raise LedgerError("integrity_mismatch")
         return verified
 
@@ -836,9 +1142,15 @@ class InputStore:
         if operation["upload_id"] is not None:
             original = operation["source_snapshot"]
             row = await self._upload(connection, scope, operation["upload_id"], lock=True)
-            if row["receipt"] != original["receipt"] or row["request"] != original["request"] or row["content_sha256"] != original["request_sha256"]:
+            if (
+                row["receipt"] != original["receipt"]
+                or row["request"] != original["request"]
+                or row["content_sha256"] != original["request_sha256"]
+            ):
                 raise LedgerError("version_conflict")
-        current, _, _ = await self._input_snapshot(connection, scope, kind, request, operation["upload_id"], now)
+        current, _, _ = await self._input_snapshot(
+            connection, scope, kind, request, operation["upload_id"], now
+        )
         if current != operation["source_snapshot"]:
             raise LedgerError("version_conflict")
         if kind == "protocol_register":
@@ -848,28 +1160,52 @@ class InputStore:
                 """INSERT INTO neomd_service.protocol_assets
                 (protocol_id,scope_id,request_id,bundle_id,binding,method,content_sha256,descriptor)
                 VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING""",
-                operation["protocol_id"], scope, operation["request_id"], _uuid(prepared["bundle_id"]),
-                prepared, proof["method"], digest, request["protocol"],
+                operation["protocol_id"],
+                scope,
+                operation["request_id"],
+                _uuid(prepared["bundle_id"]),
+                prepared,
+                proof["method"],
+                digest,
+                request["protocol"],
             )
             row = await connection.fetchrow(
                 "SELECT * FROM neomd_service.protocol_assets WHERE scope_id=$1 AND request_id=$2",
-                scope, operation["request_id"],
+                scope,
+                operation["request_id"],
             )
-            if row is None or row["protocol_id"] != operation["protocol_id"] or row["content_sha256"] != digest:
+            if (
+                row is None
+                or row["protocol_id"] != operation["protocol_id"]
+                or row["content_sha256"] != digest
+            ):
                 raise LedgerError("idempotency_conflict")
-            return {"protocol_id": str(row["protocol_id"]), "request_id": str(row["request_id"]),
-                    "prepared": row["binding"], "method": row["method"],
-                    "content_sha256": row["content_sha256"], "created_at": _time(row["created_at"])}
+            return {
+                "protocol_id": str(row["protocol_id"]),
+                "request_id": str(row["request_id"]),
+                "prepared": row["binding"],
+                "method": row["method"],
+                "content_sha256": row["content_sha256"],
+                "created_at": _time(row["created_at"]),
+            }
         receipt = current["receipt"]
         if kind == "prepared_commit":
             prepared = proof["prepared"]
             existing = await connection.fetchrow(
-                "SELECT * FROM neomd_service.prepared_assets WHERE bundle_id=$1 FOR UPDATE", operation["upload_id"],
+                "SELECT * FROM neomd_service.prepared_assets WHERE bundle_id=$1 FOR UPDATE",
+                operation["upload_id"],
             )
-            if existing is not None and (existing["scope_id"] != scope or existing["binding"] != prepared
-                or any(existing[key] != proof[key] for key in ("particle_count", "topology_atom_count"))
-                or any(existing[key] is not None and existing[key] != proof[key]
-                       for key in ("particle_identity_sha256", "preview_projection_sha256"))):
+            if existing is not None and (
+                existing["scope_id"] != scope
+                or existing["binding"] != prepared
+                or any(
+                    existing[key] != proof[key] for key in ("particle_count", "topology_atom_count")
+                )
+                or any(
+                    existing[key] is not None and existing[key] != proof[key]
+                    for key in ("particle_identity_sha256", "preview_projection_sha256")
+                )
+            ):
                 raise LedgerError("integrity_mismatch")
             created = await connection.fetchval(
                 """INSERT INTO neomd_service.prepared_assets
@@ -877,12 +1213,21 @@ class InputStore:
                 VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(bundle_id) DO UPDATE SET
                 particle_identity_sha256=excluded.particle_identity_sha256,
                 preview_projection_sha256=excluded.preview_projection_sha256 RETURNING created_at""",
-                operation["upload_id"], scope, prepared, proof["particle_count"], proof["topology_atom_count"],
-                proof["particle_identity_sha256"], proof["preview_projection_sha256"],
+                operation["upload_id"],
+                scope,
+                prepared,
+                proof["particle_count"],
+                proof["topology_atom_count"],
+                proof["particle_identity_sha256"],
+                proof["preview_projection_sha256"],
             )
             receipt.update(state="validated", prepared=prepared)
-            result = {"prepared": prepared, "particle_count": proof["particle_count"],
-                      "topology_atom_count": proof["topology_atom_count"], "created_at": _time(created)}
+            result = {
+                "prepared": prepared,
+                "particle_count": proof["particle_count"],
+                "topology_atom_count": proof["topology_atom_count"],
+                "created_at": _time(created),
+            }
             await publish_staging(connection, operation, proof)
         else:
             metadata = receipt["metadata"]
@@ -890,19 +1235,37 @@ class InputStore:
                 """INSERT INTO neomd_service.coordinate_assets
                 (reference_id,scope_id,bundle_id,upload_id,metadata) VALUES($1,$2,$3,$4,$5)
                 ON CONFLICT(reference_id) DO NOTHING""",
-                _uuid(metadata["reference_id"]), scope, _uuid(receipt["prepared"]["bundle_id"]),
-                operation["upload_id"], metadata,
+                _uuid(metadata["reference_id"]),
+                scope,
+                _uuid(receipt["prepared"]["bundle_id"]),
+                operation["upload_id"],
+                metadata,
             )
             registered = await connection.fetchrow(
-                "SELECT * FROM neomd_service.coordinate_assets WHERE reference_id=$1", _uuid(metadata["reference_id"]),
+                "SELECT * FROM neomd_service.coordinate_assets WHERE reference_id=$1",
+                _uuid(metadata["reference_id"]),
             )
-            if registered["scope_id"] != scope or registered["upload_id"] != operation["upload_id"] or registered["metadata"] != metadata:
+            if (
+                registered["scope_id"] != scope
+                or registered["upload_id"] != operation["upload_id"]
+                or registered["metadata"] != metadata
+            ):
                 raise LedgerError("idempotency_conflict")
-            created = await connection.fetchval("SELECT created_at FROM neomd_service.asset_uploads WHERE upload_id=$1", operation["upload_id"])
+            created = await connection.fetchval(
+                "SELECT created_at FROM neomd_service.asset_uploads WHERE upload_id=$1",
+                operation["upload_id"],
+            )
             receipt["state"] = "validated"
-            result = {"prepared": receipt["prepared"], "metadata": metadata, "created_at": _time(created)}
-        await connection.execute("UPDATE neomd_service.asset_uploads SET receipt=$2 WHERE upload_id=$1",
-                                 operation["upload_id"], receipt)
+            result = {
+                "prepared": receipt["prepared"],
+                "metadata": metadata,
+                "created_at": _time(created),
+            }
+        await connection.execute(
+            "UPDATE neomd_service.asset_uploads SET receipt=$2 WHERE upload_id=$1",
+            operation["upload_id"],
+            receipt,
+        )
         return result
 
     async def topology(self, scope_id, bundle_id):
@@ -932,6 +1295,87 @@ class InputStore:
     async def register_protocol(self, scope_id, request):
         return await self.operations.submit(scope_id, "protocol_register", request)
 
+    async def bind_protocol_template(self, scope_id, request):
+        """Owner-fenced, read-only preview; concrete registration remains separate."""
+        validate(
+            "urn:neodyn:scientific-protocol-template-bind:v1#/$defs/TemplateBindRequest", request
+        )
+        async with self.ledger.pool.acquire() as connection:
+            await self._prepared_row(connection, scope_id, request["prepared"])
+            descriptor = {
+                "references": [
+                    {"kind": "registered", "reference_id": row["reference_id"]}
+                    for row in request["reference_bindings"]
+                ]
+            }
+            references = await self._reference_rows(connection, scope_id, descriptor)
+        job = {
+            "root": str(self.root),
+            "request": request,
+            "references": references,
+            "scientific_limits": vars(self.scientific_limits),
+        }
+        deadline = time.monotonic() + self.verification_timeout_seconds
+        async with self._verification_slot(job, deadline):
+            result = await self._run_verifier(
+                job, deadline, target=_verify_template_bind_process, result_max_bytes=1048576
+            )
+        if set(result) == {"error"}:
+            raise LedgerError(result["error"])
+        validate(
+            "urn:neodyn:scientific-protocol-template-bind:v1#/$defs/TemplateBindResult", result
+        )
+        if result["prepared"] != request["prepared"] or result["template_sha256"] != content_hash(
+            request["template"]
+        ):
+            raise LedgerError("integrity_mismatch")
+        if result["status"] == "ready" and (
+            result["protocol_sha256"] != content_hash(result["protocol"])
+            or result["registration_sha256"]
+            != content_hash({"prepared": request["prepared"], "protocol": result["protocol"]})
+        ):
+            raise LedgerError("integrity_mismatch")
+        return result
+
+    async def continuation_eligibility(self, scope_id, session_id):
+        """Owner-scoped discovery proves sealed source bytes in a killable child."""
+        eligibility = await self.ledger.continuation_eligibility(
+            scope_id, session_id,
+            minimum_remaining_seconds=self.continuation_admission_margin_seconds,
+        )
+        if eligibility["availability"] != "available":
+            return eligibility
+        continuation = eligibility["continuation"]
+        prepared = eligibility["prepared"]
+        method = "eq" if eligibility["source_method"] == "min" else "prod"
+        authority = await self.ledger.continuation_source(
+            scope_id, continuation, target_prepared=prepared,
+            target_method=method, pool_id=self.pool_id,
+        )
+        async with self.ledger.pool.acquire() as connection:
+            asset = await self._prepared_row(connection, scope_id, prepared)
+        data = {
+            "prepared": prepared, "asset": asset,
+            "descriptor": {"method": method},
+            "continuation": continuation,
+            "continuation_authority": authority,
+            "continuation_state_path": str(self.root / "objects" / continuation["final_state_artifact_id"]),
+            "continuation_result_path": str(self.root / "objects" / continuation["source_result_artifact_id"]),
+        }
+        job = {"input": data, "bundle_directory": str(self._bundle_directory(prepared["bundle_id"]))}
+        deadline = time.monotonic() + self.verification_timeout_seconds
+        async with self._verification_slot(job, deadline):
+            proof = await self._run_verifier(
+                job, deadline, target=_verify_continuation_process, result_max_bytes=4096
+            )
+        if proof != {"verified": True}:
+            return {"availability": "unavailable", "reason": "final_state_unavailable"}
+        current = await self.ledger.continuation_eligibility(
+            scope_id, session_id,
+            minimum_remaining_seconds=self.continuation_admission_margin_seconds,
+        )
+        return current if current == eligibility else {"availability": "unavailable", "reason": "final_state_unavailable"}
+
     async def protocol(self, scope_id, protocol_id):
         return await self._protocol(scope_id, "protocol_id", protocol_id)
 
@@ -941,7 +1385,9 @@ class InputStore:
             row = await connection.fetchrow(
                 """SELECT s.snapshot,p.descriptor,p.protocol_id,p.content_sha256 FROM neomd_service.sessions s
                 JOIN neomd_service.protocol_assets p ON p.scope_id=s.scope_id AND p.protocol_id=s.protocol_id
-                WHERE s.scope_id=$1 AND s.session_id=$2""", _uuid(scope_id), _uuid(session_id),
+                WHERE s.scope_id=$1 AND s.session_id=$2""",
+                _uuid(scope_id),
+                _uuid(session_id),
             )
             if row is None:
                 raise LedgerError("not_found")
@@ -949,14 +1395,37 @@ class InputStore:
             asset = await self._prepared_row(connection, scope_id, prepared)
             references = await self._reference_rows(connection, scope_id, row["descriptor"])
         source = {
-            "prepared": prepared, "asset": asset,
-            "protocol": {"protocol_id": str(row["protocol_id"]), "content_sha256": row["content_sha256"]},
+            "prepared": prepared,
+            "asset": asset,
+            "protocol": {
+                "protocol_id": str(row["protocol_id"]),
+                "content_sha256": row["content_sha256"],
+            },
             "bundle_directory": str(self._bundle_directory(prepared["bundle_id"])),
             "descriptor": row["descriptor"],
-            "references": {key: {"metadata": value["metadata"], "path": str(self._upload_directory(value["upload_id"]) / "coordinates.f64le")}
-                           for key, value in references.items()},
+            "references": {
+                key: {
+                    "metadata": value["metadata"],
+                    "path": str(self._upload_directory(value["upload_id"]) / "coordinates.f64le"),
+                }
+                for key, value in references.items()
+            },
             "scientific_limits": vars(self.scientific_limits),
         }
+        continuation = row["snapshot"].get("continuation")
+        if continuation is not None:
+            authority = await self.ledger.continuation_source(
+                scope_id, continuation, target_prepared=prepared,
+                target_method=row["descriptor"]["method"], pool_id=self.pool_id,
+            )
+            source["continuation"] = continuation
+            source["continuation_authority"] = authority
+            source["continuation_state_path"] = str(
+                self.root / "objects" / continuation["final_state_artifact_id"]
+            )
+            source["continuation_result_path"] = str(
+                self.root / "objects" / continuation["source_result_artifact_id"]
+            )
         if len(json.dumps(source, allow_nan=False, separators=(",", ":")).encode()) > 1048576:
             raise LedgerError("payload_too_large")
         return source
@@ -1083,7 +1552,8 @@ class InputStore:
             if await connection.fetchval(
                 """SELECT EXISTS(SELECT 1 FROM neomd_service.input_operations WHERE scope_id=$1
                 AND upload_id=$2 AND (state IN ('accepted','running') OR active_reserved))""",
-                row["scope_id"], row["upload_id"],
+                row["scope_id"],
+                row["upload_id"],
             ):
                 raise LedgerError("version_conflict")
             self._live(receipt, await connection.fetchval("SELECT clock_timestamp()"))
@@ -1134,7 +1604,9 @@ class InputStore:
                 temporary.unlink(missing_ok=True)
 
     async def commit_coordinates(self, scope_id, upload_id, request):
-        return await self.operations.submit(scope_id, "coordinate_commit", request, upload_id=str(_uuid(upload_id)))
+        return await self.operations.submit(
+            scope_id, "coordinate_commit", request, upload_id=str(_uuid(upload_id))
+        )
 
     async def coordinate(self, scope_id, reference_id):
         async with self.ledger.pool.acquire() as connection:

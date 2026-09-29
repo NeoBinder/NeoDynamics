@@ -20,7 +20,7 @@ from .checkpoint_evidence import CheckpointPublication
 from .contract import content_hash, validate
 from .finalization import finalization_process, metadata_bytes
 from .ipc import Channel, FrameChannel
-from .ledger import AdmissionLimits, LedgerError
+from .ledger import CONTINUATION_LAUNCH_SLACK_SECONDS, AdmissionLimits, LedgerError
 from .preview import PreviewFrame
 from .qualification import METHODS
 from .worker import probe_process, session_process
@@ -169,6 +169,10 @@ class Supervisor:
     ):
         self.ledger, self.inputs, self.pool_id = ledger, inputs, pool_id
         self.admission, self.execution = admission, execution
+        self.inputs.continuation_admission_margin_seconds = (
+            admission.queue_ttl_seconds + execution.startup_timeout_seconds
+            + CONTINUATION_LAUNCH_SLACK_SECONDS
+        )
         self.max_auth_staleness_seconds = max_auth_staleness_seconds
         self.publication = publication
         self.worker_target = worker_target
@@ -299,6 +303,7 @@ class Supervisor:
                 request,
                 pool_id=self.pool_id,
                 output_reservation_bytes=self.execution.max_output_bytes,
+                startup_timeout_seconds=self.execution.startup_timeout_seconds,
             )
         await self.capabilities(scope_id)
         method = self.methods.get(request["payload"]["method"])
@@ -309,6 +314,7 @@ class Supervisor:
             request,
             pool_id=self.pool_id,
             output_reservation_bytes=self.execution.max_output_bytes,
+            startup_timeout_seconds=self.execution.startup_timeout_seconds,
         )
         await self.wake()
         return snapshot
@@ -697,6 +703,8 @@ class Supervisor:
         spec = {key: child.spec[key] for key in (
             'attempt_directory', 'objects_directory', 'max_output_bytes', 'artifact_binding', 'epoch', 'parent_pid')}
         spec['input'] = {key: child.source[key] for key in ('prepared', 'protocol', 'descriptor', 'bundle_directory')}
+        if 'continuation' in child.source:
+            spec['input']['continuation'] = child.source['continuation']
         spec.update(seal=seal, finalization_deadline=deadline)
         events, child_events = Channel.pair()
         process = self.context.Process(target=self.finalizer_target, args=(spec, child_events))

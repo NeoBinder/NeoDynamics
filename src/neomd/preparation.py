@@ -200,6 +200,9 @@ def _source_graph_errors(topology, positions_nm, descriptor, *, content_sha256,
         path = f"source.polymer_sequences[{index}]"
         _fields(row, ("input_chain_index", "evidence", "residue_names", "residue_bindings"), (), path, errors)
         evidence, names, bindings = row.get("evidence"), row.get("residue_names"), row.get("residue_bindings")
+        if index in (canonical_sequences or {}) and evidence != "canonical_file":
+            errors.append(_error(f"{path}.evidence",
+                                 "trusted canonical sequence is available; cannot replace it with a partial or unknown sequence"))
         if evidence == "unknown":
             if names is not None or bindings != []:
                 errors.append(_error(path, "unknown sequence must have null names and no inferred bindings"))
@@ -288,12 +291,29 @@ def inspect_protein(source):
         if sequence["evidence"] == "unknown":
             findings.append({"code": "sequence_unknown", "input_chain_index": chain})
         else:
-            observed = {r["sequence_index"] for r in sequence["residue_bindings"]}
-            missing = sorted(set(range(len(sequence["residue_names"]))) - observed)
+            missing = missing_sequence_positions(sequence)
             if missing:
                 findings.append({"code": "detected_gap", "input_chain_index": chain,
                                  "sequence_indices": missing})
     return {"findings": findings, "can_repair": all(f["code"] == "sequence_unknown" for f in findings)}
+
+
+def missing_sequence_positions(sequence):
+    """Return zero-based known polymer positions without source residue coordinates."""
+    if sequence["evidence"] == "unknown":
+        return []
+    observed = {row["sequence_index"] for row in sequence["residue_bindings"]}
+    return sorted(set(range(len(sequence["residue_names"]))) - observed)
+
+
+def missing_sequence_error(chain_index, indices):
+    """Explain the coordinate-completeness gate shared by both repair paths."""
+    return _error(
+        "repair.sequence",
+        f"detected_gap in source chain {chain_index}: zero-based sequence indices "
+        f"{indices} have no residue coordinates; model missing residues upstream "
+        "and submit a coordinate-complete source",
+    )
 
 
 def repair_standard_residues(source, *, platform, seed):
@@ -315,8 +335,9 @@ def repair_standard_residues(source, *, platform, seed):
                             canonical_sequences=source.canonical_sequences)
     inspection = inspect_protein(source)
     if not inspection["can_repair"]:
-        _raise([_error("source", f["code"]) for f in inspection["findings"]
-                if f["code"] != "sequence_unknown"])
+        _raise([missing_sequence_error(f["input_chain_index"], f["sequence_indices"])
+                if f["code"] == "detected_gap" else _error("source", f["code"])
+                for f in inspection["findings"] if f["code"] != "sequence_unknown"])
     mm, app, unit, _ = _openmm()
     platform_object = mm.Platform.getPlatformByName(platform)
     text = io.StringIO()

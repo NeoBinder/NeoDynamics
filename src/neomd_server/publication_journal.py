@@ -444,6 +444,41 @@ class PublicationJournal:
                 None if row['lease_expires_at'] is None else _time(row['lease_expires_at'])))
         return DiscoveryPage(tuple(entries), str(rows[limit - 1]['journal_id']) if len(rows) > limit else None)
 
+    async def cleanup_due(self, *, after=None, limit=64):
+        """Completed, closed publications whose exact local files may be swept."""
+        if type(limit) is not int or not 1 <= limit <= 64:
+            raise JournalError('invalid_request')
+        cursor = None if after is None else _uuid(after)
+        async with self.ledger.pool.acquire() as connection:
+            rows = await connection.fetch('''SELECT journal_id,scope_id,session_id,finalization_id
+                FROM neomd_service.publication_jobs
+                WHERE pool_id=$1 AND state='complete' AND owner_closed AND NOT active_reserved
+                AND NOT cleanup_done AND cleanup_after<=clock_timestamp()
+                AND ($2::uuid IS NULL OR journal_id>$2)
+                ORDER BY journal_id LIMIT $3''', self.pool_id, cursor, limit + 1)
+        entries = tuple(FinalizationRef(str(row['scope_id']), str(row['session_id']),
+                                        str(row['finalization_id'])) for row in rows[:limit])
+        return DiscoveryPage(entries, str(rows[limit - 1]['journal_id']) if len(rows) > limit else None)
+
+    async def complete_cleanup(self, scope_id, finalization_id):
+        """Release the output reservation only after guarded local cleanup."""
+        async with self.ledger.pool.acquire() as connection, connection.transaction():
+            row = await connection.fetchrow('''SELECT * FROM neomd_service.publication_jobs
+                WHERE pool_id=$1 AND scope_id=$2 AND finalization_id=$3 FOR UPDATE''',
+                self.pool_id, _uuid(scope_id), _uuid(finalization_id))
+            if row is None or row['state'] != 'complete' or row['receipt_bytes'] is None:
+                raise JournalError('artifact_unverified')
+            if row['cleanup_done']:
+                return
+            if (not row['owner_closed'] or row['active_reserved']
+                    or row['cleanup_after'] is None
+                    or row['cleanup_after'] > await connection.fetchval('SELECT clock_timestamp()')):
+                raise JournalError('artifact_unverified')
+            await connection.execute('''UPDATE neomd_service.publication_jobs
+                SET cleanup_done=true WHERE journal_id=$1''', row['journal_id'])
+            await connection.execute('''DELETE FROM neomd_service.output_reservations
+                WHERE session_id=$1''', row['session_id'])
+
     async def _job(self, connection, scope_id, journal_id, *, lock=True):
         row = await connection.fetchrow('SELECT * FROM neomd_service.publication_jobs WHERE scope_id=$1 AND journal_id=$2 AND pool_id=$3' +
             (' FOR UPDATE' if lock else ''), _uuid(scope_id), _uuid(journal_id), self.pool_id)
@@ -1002,6 +1037,10 @@ class PublicationJournal:
         if row['conflict_evidence'] is not None or await connection.fetchval('''SELECT EXISTS(
                 SELECT 1 FROM neomd_service.publication_operations WHERE journal_id=$1 AND conflict_evidence IS NOT NULL)''', row['journal_id']):
             raise JournalError('state_conflict')
+        execution = json.loads(bytes(row['candidate_bytes']))['execution']
+        continuable = execution['state'] == 'completed' and execution['method'] in {'min', 'eq'}
         await connection.execute('''UPDATE neomd_service.publication_jobs SET state='complete',receipt_id=$2,
-            receipt_bytes=$3,receipt_sha256=$4 WHERE journal_id=$1''', row['journal_id'], _uuid(data['receipt_id']),
-            response.receipt_bytes, data['receipt_sha256'])
+            receipt_bytes=$3,receipt_sha256=$4,
+            cleanup_after=clock_timestamp() + CASE WHEN $5 THEN interval '24 hours' ELSE interval '0 seconds' END
+            WHERE journal_id=$1''', row['journal_id'], _uuid(data['receipt_id']),
+            response.receipt_bytes, data['receipt_sha256'], continuable)

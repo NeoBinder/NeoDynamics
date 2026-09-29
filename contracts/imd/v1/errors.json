@@ -38,7 +38,15 @@
     "protonation_conflict": 422,
     "preparation_time_limit_exceeded": 409,
     "preparation_memory_limit_exceeded": 422,
-    "result_too_large": 413
+    "result_too_large": 413,
+    "contract_version_mismatch": 409,
+    "invalid_reference": 422,
+    "oversized_payload": 413,
+    "mapping_mismatch": 422,
+    "chemistry_unresolved": 422,
+    "incompatible_package": 422,
+    "capability_unavailable": 503,
+    "stereochemistry_unresolved": 422
   },
   "message_policy": "Public-safe fixed descriptions only; local paths, exception strings, credentials and provider details are not forwarded."
 }

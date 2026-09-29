@@ -8,7 +8,7 @@ import io
 
 import numpy as np
 
-from .preparation import STANDARD_RESIDUES
+from .preparation import STANDARD_RESIDUES, missing_sequence_error, missing_sequence_positions
 from .prepared import _coordinates, _element, _error, _raise
 
 
@@ -74,10 +74,9 @@ def qualification(source, topology, residue_source_ids, templates):
         if sequence["evidence"] == "unknown":
             findings.append({"code": "sequence_unknown", "input_chain_index": chain_index})
         else:
-            observed = {row["sequence_index"] for row in sequence["residue_bindings"]}
-            gaps = sorted(set(range(len(sequence["residue_names"]))) - observed)
+            gaps = missing_sequence_positions(sequence)
             if gaps:
-                errors.append(_error("repair.sequence", f"detected_gap in source chain {chain_index}: {gaps}"))
+                errors.append(missing_sequence_error(chain_index, gaps))
             offsets = {row["source_residue_id"]: row["sequence_index"] for row in sequence["residue_bindings"]}
             ordered = [offsets[row["source_residue_id"]] for row in rows]
             if any(left >= right for left, right in zip(ordered, ordered[1:])):

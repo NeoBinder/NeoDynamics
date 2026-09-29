@@ -317,6 +317,9 @@ class KernelSpec:
     #: Prepared systems can contain virtual sites absent from the topology.
     #: Coordinates are nm; the projection maps each topology atom to one particle.
     initial_positions_nm: tuple[tuple[float, float, float], ...] | None = None
+    #: Explicit live box for a verified same-System phase handoff. Fresh
+    #: Contexts still seed velocities from the target temperature and seed.
+    initial_box_vectors_nm: tuple[tuple[float, float, float], ...] | None = None
     topology_particle_indices: tuple[int, ...] | None = None
     # fake adapter inputs (ignored by openmm):
     system_data: SystemData | None = None

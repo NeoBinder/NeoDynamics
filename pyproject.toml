@@ -44,6 +44,7 @@ where = ["src"]
 [tool.setuptools.data-files]
 "share/neodynamics/contracts/imd/v1" = ["contracts/imd/v1/*.json"]
 "share/neodynamics/contracts/scientific-protocol/v1" = ["contracts/scientific-protocol/v1/*.json"]
+"share/neodynamics/contracts/scientific-protocol-template/v1" = ["contracts/scientific-protocol-template/v1/*.schema.json"]
 "share/neodynamics/contracts/prepared-bundle/v1" = ["contracts/prepared-bundle/v1/*.json"]
 "share/neodynamics/contracts/prepared-bundle/v2" = ["contracts/prepared-bundle/v2/*.json"]
 "share/neodynamics/contracts/assembly-report/v1" = ["contracts/assembly-report/v1/*.json"]
@@ -51,7 +52,11 @@ where = ["src"]
 "share/neodynamics/contracts/protein-preparation/v1" = ["contracts/protein-preparation/v1/*.json"]
 "share/neodynamics/contracts/protein-preparation/v2" = ["contracts/protein-preparation/v2/*.json"]
 "share/neodynamics/contracts/molecular-topology/v1" = ["contracts/molecular-topology/v1/*.json"]
+"share/neodynamics/contracts/component-operations/v1" = ["contracts/component-operations/v1/*.schema.json"]
+"share/neodynamics/contracts/component-preparation/v1" = ["contracts/component-preparation/v1/*.schema.json"]
+"share/neodynamics/contracts/component-system-qc/v1" = ["contracts/component-system-qc/v1/*.schema.json"]
 "share/neodynamics/contracts/trajectory-result/v1" = ["contracts/trajectory-result/v1/*.json"]
+"share/neodynamics/contracts/trajectory-comparison/v1" = ["contracts/trajectory-comparison/v1/*.schema.json"]
 "share/neodynamics/contracts/neoapi-md-publication/v1" = [
   "contracts/neoapi-md-publication/v1/openapi.yaml",
   "contracts/neoapi-md-publication/v1/schema.json",
@@ -114,6 +119,7 @@ python = "3.12.*"
 openmm = "8.6.*"
 openmmforcefields = ">=0.16,<0.17"
 openff-toolkit = ">=0.19,<0.20"
+gemmi = ">=0.7.5,<0.8"
 pytest = "*"
 
 [tool.pixi.feature.test.dependencies]

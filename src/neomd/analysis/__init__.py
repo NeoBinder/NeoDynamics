@@ -5,6 +5,7 @@ tracks) and the thin ``neomd analysis`` CLI (analysis/cli.py).  User guide:
 docs/methods/analysis.md.  numpy-only, openmm-free, deterministic.
 """
 
+from .component_comparison import evaluate_component_observables
 from .convergence import ConvergenceResult, ConvergenceRow, fes_convergence
 from .coordinates import evaluate_coordinates
 from .errors import AnalysisError
@@ -75,6 +76,7 @@ __all__ = [
     # saved-frame GaMD analysis
     "GamdData", "CE2Result", "read_gamd", "ce2_fes",
     "evaluate_coordinates", "analyze_gamd", "read_gamd_frames",
+    "evaluate_component_observables",
     # errors
     "AnalysisError",
     # readers

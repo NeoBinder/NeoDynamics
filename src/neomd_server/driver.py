@@ -37,6 +37,7 @@ from neomd.run import build_kernel_spec
 from neomd.sinks import LocalDirSink
 
 from .checkpoint_files import CHECKPOINT_COMPANIONS
+from .continuation import FINAL_STATE_FILENAME, final_state_bytes
 from .probes import assemble_reporting_probes
 
 SESSION_STATE = "interactive_state.json"
@@ -551,6 +552,11 @@ class InteractiveSession:
                 finish = getattr(probe, "finish", None)
                 if finish:
                     finish()
+        if state == "completed" and self.method in {"min", "eq"}:
+            box = self._kernel.box_vectors()
+            if box is not None:
+                self.sink.write_bytes(FINAL_STATE_FILENAME, final_state_bytes(
+                    self._kernel.positions(), box))
         checkpoint = self._write_checkpoint(f"{'done' if state == 'completed' else state}:{self.method}")
         self._state = state
         return checkpoint

@@ -1,0 +1,880 @@
+{
+  "format": "p03-3htb-jz4-tracked-reviewed-fixture-v1",
+  "source": {
+    "path": "contracts/molecular-topology/v1/fixtures/3htb-qualified.json",
+    "raw_file_sha256": "b5ca0d2ef97283c7531d7cfa76cfc602252cf63986e3b56712eb4e58d62f5377",
+    "canonical_decoded_sha256": "d14629777ae48f9716c04135a9fcff71809dc87f145dda3f90ba1d9a1254e10b",
+    "topology_id": "55555555-5555-4555-8555-555555555556",
+    "revision_id": "66666666-6666-4666-8666-666666666667",
+    "frame_id": "77777777-7777-4777-8777-777777777778",
+    "component_source_atom_ids": [
+      "1310",
+      "1311",
+      "1312",
+      "1313",
+      "1314",
+      "1315",
+      "1316",
+      "1317",
+      "1318",
+      "1319",
+      "1320",
+      "1321",
+      "1322",
+      "1323",
+      "1324",
+      "1325",
+      "1326",
+      "1327",
+      "1328",
+      "1329",
+      "1330",
+      "1331"
+    ]
+  },
+  "curated_ccd_evidence_sha256": "0d8560203bbe962880ea361e6b92cf37916690dd8896f625bca6bd16fb66d6d9",
+  "curated_ccd_evidence": {
+    "format": "jz4-curated-ccd-graph-v1",
+    "attribution": {
+      "source_url": "https://files.rcsb.org/ligands/download/JZ4.cif",
+      "raw_source_sha256": "adea84e7352ad38e5210cb555e62b100d692323739f709cfb4901fc7d6620e82",
+      "statement": "Curated from retained public JZ4 CCD bytes during P03; raw CCD bytes are not carried in this tracked fixture or verified by this test."
+    },
+    "formula": "C9 H12 O",
+    "formal_charge": 0,
+    "atoms": [
+      {
+        "ccd_atom_id": "C4",
+        "element": "C",
+        "formal_charge": 0,
+        "stereo": "N"
+      },
+      {
+        "ccd_atom_id": "C7",
+        "element": "C",
+        "formal_charge": 0,
+        "stereo": "N"
+      },
+      {
+        "ccd_atom_id": "C8",
+        "element": "C",
+        "formal_charge": 0,
+        "stereo": "N"
+      },
+      {
+        "ccd_atom_id": "C9",
+        "element": "C",
+        "formal_charge": 0,
+        "stereo": "N"
+      },
+      {
+        "ccd_atom_id": "C10",
+        "element": "C",
+        "formal_charge": 0,
+        "stereo": "N"
+      },
+      {
+        "ccd_atom_id": "C11",
+        "element": "C",
+        "formal_charge": 0,
+        "stereo": "N"
+      },
+      {
+        "ccd_atom_id": "C12",
+        "element": "C",
+        "formal_charge": 0,
+        "stereo": "N"
+      },
+      {
+        "ccd_atom_id": "C13",
+        "element": "C",
+        "formal_charge": 0,
+        "stereo": "N"
+      },
+      {
+        "ccd_atom_id": "C14",
+        "element": "C",
+        "formal_charge": 0,
+        "stereo": "N"
+      },
+      {
+        "ccd_atom_id": "OAB",
+        "element": "O",
+        "formal_charge": 0,
+        "stereo": "N"
+      },
+      {
+        "ccd_atom_id": "H4",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "N"
+      },
+      {
+        "ccd_atom_id": "H4A",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "N"
+      },
+      {
+        "ccd_atom_id": "H4B",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "N"
+      },
+      {
+        "ccd_atom_id": "H7",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "N"
+      },
+      {
+        "ccd_atom_id": "H8",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "N"
+      },
+      {
+        "ccd_atom_id": "H9",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "N"
+      },
+      {
+        "ccd_atom_id": "H11",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "N"
+      },
+      {
+        "ccd_atom_id": "H13",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "N"
+      },
+      {
+        "ccd_atom_id": "H13A",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "N"
+      },
+      {
+        "ccd_atom_id": "H14",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "N"
+      },
+      {
+        "ccd_atom_id": "H14A",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "N"
+      },
+      {
+        "ccd_atom_id": "HOAB",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "N"
+      }
+    ],
+    "bonds": [
+      {
+        "atom_id_1": "C4",
+        "atom_id_2": "C14",
+        "value_order": "SING",
+        "aromatic_flag": "N"
+      },
+      {
+        "atom_id_1": "C7",
+        "atom_id_2": "C8",
+        "value_order": "DOUB",
+        "aromatic_flag": "Y"
+      },
+      {
+        "atom_id_1": "C7",
+        "atom_id_2": "C11",
+        "value_order": "SING",
+        "aromatic_flag": "Y"
+      },
+      {
+        "atom_id_1": "C8",
+        "atom_id_2": "C9",
+        "value_order": "SING",
+        "aromatic_flag": "Y"
+      },
+      {
+        "atom_id_1": "C9",
+        "atom_id_2": "C10",
+        "value_order": "DOUB",
+        "aromatic_flag": "Y"
+      },
+      {
+        "atom_id_1": "C10",
+        "atom_id_2": "C12",
+        "value_order": "SING",
+        "aromatic_flag": "Y"
+      },
+      {
+        "atom_id_1": "C10",
+        "atom_id_2": "OAB",
+        "value_order": "SING",
+        "aromatic_flag": "N"
+      },
+      {
+        "atom_id_1": "C11",
+        "atom_id_2": "C12",
+        "value_order": "DOUB",
+        "aromatic_flag": "Y"
+      },
+      {
+        "atom_id_1": "C12",
+        "atom_id_2": "C13",
+        "value_order": "SING",
+        "aromatic_flag": "N"
+      },
+      {
+        "atom_id_1": "C13",
+        "atom_id_2": "C14",
+        "value_order": "SING",
+        "aromatic_flag": "N"
+      },
+      {
+        "atom_id_1": "C4",
+        "atom_id_2": "H4",
+        "value_order": "SING",
+        "aromatic_flag": "N"
+      },
+      {
+        "atom_id_1": "C4",
+        "atom_id_2": "H4A",
+        "value_order": "SING",
+        "aromatic_flag": "N"
+      },
+      {
+        "atom_id_1": "C4",
+        "atom_id_2": "H4B",
+        "value_order": "SING",
+        "aromatic_flag": "N"
+      },
+      {
+        "atom_id_1": "C7",
+        "atom_id_2": "H7",
+        "value_order": "SING",
+        "aromatic_flag": "N"
+      },
+      {
+        "atom_id_1": "C8",
+        "atom_id_2": "H8",
+        "value_order": "SING",
+        "aromatic_flag": "N"
+      },
+      {
+        "atom_id_1": "C9",
+        "atom_id_2": "H9",
+        "value_order": "SING",
+        "aromatic_flag": "N"
+      },
+      {
+        "atom_id_1": "C11",
+        "atom_id_2": "H11",
+        "value_order": "SING",
+        "aromatic_flag": "N"
+      },
+      {
+        "atom_id_1": "C13",
+        "atom_id_2": "H13",
+        "value_order": "SING",
+        "aromatic_flag": "N"
+      },
+      {
+        "atom_id_1": "C13",
+        "atom_id_2": "H13A",
+        "value_order": "SING",
+        "aromatic_flag": "N"
+      },
+      {
+        "atom_id_1": "C14",
+        "atom_id_2": "H14",
+        "value_order": "SING",
+        "aromatic_flag": "N"
+      },
+      {
+        "atom_id_1": "C14",
+        "atom_id_2": "H14A",
+        "value_order": "SING",
+        "aromatic_flag": "N"
+      },
+      {
+        "atom_id_1": "OAB",
+        "atom_id_2": "HOAB",
+        "value_order": "SING",
+        "aromatic_flag": "N"
+      }
+    ],
+    "atom_map": [
+      {
+        "state_atom_id": "1",
+        "source_atom_id": "1310",
+        "ccd_atom_id": "C4"
+      },
+      {
+        "state_atom_id": "2",
+        "source_atom_id": "1311",
+        "ccd_atom_id": "C14"
+      },
+      {
+        "state_atom_id": "3",
+        "source_atom_id": "1312",
+        "ccd_atom_id": "C13"
+      },
+      {
+        "state_atom_id": "4",
+        "source_atom_id": "1313",
+        "ccd_atom_id": "C12"
+      },
+      {
+        "state_atom_id": "5",
+        "source_atom_id": "1314",
+        "ccd_atom_id": "C11"
+      },
+      {
+        "state_atom_id": "6",
+        "source_atom_id": "1315",
+        "ccd_atom_id": "C7"
+      },
+      {
+        "state_atom_id": "7",
+        "source_atom_id": "1316",
+        "ccd_atom_id": "C8"
+      },
+      {
+        "state_atom_id": "8",
+        "source_atom_id": "1317",
+        "ccd_atom_id": "C9"
+      },
+      {
+        "state_atom_id": "9",
+        "source_atom_id": "1318",
+        "ccd_atom_id": "C10"
+      },
+      {
+        "state_atom_id": "10",
+        "source_atom_id": "1319",
+        "ccd_atom_id": "OAB"
+      },
+      {
+        "state_atom_id": "11",
+        "source_atom_id": "1320",
+        "ccd_atom_id": "H4A"
+      },
+      {
+        "state_atom_id": "12",
+        "source_atom_id": "1321",
+        "ccd_atom_id": "H4B"
+      },
+      {
+        "state_atom_id": "13",
+        "source_atom_id": "1322",
+        "ccd_atom_id": "H4"
+      },
+      {
+        "state_atom_id": "14",
+        "source_atom_id": "1323",
+        "ccd_atom_id": "H14A"
+      },
+      {
+        "state_atom_id": "15",
+        "source_atom_id": "1324",
+        "ccd_atom_id": "H14"
+      },
+      {
+        "state_atom_id": "16",
+        "source_atom_id": "1325",
+        "ccd_atom_id": "H13"
+      },
+      {
+        "state_atom_id": "17",
+        "source_atom_id": "1326",
+        "ccd_atom_id": "H13A"
+      },
+      {
+        "state_atom_id": "18",
+        "source_atom_id": "1327",
+        "ccd_atom_id": "H11"
+      },
+      {
+        "state_atom_id": "19",
+        "source_atom_id": "1328",
+        "ccd_atom_id": "H7"
+      },
+      {
+        "state_atom_id": "20",
+        "source_atom_id": "1329",
+        "ccd_atom_id": "H8"
+      },
+      {
+        "state_atom_id": "21",
+        "source_atom_id": "1330",
+        "ccd_atom_id": "H9"
+      },
+      {
+        "state_atom_id": "22",
+        "source_atom_id": "1331",
+        "ccd_atom_id": "HOAB"
+      }
+    ]
+  },
+  "chemical_state": {
+    "schema_id": "urn:neodyn:component-preparation:v1:chemical-state",
+    "schema_version": 1,
+    "state_id": "b1623aa2-9612-5ec3-ab9f-1d5faf6d6a1c",
+    "atoms": [
+      {
+        "id": "1",
+        "element": "C",
+        "formal_charge": 0,
+        "stereo": "none"
+      },
+      {
+        "id": "2",
+        "element": "C",
+        "formal_charge": 0,
+        "stereo": "none"
+      },
+      {
+        "id": "3",
+        "element": "C",
+        "formal_charge": 0,
+        "stereo": "none"
+      },
+      {
+        "id": "4",
+        "element": "C",
+        "formal_charge": 0,
+        "stereo": "none"
+      },
+      {
+        "id": "5",
+        "element": "C",
+        "formal_charge": 0,
+        "stereo": "none"
+      },
+      {
+        "id": "6",
+        "element": "C",
+        "formal_charge": 0,
+        "stereo": "none"
+      },
+      {
+        "id": "7",
+        "element": "C",
+        "formal_charge": 0,
+        "stereo": "none"
+      },
+      {
+        "id": "8",
+        "element": "C",
+        "formal_charge": 0,
+        "stereo": "none"
+      },
+      {
+        "id": "9",
+        "element": "C",
+        "formal_charge": 0,
+        "stereo": "none"
+      },
+      {
+        "id": "10",
+        "element": "O",
+        "formal_charge": 0,
+        "stereo": "none"
+      },
+      {
+        "id": "11",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "none"
+      },
+      {
+        "id": "12",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "none"
+      },
+      {
+        "id": "13",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "none"
+      },
+      {
+        "id": "14",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "none"
+      },
+      {
+        "id": "15",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "none"
+      },
+      {
+        "id": "16",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "none"
+      },
+      {
+        "id": "17",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "none"
+      },
+      {
+        "id": "18",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "none"
+      },
+      {
+        "id": "19",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "none"
+      },
+      {
+        "id": "20",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "none"
+      },
+      {
+        "id": "21",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "none"
+      },
+      {
+        "id": "22",
+        "element": "H",
+        "formal_charge": 0,
+        "stereo": "none"
+      }
+    ],
+    "bonds": [
+      {
+        "atom_ids": [
+          "1",
+          "2"
+        ],
+        "order": "single",
+        "stereo": "none"
+      },
+      {
+        "atom_ids": [
+          "1",
+          "11"
+        ],
+        "order": "single",
+        "stereo": "none"
+      },
+      {
+        "atom_ids": [
+          "1",
+          "12"
+        ],
+        "order": "single",
+        "stereo": "none"
+      },
+      {
+        "atom_ids": [
+          "1",
+          "13"
+        ],
+        "order": "single",
+        "stereo": "none"
+      },
+      {
+        "atom_ids": [
+          "2",
+          "3"
+        ],
+        "order": "single",
+        "stereo": "none"
+      },
+      {
+        "atom_ids": [
+          "2",
+          "14"
+        ],
+        "order": "single",
+        "stereo": "none"
+      },
+      {
+        "atom_ids": [
+          "2",
+          "15"
+        ],
+        "order": "single",
+        "stereo": "none"
+      },
+      {
+        "atom_ids": [
+          "3",
+          "4"
+        ],
+        "order": "single",
+        "stereo": "none"
+      },
+      {
+        "atom_ids": [
+          "3",
+          "16"
+        ],
+        "order": "single",
+        "stereo": "none"
+      },
+      {
+        "atom_ids": [
+          "3",
+          "17"
+        ],
+        "order": "single",
+        "stereo": "none"
+      },
+      {
+        "atom_ids": [
+          "4",
+          "5"
+        ],
+        "order": "aromatic",
+        "stereo": "none"
+      },
+      {
+        "atom_ids": [
+          "4",
+          "9"
+        ],
+        "order": "aromatic",
+        "stereo": "none"
+      },
+      {
+        "atom_ids": [
+          "5",
+          "6"
+        ],
+        "order": "aromatic",
+        "stereo": "none"
+      },
+      {
+        "atom_ids": [
+          "5",
+          "18"
+        ],
+        "order": "single",
+        "stereo": "none"
+      },
+      {
+        "atom_ids": [
+          "6",
+          "7"
+        ],
+        "order": "aromatic",
+        "stereo": "none"
+      },
+      {
+        "atom_ids": [
+          "6",
+          "19"
+        ],
+        "order": "single",
+        "stereo": "none"
+      },
+      {
+        "atom_ids": [
+          "7",
+          "8"
+        ],
+        "order": "aromatic",
+        "stereo": "none"
+      },
+      {
+        "atom_ids": [
+          "7",
+          "20"
+        ],
+        "order": "single",
+        "stereo": "none"
+      },
+      {
+        "atom_ids": [
+          "8",
+          "9"
+        ],
+        "order": "aromatic",
+        "stereo": "none"
+      },
+      {
+        "atom_ids": [
+          "8",
+          "21"
+        ],
+        "order": "single",
+        "stereo": "none"
+      },
+      {
+        "atom_ids": [
+          "9",
+          "10"
+        ],
+        "order": "single",
+        "stereo": "none"
+      },
+      {
+        "atom_ids": [
+          "10",
+          "22"
+        ],
+        "order": "single",
+        "stereo": "none"
+      }
+    ],
+    "net_formal_charge": 0,
+    "hydrogen_policy": "explicit_all",
+    "tautomer_id": "2-propylphenol",
+    "protonation_id": "neutral-phenol",
+    "review": {
+      "status": "accepted",
+      "decision_id": "522a32bd-4c7f-55b9-b59d-3cb83c807ff7",
+      "evidence": [
+        {
+          "kind": "source_structure",
+          "source_sha256": "d14629777ae48f9716c04135a9fcff71809dc87f145dda3f90ba1d9a1254e10b",
+          "detail": "Exact RFC 8785 decoded molecular-topology v1 source fixture."
+        },
+        {
+          "kind": "ccd",
+          "source_sha256": "0d8560203bbe962880ea361e6b92cf37916690dd8896f625bca6bd16fb66d6d9",
+          "detail": "Curated JZ4 CCD atom and bond extract; raw CCD SHA pinned in extract but raw bytes are not part of this test."
+        }
+      ]
+    }
+  },
+  "component_instance": {
+    "schema_id": "urn:neodyn:component-preparation:v1:component-instance",
+    "schema_version": 1,
+    "instance_id": "21f6fb43-8dd8-5be7-98b1-edbd2b0caa50",
+    "source_topology_id": "55555555-5555-4555-8555-555555555556",
+    "source_revision_id": "66666666-6666-4666-8666-666666666667",
+    "state_id": "b1623aa2-9612-5ec3-ab9f-1d5faf6d6a1c",
+    "state_sha256": "4c9c7a6da599b800021be014e6d08c07296b16ad36584570722576dec6a85ead",
+    "role": "ligand",
+    "included": true,
+    "frame_id": "77777777-7777-4777-8777-777777777778",
+    "atom_bindings": [
+      {
+        "state_atom_id": "1",
+        "source_atom_id": "1310"
+      },
+      {
+        "state_atom_id": "2",
+        "source_atom_id": "1311"
+      },
+      {
+        "state_atom_id": "3",
+        "source_atom_id": "1312"
+      },
+      {
+        "state_atom_id": "4",
+        "source_atom_id": "1313"
+      },
+      {
+        "state_atom_id": "5",
+        "source_atom_id": "1314"
+      },
+      {
+        "state_atom_id": "6",
+        "source_atom_id": "1315"
+      },
+      {
+        "state_atom_id": "7",
+        "source_atom_id": "1316"
+      },
+      {
+        "state_atom_id": "8",
+        "source_atom_id": "1317"
+      },
+      {
+        "state_atom_id": "9",
+        "source_atom_id": "1318"
+      },
+      {
+        "state_atom_id": "10",
+        "source_atom_id": "1319"
+      },
+      {
+        "state_atom_id": "11",
+        "source_atom_id": "1320"
+      },
+      {
+        "state_atom_id": "12",
+        "source_atom_id": "1321"
+      },
+      {
+        "state_atom_id": "13",
+        "source_atom_id": "1322"
+      },
+      {
+        "state_atom_id": "14",
+        "source_atom_id": "1323"
+      },
+      {
+        "state_atom_id": "15",
+        "source_atom_id": "1324"
+      },
+      {
+        "state_atom_id": "16",
+        "source_atom_id": "1325"
+      },
+      {
+        "state_atom_id": "17",
+        "source_atom_id": "1326"
+      },
+      {
+        "state_atom_id": "18",
+        "source_atom_id": "1327"
+      },
+      {
+        "state_atom_id": "19",
+        "source_atom_id": "1328"
+      },
+      {
+        "state_atom_id": "20",
+        "source_atom_id": "1329"
+      },
+      {
+        "state_atom_id": "21",
+        "source_atom_id": "1330"
+      },
+      {
+        "state_atom_id": "22",
+        "source_atom_id": "1331"
+      }
+    ]
+  },
+  "expected": {
+    "state_sha256": "4c9c7a6da599b800021be014e6d08c07296b16ad36584570722576dec6a85ead",
+    "instance_sha256": "ff2e4107261abb7015e7e90029da3f9eaf09304e9929f0a9dda3938f8ba0322f",
+    "source_role": "ligand",
+    "source_atom_count": 22,
+    "source_bond_count": 22,
+    "source_formal_charge_sum": 0,
+    "review_changes_empty": true
+  },
+  "limits": [
+    "Only the canonical source and this fixture are opened by the test.",
+    "The curated CCD extract pins the raw public CCD SHA-256 and URL but does not reverify raw CCD bytes.",
+    "The canonical source ligand frame and hydrogens came from the pinned JZ4 SDF; deposited 3HTB mmCIF has 10 heavy ligand coordinates.",
+    "This is source/state review, not force-field or full-system qualification."
+  ]
+}

@@ -51,16 +51,16 @@ class InputsStub:
                 'content_sha256': row['content_sha256'], 'created_at': row['created_at'].isoformat()}
 
 
-async def materialized_fixture(ledger, root, *, scope=None):
+async def materialized_fixture(ledger, root, *, scope=None, method='md'):
     """Completed finalization whose sealed files really exist under root/objects."""
     scope = scope or uid()
     prepared = {'bundle_id': uid(), 'prepared_revision_id': uid(), 'manifest_sha256': 'a' * 64, 'mapping_sha256': 'b' * 64}
     await ledger.register_prepared(scope, prepared, particle_count=4, topology_atom_count=4)
     protocol = await ledger.register_protocol(scope, protocol_id=uid(), request_id=uid(), prepared=prepared,
-                                              method='md', descriptor={'method': 'md', 'steps': 8})
+                                              method=method, descriptor={'method': method, 'steps': 8})
     async with ledger.pool.acquire() as connection:
         await connection.execute("INSERT INTO neomd_service.storage_capacity VALUES('fixture',1000000000) ON CONFLICT DO NOTHING")
-    request = create_request({'prepared': prepared, 'protocol_id': protocol['protocol_id'], 'method': 'md'})
+    request = create_request({'prepared': prepared, 'protocol_id': protocol['protocol_id'], 'method': method})
     session = (await ledger.create(scope, request, pool_id='fixture', output_reservation_bytes=10_000_000))['session_id']
     engine = await ledger.claim_next(pool_id='fixture', worker_id=uid(), lease_ms=30000)
     await ledger.observe(engine, state='running', observation=make_observation(0), capabilities=None)
@@ -237,7 +237,37 @@ def test_full_flow_completes_and_cleans_exact_owned_set(database_dsn, tmp_path):
             objects = tmp_path / 'storage' / 'objects'
             surviving = sorted(path.name for path in objects.iterdir())
             assert surviving == []  # the exact sealed set was removed, nothing else existed
-            assert await ledger.output_reservation(scope, session) == 10_000_000  # cleanup retires no reservation
+            assert await ledger.output_reservation(scope, session) is None
+        finally:
+            await coordinator.close()
+            await ledger.close()
+    asyncio.run(scenario())
+
+
+def test_completed_min_retains_sealed_set_until_durable_expiry(database_dsn, tmp_path):
+    async def scenario():
+        ledger, _, coordinator = await build(database_dsn, tmp_path, FakeRemote())
+        try:
+            scope, session, finalization, _ = await materialized_fixture(
+                ledger, tmp_path / 'storage', method='min')
+            objects = tmp_path / 'storage' / 'objects'
+            original = sorted(path.name for path in objects.iterdir())
+            await coordinator.start()
+            assert await settle(completed_state(coordinator, scope, finalization))
+            assert await settle(reports_present(coordinator))
+            assert coordinator.cleanup_reports[-1]['deferred'] == 'continuation_window_24h'
+            assert sorted(path.name for path in objects.iterdir()) == original
+            assert await ledger.output_reservation(scope, session) == 10_000_000
+            await coordinator.close()
+            async with ledger.pool.acquire() as connection:
+                await connection.execute('''UPDATE neomd_service.publication_jobs
+                    SET cleanup_after=clock_timestamp()-interval '1 second'
+                    WHERE finalization_id=$1''', UUID(finalization))
+            await coordinator._cleanup_completed()
+            assert sorted(path.name for path in objects.iterdir()) == [], coordinator.cleanup_reports
+            assert await ledger.output_reservation(scope, session) is None
+            await coordinator._cleanup_completed()  # exact restart/retry is harmless
+            assert sorted(path.name for path in objects.iterdir()) == []
         finally:
             await coordinator.close()
             await ledger.close()

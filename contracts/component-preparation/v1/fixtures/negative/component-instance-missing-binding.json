@@ -1,0 +1,22 @@
+{
+  "schema_id": "urn:neodyn:component-preparation:v1:component-instance",
+  "schema_version": 1,
+  "instance_id": "00000000-0000-4000-8000-000000000003",
+  "source_topology_id": "00000000-0000-4000-8000-000000000004",
+  "source_revision_id": "00000000-0000-4000-8000-000000000005",
+  "state_id": "00000000-0000-4000-8000-000000000001",
+  "state_sha256": "b92fc3762cc686550195069896d2ff2b2890bb330e9152b9bcaebd3b04773531",
+  "role": "water",
+  "included": true,
+  "frame_id": "00000000-0000-4000-8000-000000000006",
+  "atom_bindings": [
+    {
+      "state_atom_id": "1",
+      "source_atom_id": "1"
+    },
+    {
+      "state_atom_id": "2",
+      "source_atom_id": "2"
+    }
+  ]
+}

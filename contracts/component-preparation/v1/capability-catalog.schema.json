@@ -1,0 +1,808 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "catalog_revision_sha256",
+    "methods"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "urn:neodyn:component-preparation:v1:capability-catalog"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "catalog_revision_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "methods": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 128,
+      "items": {
+        "$ref": "#/$defs/catalog_method"
+      }
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:neodyn:component-preparation:v1:capability-catalog",
+  "title": "Qualified component preparation capability catalog",
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "uuid": {
+      "type": "string",
+      "pattern": "^(?!00000000-0000-0000-0000-000000000000$)[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "atom_id": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,19}$"
+    },
+    "artifact_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_id",
+        "schema_version",
+        "artifact_id",
+        "kind",
+        "content_sha256",
+        "size_bytes",
+        "decoded_size_bytes",
+        "encoding",
+        "media_type"
+      ],
+      "properties": {
+        "schema_id": {
+          "const": "urn:neodyn:component-preparation:v1:artifact-reference"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "artifact_id": {
+          "type": "string",
+          "pattern": "^(?!00000000-0000-0000-0000-000000000000$)[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "kind": {
+          "enum": [
+            "chemical_state",
+            "component_instance",
+            "parameter_package",
+            "parameter_asset",
+            "atom_map",
+            "qc_report",
+            "preparation_recipe",
+            "prepared_bundle",
+            "analysis"
+          ]
+        },
+        "content_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 536870912
+        },
+        "decoded_size_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 536870912
+        },
+        "encoding": {
+          "enum": [
+            "identity",
+            "gzip"
+          ]
+        },
+        "media_type": {
+          "enum": [
+            "application/json",
+            "application/octet-stream",
+            "application/gzip"
+          ]
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "source_sha256",
+        "detail"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "ccd",
+            "source_structure",
+            "user_decision",
+            "calculation",
+            "publication"
+          ]
+        },
+        "source_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        }
+      }
+    },
+    "atom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "element",
+        "formal_charge",
+        "stereo"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,19}$"
+        },
+        "element": {
+          "type": "string",
+          "pattern": "^[A-Z][a-z]?$"
+        },
+        "formal_charge": {
+          "type": "integer",
+          "minimum": -8,
+          "maximum": 8
+        },
+        "stereo": {
+          "enum": [
+            "R",
+            "S",
+            "none",
+            "unresolved"
+          ]
+        }
+      }
+    },
+    "bond": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "atom_ids",
+        "order",
+        "stereo"
+      ],
+      "properties": {
+        "atom_ids": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,19}$"
+            },
+            {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,19}$"
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "order": {
+          "enum": [
+            "single",
+            "double",
+            "triple",
+            "aromatic"
+          ]
+        },
+        "stereo": {
+          "enum": [
+            "E",
+            "Z",
+            "none",
+            "unresolved"
+          ]
+        }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state_atom_id",
+        "source_atom_id"
+      ],
+      "properties": {
+        "state_atom_id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,19}$"
+        },
+        "source_atom_id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,19}$"
+        }
+      }
+    },
+    "tool_version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool",
+        "version"
+      ],
+      "properties": {
+        "tool": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "resource_hash": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resource_id",
+        "sha256"
+      ],
+      "properties": {
+        "resource_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "method": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method_id",
+        "version",
+        "charge_method_id",
+        "tool_versions",
+        "resource_hashes",
+        "options_sha256",
+        "conformer_sha256",
+        "seed"
+      ],
+      "properties": {
+        "method_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "charge_method_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "tool_versions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/tool_version"
+          }
+        },
+        "resource_hashes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/resource_hash"
+          }
+        },
+        "options_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "conformer_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protein_family",
+        "ligand_family",
+        "water_family",
+        "ion_family",
+        "combining_rule",
+        "electrostatic_14_scale",
+        "vdw_14_scale",
+        "unit_system",
+        "nonbonded_method",
+        "cutoff_nm",
+        "switch_distance_nm",
+        "constraints",
+        "hydrogen_mass_amu",
+        "virtual_sites"
+      ],
+      "properties": {
+        "protein_family": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "ligand_family": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "water_family": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "ion_family": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "combining_rule": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "electrostatic_14_scale": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "vdw_14_scale": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "unit_system": {
+          "const": "openmm_nm_kj_mol_e"
+        },
+        "nonbonded_method": {
+          "enum": [
+            "pme",
+            "cutoff_periodic",
+            "no_cutoff"
+          ]
+        },
+        "cutoff_nm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "switch_distance_nm": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "constraints": {
+          "enum": [
+            "none",
+            "HBonds",
+            "AllBonds",
+            "HAngles"
+          ]
+        },
+        "hydrogen_mass_amu": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "virtual_sites": {
+          "type": "boolean"
+        }
+      }
+    },
+    "source_topology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_id",
+        "topology_id",
+        "revision_id",
+        "content_sha256",
+        "size_bytes",
+        "decoded_size_bytes",
+        "encoding"
+      ],
+      "properties": {
+        "schema_id": {
+          "const": "urn:neodyn:molecular-topology:v1"
+        },
+        "topology_id": {
+          "type": "string",
+          "pattern": "^(?!00000000-0000-0000-0000-000000000000$)[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "revision_id": {
+          "type": "string",
+          "pattern": "^(?!00000000-0000-0000-0000-000000000000$)[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "content_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 67108864
+        },
+        "decoded_size_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 268435456
+        },
+        "encoding": {
+          "const": "gzip"
+        }
+      }
+    },
+    "assignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instance_id",
+        "instance_sha256",
+        "state_id",
+        "state_sha256",
+        "package_id",
+        "package_sha256"
+      ],
+      "properties": {
+        "instance_id": {
+          "type": "string",
+          "pattern": "^(?!00000000-0000-0000-0000-000000000000$)[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "instance_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "state_id": {
+          "type": "string",
+          "pattern": "^(?!00000000-0000-0000-0000-000000000000$)[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "state_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "package_id": {
+          "type": "string",
+          "pattern": "^(?!00000000-0000-0000-0000-000000000000$)[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "package_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "assembly": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "box_policy",
+        "padding_nm",
+        "retained_water_policy",
+        "water_model",
+        "ionic_strength_mol_per_l",
+        "neutralize",
+        "solvation_seed",
+        "positive_ion",
+        "negative_ion",
+        "constraints",
+        "hydrogen_mass_amu",
+        "nonbonded_method",
+        "cutoff_nm",
+        "switch_distance_nm"
+      ],
+      "properties": {
+        "box_policy": {
+          "enum": [
+            "reuse_source_orthorhombic",
+            "generate_orthorhombic"
+          ]
+        },
+        "padding_nm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "retained_water_policy": {
+          "enum": [
+            "retain_and_solvate",
+            "discard_source_water"
+          ]
+        },
+        "water_model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "ionic_strength_mol_per_l": {
+          "type": "number",
+          "minimum": 0
+        },
+        "neutralize": {
+          "type": "boolean"
+        },
+        "solvation_seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "positive_ion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "negative_ion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "constraints": {
+          "enum": [
+            "none",
+            "HBonds",
+            "AllBonds",
+            "HAngles"
+          ]
+        },
+        "hydrogen_mass_amu": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "nonbonded_method": {
+          "enum": [
+            "pme",
+            "cutoff_periodic",
+            "no_cutoff"
+          ]
+        },
+        "cutoff_nm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "switch_distance_nm": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "catalog_method": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method_id",
+        "version",
+        "chemistry_scope",
+        "import_mode",
+        "resource_hashes",
+        "availability",
+        "qualification",
+        "reason"
+      ],
+      "properties": {
+        "method_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "chemistry_scope": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "import_mode": {
+          "enum": [
+            "generated",
+            "imported"
+          ]
+        },
+        "resource_hashes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/resource_hash"
+          }
+        },
+        "availability": {
+          "enum": [
+            "qualified",
+            "unavailable"
+          ]
+        },
+        "qualification": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source_sha256",
+                "resource_sha256",
+                "platform",
+                "chemistry_scope",
+                "receipt_sha256"
+              ],
+              "properties": {
+                "source_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "resource_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "platform": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "chemistry_scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "receipt_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "availability": {
+                "const": "qualified"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "qualification": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "source_sha256",
+                  "resource_sha256",
+                  "platform",
+                  "chemistry_scope",
+                  "receipt_sha256"
+                ],
+                "properties": {
+                  "source_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "resource_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "platform": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "chemistry_scope": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "receipt_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                }
+              },
+              "reason": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "availability": {
+                "const": "unavailable"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "qualification": {
+                "type": "null"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

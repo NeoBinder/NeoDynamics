@@ -24,6 +24,7 @@ from .contract import ContractError, content_hash, validate
 
 MAX_INTEGER = 2**53 - 1
 TERMINAL = frozenset({"completed", "stopped", "failed", "expired"})
+CONTINUATION_LAUNCH_SLACK_SECONDS = 60
 
 
 class LedgerError(RuntimeError):
@@ -232,9 +233,9 @@ class Ledger:
                 if exists
                 else None
             )
-            if version is not None and version not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}:
+            if version is not None and version not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}:
                 raise RuntimeError("unsupported service ledger schema version")
-            for number in range((version or 0) + 1, 13):
+            for number in range((version or 0) + 1, 16):
                 script = (Path(__file__).parent / f"migrations/{number:03d}.sql").read_text()
                 await connection.execute(script)
 
@@ -488,7 +489,8 @@ class Ledger:
         )
         return active + len(promote), queued
 
-    async def create(self, scope_id, request, *, pool_id, output_reservation_bytes=None):
+    async def create(self, scope_id, request, *, pool_id, output_reservation_bytes=None,
+                     startup_timeout_seconds=None):
         validate("CreateRequest", request)
         if output_reservation_bytes is not None and (
             isinstance(output_reservation_bytes, bool)
@@ -540,6 +542,31 @@ class Ledger:
                 or protocol["method"] != payload["method"]
             ):
                 raise LedgerError("prepared_binding_mismatch")
+            requested_continuation = payload.get("continuation")
+            if requested_continuation is not None:
+                if startup_timeout_seconds is None:
+                    if await connection.fetchval(
+                        "SELECT EXISTS(SELECT 1 FROM neomd_service.publication_destinations WHERE pool_id=$1)",
+                        pool_id,
+                    ):
+                        raise LedgerError("service_unavailable")
+                    admission_margin = 0
+                elif type(startup_timeout_seconds) is not int or startup_timeout_seconds < 1:
+                    raise LedgerError("invalid_request")
+                else:
+                    admission_margin = (policy["queue_ttl_seconds"] + startup_timeout_seconds
+                                        + CONTINUATION_LAUNCH_SLACK_SECONDS)
+                eligible, source = await self._continuation_source(
+                    connection, scope, requested_continuation["source_session_id"],
+                    minimum_remaining_seconds=admission_margin,
+                )
+                predecessor = {"eq": "min", "prod": "eq"}.get(payload["method"])
+                if (eligible["availability"] != "available"
+                        or eligible["continuation"] != requested_continuation
+                        or eligible["prepared"] != prepared
+                        or eligible["source_method"] != predecessor
+                        or source["pool_id"] != pool_id):
+                    raise LedgerError("prepared_binding_mismatch")
             active, queued = await self._reconcile_admission(connection, pool_id, policy, now)
             reserved = active < policy["max_active"]
             if not reserved and queued >= policy["max_queued"]:
@@ -556,6 +583,7 @@ class Ledger:
                 "runtime_budget": {"limit_ms": runtime_limit * 1000, "elapsed_ms": 0,
                                    "accounting": "not_started", "stop": None},
                 "prepared": prepared,
+                "continuation": requested_continuation,
                 "observation": None,
                 "publication_state": "local",
                 "controller": None,
@@ -619,6 +647,141 @@ class Ledger:
         async with self.pool.acquire() as connection:
             row = await self._session(connection, scope_id, session_id, lock=False)
             return self._snapshot(row, await connection.fetchval("SELECT clock_timestamp()"))
+
+    async def _continuation_source(self, connection, scope_id, session_id,
+                                   *, minimum_remaining_seconds=0):
+        """Derive phase eligibility from same-owner completed science and final inventory."""
+        row = await self._session(connection, scope_id, session_id, lock=False)
+        snapshot = row["snapshot"]
+
+        def unavailable(reason):
+            return {"availability": "unavailable", "reason": reason}, row
+
+        if snapshot["state"] != "completed":
+            return unavailable("source_not_completed")
+        final = snapshot.get("finalization")
+        if final is None or final["status"] != "complete":
+            return unavailable("finalization_incomplete")
+        method = await connection.fetchval(
+            "SELECT method FROM neomd_service.protocol_assets WHERE scope_id=$1 AND protocol_id=$2",
+            row["scope_id"], row["protocol_id"],
+        )
+        if method not in {"min", "eq"}:
+            return unavailable("method_unsupported")
+        # Published source bytes are retained locally for a fixed, capacity-
+        # reserved window. A delayed sweeper must not extend that authority.
+        retention = await connection.fetchrow(
+            """SELECT cleanup_after,cleanup_done,clock_timestamp() AS now
+            FROM neomd_service.publication_jobs
+            WHERE finalization_id=$1 AND state='complete'""",
+            _uuid(final["id"]),
+        )
+        if retention is None:
+            # A configured publication destination makes the receipt the
+            # authority for local source-byte retention. A missing job must
+            # not silently grant an unlimited continuation window.
+            published_pool = await connection.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM neomd_service.publication_destinations WHERE pool_id=$1)",
+                row["pool_id"],
+            )
+            if published_pool:
+                return unavailable("final_state_unavailable")
+        elif (retention["cleanup_done"] or retention["cleanup_after"] is None
+              or retention["cleanup_after"] <= retention["now"]
+              + timedelta(seconds=minimum_remaining_seconds)):
+            return unavailable("final_state_unavailable")
+        try:
+            evidence = await self._finalization_evidence(
+                connection, scope_id, session_id, final["id"]
+            )
+            asset = await connection.fetchrow(
+                """SELECT binding,particle_count,particle_identity_sha256
+                FROM neomd_service.prepared_assets WHERE scope_id=$1 AND bundle_id=$2""",
+                row["scope_id"], row["bundle_id"],
+            )
+            rows = await connection.fetch(
+                """SELECT local_ref,descriptor,stat FROM neomd_service.finalization_evidence_artifacts
+                WHERE finalization_id=$1 AND descriptor->>'original_filename'
+                IN ('result-manifest.json','final-state.f64le')""",
+                _uuid(final["id"]),
+            )
+            result_rows = [item for item in rows if item["descriptor"]["original_filename"] == "result-manifest.json"]
+            state_rows = [item for item in rows if item["descriptor"]["original_filename"] == "final-state.f64le"]
+            if (asset is None or asset["binding"] != snapshot["prepared"]
+                    or asset["particle_identity_sha256"] is None
+                    or len(result_rows) != 1 or len(state_rows) != 1):
+                return unavailable("final_state_unavailable")
+            result, state = result_rows[0], state_rows[0]
+            for item in (result, state):
+                _finalized_entry({"descriptor": item["descriptor"],
+                                  "local_ref": str(item["local_ref"]), "stat": item["stat"]})
+                if (item["descriptor"]["session_id"] != str(row["session_id"])
+                        or item["descriptor"]["attempt_id"] != evidence.attempt_id
+                        or item["descriptor"]["generation"] != evidence.generation):
+                    return unavailable("final_state_unavailable")
+            if (result["descriptor"]["artifact_id"] != evidence.result_artifact_id
+                    or state["descriptor"]["size_bytes"] != 24 * asset["particle_count"] + 72):
+                return unavailable("final_state_unavailable")
+        except (LedgerError, KeyError, TypeError, ValueError):
+            return unavailable("final_state_unavailable")
+        descriptor = {
+            "source_session_id": str(row["session_id"]),
+            "source_finalization_id": final["id"],
+            "source_result_artifact_id": result["descriptor"]["artifact_id"],
+            "final_state_artifact_id": state["descriptor"]["artifact_id"],
+            "final_state_sha256": state["descriptor"]["content_sha256"],
+            "velocity_policy": "reinitialize_at_target_temperature",
+        }
+        return ({"availability": "available", "prepared": snapshot["prepared"],
+                 "source_method": method, "continuation": descriptor}, row)
+
+    async def continuation_eligibility(self, scope_id, session_id,
+                                       *, minimum_remaining_seconds=0):
+        async with self.pool.acquire() as connection:
+            outcome, _ = await self._continuation_source(
+                connection, scope_id, session_id,
+                minimum_remaining_seconds=minimum_remaining_seconds,
+            )
+        validate("ContinuationEligibility", outcome)
+        return outcome
+
+    async def continuation_source(self, scope_id, descriptor, *, target_prepared, target_method, pool_id):
+        """Recheck durable authority immediately before target worker launch."""
+        validate("ContinuationDescriptor", descriptor)
+        async with self.pool.acquire() as connection:
+            outcome, row = await self._continuation_source(
+                connection, scope_id, descriptor["source_session_id"]
+            )
+            if (outcome["availability"] != "available"
+                    or outcome["continuation"] != descriptor
+                    or outcome["prepared"] != target_prepared
+                    or outcome["source_method"] != {"eq": "min", "prod": "eq"}.get(target_method)
+                    or row["pool_id"] != pool_id):
+                raise LedgerError("prepared_binding_mismatch")
+            asset = await connection.fetchrow(
+                """SELECT particle_count,particle_identity_sha256 FROM neomd_service.prepared_assets
+                WHERE scope_id=$1 AND bundle_id=$2""", row["scope_id"], row["bundle_id"]
+            )
+            if asset is None or asset["particle_identity_sha256"] is None:
+                raise LedgerError("artifact_unverified")
+            result = await connection.fetchval(
+                """SELECT descriptor FROM neomd_service.artifacts
+                WHERE scope_id=$1 AND session_id=$2 AND artifact_id=$3""",
+                row["scope_id"], row["session_id"], _uuid(descriptor["source_result_artifact_id"]),
+            )
+            if (result is None or result["original_filename"] != "result-manifest.json"
+                    or result["kind"] != "method_state"):
+                raise LedgerError("artifact_unverified")
+        return {"particle_count": asset["particle_count"],
+                "particle_identity_sha256": asset["particle_identity_sha256"],
+                "result_sha256": result["content_sha256"],
+                "result_size_bytes": result["size_bytes"],
+                "source_attempt_id": str(row["snapshot"]["attempt_id"]),
+                "source_generation": row["snapshot"]["generation"],
+                "source_epoch": row["snapshot"]["epoch"],
+                "source_step": row["snapshot"]["observation"]["step"],
+                "source_control_revision": row["snapshot"]["control_revision"],
+                "source_method": outcome["source_method"]}
 
     async def by_request(self, scope_id, request_id):
         async with self.pool.acquire() as connection:
@@ -1448,7 +1611,7 @@ class Ledger:
                                  pre_seal_failure=None, finalization_id=None, checkpoint=None):
         """Commit actual engine completion, retain capacity for its sealed-file task."""
         proof = self._checkpoint_input(checkpoint)
-        if confirmed_engine_exit is not True or state not in {'completed', 'stopped'}:
+        if confirmed_engine_exit is not True or state not in {'completed', 'stopped', 'failed'}:
             raise LedgerError('invalid_request')
         self._runtime_limit(deadline_seconds)
         validate('Observation', observation)

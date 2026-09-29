@@ -304,6 +304,8 @@ class FakeKernel:
                 f"masses {self._masses.shape}")
         self._box = (None if data.box_vectors is None
                      else np.array(data.box_vectors, dtype=np.float64))
+        if spec.initial_box_vectors_nm is not None:
+            self._box = np.array(spec.initial_box_vectors_nm, dtype=np.float64)
         self._dt = float(spec.integrator.get("dt", 0.004))
         self._gamma = float(spec.integrator.get("friction_coeff", 1.0))
         self._kT = _R_KJ_MOL_K * spec.temperature

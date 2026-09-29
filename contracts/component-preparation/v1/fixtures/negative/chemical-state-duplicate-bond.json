@@ -1,0 +1,66 @@
+{
+  "schema_id": "urn:neodyn:component-preparation:v1:chemical-state",
+  "schema_version": 1,
+  "state_id": "00000000-0000-4000-8000-000000000001",
+  "atoms": [
+    {
+      "id": "1",
+      "element": "H",
+      "formal_charge": 0,
+      "stereo": "none"
+    },
+    {
+      "id": "2",
+      "element": "O",
+      "formal_charge": 0,
+      "stereo": "none"
+    },
+    {
+      "id": "3",
+      "element": "H",
+      "formal_charge": 0,
+      "stereo": "none"
+    }
+  ],
+  "bonds": [
+    {
+      "atom_ids": [
+        "1",
+        "2"
+      ],
+      "order": "single",
+      "stereo": "none"
+    },
+    {
+      "atom_ids": [
+        "2",
+        "3"
+      ],
+      "order": "single",
+      "stereo": "none"
+    },
+    {
+      "atom_ids": [
+        "1",
+        "2"
+      ],
+      "order": "single",
+      "stereo": "none"
+    }
+  ],
+  "net_formal_charge": 0,
+  "hydrogen_policy": "explicit_all",
+  "tautomer_id": "water",
+  "protonation_id": "neutral-water",
+  "review": {
+    "status": "accepted",
+    "decision_id": "00000000-0000-4000-8000-000000000002",
+    "evidence": [
+      {
+        "kind": "calculation",
+        "source_sha256": "5ddd22cb7f30df31659dd3213829583a8b345ee15bde46cb430335c8ff9ee28e",
+        "detail": "Synthetic contract fixture only; no provider qualification."
+      }
+    ]
+  }
+}

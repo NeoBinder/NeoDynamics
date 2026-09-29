@@ -13,6 +13,7 @@ import pytest
 from jsonschema import Draft202012Validator
 
 from neomd.sinks import init_dcd, write_dcd_frame
+from neomd_server.continuation import FINAL_STATE_FILENAME, final_state_bytes
 from neomd_server.contract import ContractError, canonical_bytes, content_hash
 from neomd_server.results import (
     RESULT_FILENAME,
@@ -68,10 +69,10 @@ def closed_dcd(args, *, name="output.dcd", frames=2, particles=None, periodic=Fa
     return closed_path(args, path)
 
 
-def closed_path(args, path):
+def closed_path(args, path, *, kind="trajectory"):
     descriptor = {
         "artifact_id": uid(), **{key: args["execution"][key] for key in ("session_id", "attempt_id", "generation")},
-        "kind": "trajectory", "content_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "kind": kind, "content_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "size_bytes": path.stat().st_size, "publication_state": "local", "download_ref": None,
         "publication_receipt_ref": None, "original_filename": path.name,
         "media_type": "application/octet-stream",
@@ -87,7 +88,35 @@ def test_schema_is_closed_and_zero_frame_last_step_is_null():
     schema = json.loads(SCHEMA.read_text())
     Draft202012Validator.check_schema(schema)
     assert schema["additionalProperties"] is False
-    assert schema["properties"]["execution"]["properties"]["terminal_state"]["enum"] == ["completed", "stopped"]
+    assert schema["properties"]["execution"]["properties"]["terminal_state"]["enum"] == ["completed", "stopped", "failed"]
+
+
+def test_completed_periodic_phase_binds_exact_full_row_state(arguments):
+    arguments["descriptor"]["method"] = "min"
+    arguments["terminal"].update(method="min", state="completed")
+    arguments["prepared_manifest"]["box_vectors_nm"] = (np.eye(3) * 2).tolist()
+    rebind(arguments)
+    path = arguments["sink"].root / FINAL_STATE_FILENAME
+    path.write_bytes(final_state_bytes(np.arange(12).reshape(4, 3) * .01, np.eye(3) * 2))
+    arguments["outputs"] = [closed_path(arguments, path, kind="report")]
+    result = write_result_manifest(**arguments)
+    assert result["final_state"]["content_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert result["final_state"]["particle_identity_sha256"] == result["particles"]["identity_sha256"]
+    assert result["final_state"]["size_bytes"] == 24 * 4 + 72
+
+
+def test_failed_equilibration_retains_sealed_unqualified_diagnostics(arguments):
+    arguments["descriptor"]["method"] = "eq"
+    arguments["terminal"].update(method="eq", state="failed", failure="OpenMMException")
+    rebind(arguments)
+    output = closed_dcd(arguments)
+    arguments["outputs"] = [output]
+    result = write_result_manifest(**arguments)
+    assert result["execution"]["terminal_state"] == "failed"
+    assert result["failure"] == {"code": "scientific_step_failed", "exception_type": "OpenMMException"}
+    assert result["trajectory_state"] == "unverified" and result["trajectories"] == []
+    assert result["diagnostic_artifacts"][0]["content_sha256"] == output.descriptor["content_sha256"]
+    assert "final_state" not in result
 
 
 @pytest.mark.parametrize("periodic", [False, True])

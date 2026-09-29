@@ -10,7 +10,7 @@ spec:
   storageClassName: longhorn
   resources:
     requests:
-      storage: 200Gi
+      storage: 300Gi
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -68,16 +68,16 @@ spec:
               name: neodynamics-runtime-secret
               key: NEOMD_SERVER_PG_DSN
         resources:
-          # Sized for the small kube-gpu node (~3GiB allocatable); larger
-          # systems may OOM — revisit if it moves to a bigger GPU node.
+          # Match the qualified live api-dev pod profile. The 8 GiB ceiling
+          # leaves headroom around the 4 GiB isolated preparation child.
           requests:
             cpu: '2'
-            memory: 2Gi
+            memory: 4Gi
             ephemeral-storage: 1Gi
             nvidia.com/gpu: 1
           limits:
             cpu: '8'
-            memory: 3Gi
+            memory: 8Gi
             ephemeral-storage: 4Gi
             nvidia.com/gpu: 1
         securityContext:
@@ -89,6 +89,9 @@ spec:
         volumeMounts:
         - name: data
           mountPath: /var/lib/neodynamics
+        - name: md-publication-auth
+          mountPath: /var/run/md-publication
+          readOnly: true
         - name: service-auth
           mountPath: /var/run/neodynamics-auth
           readOnly: true
@@ -149,6 +152,13 @@ spec:
       - name: data
         persistentVolumeClaim:
           claimName: neodynamics-data
+      - name: md-publication-auth
+        secret:
+          secretName: md-publication-auth
+          defaultMode: 288
+          items:
+          - key: token
+            path: token
       - name: service-auth
         secret:
           secretName: neodynamics-runtime-secret

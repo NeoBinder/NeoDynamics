@@ -190,6 +190,7 @@ class PublicationCoordinator:
             while not self.closing and not self.faulted:
                 await self._discover()
                 await self._claim_pending()
+                await self._cleanup_completed()
                 self.signal.clear()
                 try:
                     await asyncio.wait_for(self.signal.wait(), timeout=self.settings.poll_interval_seconds)
@@ -582,10 +583,37 @@ class PublicationCoordinator:
             return
         # Every exchange child of this drive is joined before returning here.
         await self._release(lease, record.finalization_id)
-        self.cleanup_reports.append(await self._guarded_cleanup(lease, record))
+        execution = json.loads(record.binding_bytes)["execution"]
+        if execution["state"] == "completed" and execution["method"] in {"min", "eq"}:
+            report = {"scope_id": lease.scope_id, "finalization_id": record.finalization_id,
+                      "deleted": [], "blocked": [], "retained": True,
+                      "deferred": "continuation_window_24h", "at": time.time()}
+        else:
+            report = await self._guarded_cleanup(lease, record)
+            if not report["retained"]:
+                await self.journal.complete_cleanup(lease.scope_id, record.finalization_id)
+        self.cleanup_reports.append(report)
         del self.cleanup_reports[:-_DIAGNOSTIC_LIMIT]
 
-    async def _guarded_cleanup(self, lease, record):
+    async def _cleanup_completed(self):
+        """Resume exact cleanup after expiry or a crash after receipt acceptance."""
+        after = None
+        while True:
+            page = await self.journal.cleanup_due(after=after)
+            for ref in page.entries:
+                drive = self.drives.get(ref.finalization_id)
+                if drive is not None and not drive.done():
+                    continue
+                report = await self._guarded_cleanup(ref, ref, missing_ok=True)
+                self.cleanup_reports.append(report)
+                del self.cleanup_reports[:-_DIAGNOSTIC_LIMIT]
+                if not report["retained"]:
+                    await self.journal.complete_cleanup(ref.scope_id, ref.finalization_id)
+            if page.next_after is None:
+                return
+            after = page.next_after
+
+    async def _guarded_cleanup(self, lease, record, *, missing_ok=False):
         """Delete only the exact owned sealed output set, or record blocked cleanup."""
         report = {"scope_id": lease.scope_id, "finalization_id": record.finalization_id,
                   "deleted": [], "blocked": [], "retained": True, "at": time.time()}
@@ -599,7 +627,11 @@ class PublicationCoordinator:
             return report
         # One joined filesystem worker per active drive. Cancellation must not
         # detach deletion from the drive's tracked lifetime.
-        waiter = asyncio.create_task(asyncio.to_thread(self._cleanup_files, entries, report))
+        if missing_ok:
+            waiter = asyncio.create_task(asyncio.to_thread(
+                self._cleanup_files, entries, report, missing_ok=True))
+        else:
+            waiter = asyncio.create_task(asyncio.to_thread(self._cleanup_files, entries, report))
         try:
             return await asyncio.shield(waiter)
         except asyncio.CancelledError:
@@ -611,7 +643,7 @@ class PublicationCoordinator:
             waiter.result()
             raise
 
-    def _cleanup_files(self, entries, report):
+    def _cleanup_files(self, entries, report, *, missing_ok=False):
         objects = Path(self.inputs.root) / "objects"
         try:
             directory = os.open(objects, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
@@ -625,7 +657,8 @@ class PublicationCoordinator:
                     info = os.stat(name, dir_fd=directory, follow_symlinks=False)
                     identity = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
                 except FileNotFoundError:
-                    report["blocked"].append("missing:" + name)
+                    if not missing_ok:
+                        report["blocked"].append("missing:" + name)
                     continue
                 except OSError:
                     report["blocked"].append("stat:" + name)

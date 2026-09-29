@@ -1,0 +1,40 @@
+{
+  "schema_id": "urn:neodyn:component-preparation:v1:preparation-recipe",
+  "schema_version": 1,
+  "recipe_id": "00000000-0000-4000-8000-00000000000b",
+  "source_topology": {
+    "schema_id": "urn:neodyn:molecular-topology:v1",
+    "topology_id": "00000000-0000-4000-8000-000000000004",
+    "revision_id": "00000000-0000-4000-8000-000000000005",
+    "content_sha256": "8f207840cbbea2bd1e0cab5a39965ccaea94302fcc17d5cdb47903dd477ccf86",
+    "size_bytes": 32,
+    "decoded_size_bytes": 64,
+    "encoding": "gzip"
+  },
+  "assignments": [
+    {
+      "instance_id": "00000000-0000-4000-8000-000000000003",
+      "instance_sha256": "2d7e25114eb8bb531697b7f21f67f40b725910e28dd92d566a50958c2924b4b1",
+      "state_id": "00000000-0000-4000-8000-000000000001",
+      "state_sha256": "b92fc3762cc686550195069896d2ff2b2890bb330e9152b9bcaebd3b04773531",
+      "package_id": "00000000-0000-4000-8000-000000000007",
+      "package_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "assembly": {
+    "box_policy": "generate_orthorhombic",
+    "padding_nm": 1,
+    "retained_water_policy": "retain_and_solvate",
+    "water_model": "tip3p",
+    "ionic_strength_mol_per_l": 0.1,
+    "neutralize": true,
+    "solvation_seed": 20260926,
+    "positive_ion": "Na+",
+    "negative_ion": "Cl-",
+    "constraints": "HBonds",
+    "hydrogen_mass_amu": 4,
+    "nonbonded_method": "pme",
+    "cutoff_nm": 1,
+    "switch_distance_nm": null
+  }
+}

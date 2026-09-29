@@ -38,9 +38,12 @@ def validator(name):
     schema = json.loads((contracts / "imd/v1/protocol.schema.json").read_text())
     registry = Registry()
     scientific_schemas = {}
-    for folder in ("scientific-protocol/v1", "prepared-bundle/v1", "prepared-bundle/v2",
+    for folder in ("scientific-protocol/v1", "scientific-protocol-template/v1",
+                   "prepared-bundle/v1", "prepared-bundle/v2",
                    "protein-preparation/v1", "protein-preparation/v2",
-                   "molecular-topology/v1", "trajectory-result/v1", "topology-view/v1"):
+                   "component-operations/v1",
+                   "molecular-topology/v1", "trajectory-result/v1", "topology-view/v1",
+                   "trajectory-comparison/v1"):
         for path in (contracts / folder).glob("*.schema.json"):
             scientific = json.loads(path.read_text())
             scientific_schemas[scientific["$id"]] = scientific
@@ -103,6 +106,50 @@ def validate(name, value):
             result["protocol_id"] != value["protocol_id"] or result["request_id"] != value["request_id"]
         ):
             problems.append(("/result", "protocol result differs from operation identity"))
+    if name in {
+        "urn:neodyn:component-operations:v1:operation#/$defs/ComponentRequest",
+        "urn:neodyn:component-operations:v1:operation",
+    } and not problems:
+        request = value if name.endswith("ComponentRequest") else value["request"]
+        seen = set()
+        for index, binding in enumerate(request["inputs"]):
+            logical_name = binding["name"]
+            if logical_name in seen:
+                prefix = "/request" if name.endswith(":operation") else ""
+                problems.append((f"{prefix}/inputs/{index}/name", "duplicate logical input name"))
+            if logical_name == "index.json" or logical_name.startswith("index.json/"):
+                prefix = "/request" if name.endswith(":operation") else ""
+                problems.append((f"{prefix}/inputs/{index}/name", "reserved logical input name"))
+            if any(logical_name.startswith(previous + "/") or
+                   previous.startswith(logical_name + "/") for previous in seen):
+                prefix = "/request" if name.endswith(":operation") else ""
+                problems.append((f"{prefix}/inputs/{index}/name", "logical input name collides with a directory"))
+            seen.add(logical_name)
+        if name.endswith(":operation") and (
+            value["request_id"] != request["request_id"] or value["kind"] != request["kind"]
+        ):
+            problems.append(("/request", "request identity differs from operation identity"))
+        if name.endswith(":operation"):
+            if value["request_sha256"] != content_hash(request):
+                problems.append(("/request_sha256", "request hash differs from canonical request"))
+            receipt = value["receipt"]
+            if receipt is not None and any(
+                receipt[key] != value[key] for key in ("operation_id", "request_id", "kind")
+            ):
+                problems.append(("/receipt", "receipt identity differs from operation identity"))
+            if receipt is not None:
+                bindings = receipt["input_bindings"]
+                if len(bindings) != len(request["inputs"]):
+                    problems.append(("/receipt/input_bindings", "input count differs from request"))
+                else:
+                    for index, (source, binding) in enumerate(zip(request["inputs"], bindings)):
+                        identity = ("name", "sha256", "size_bytes")
+                        references = ("upload_id",) if "upload_id" in source else ("operation_id", "artifact_id")
+                        if (any(source[key] != binding[key] for key in identity) or
+                                any(source[key] != binding["source"].get(key) for key in references) or
+                                binding["resolved_owner_scope"] != receipt["owner_scope"]):
+                            problems.append((f"/receipt/input_bindings/{index}",
+                                             "resolved input differs from request or owner"))
     if problems:
         raise ContractError(problems)
     return value

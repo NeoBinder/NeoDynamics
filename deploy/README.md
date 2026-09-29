@@ -1,5 +1,8 @@
 # NeoDynamics api-dev deployment
 
+For the first production deployment in `api`, use [the production guide](README-prod.md)
+and its separate manifests after the final api-dev image is qualified.
+
 These templates run one Linux resident service, with one ASGI worker and one
 owned PVC. They are for `api-dev` only. They do not deploy per-session Jobs or
 provide multi-replica routing. Image build and scientific smoke instructions are
@@ -7,9 +10,10 @@ in [docker/README.md](../docker/README.md).
 
 ## Templates and activation order
 
-- `runtime-config.yaml`: all 41 nonsecret required `NEOMD_SERVER_*` settings.
+- `runtime-config.yaml`: 41 required nonsecret `NEOMD_SERVER_*` settings plus
+  11 bounded reverse-publication settings matching the live api-dev service.
 - `migrate-api-dev.yaml`: explicit one-shot migration using separate credentials.
-- `app-dev.yaml`: 200 GiB RWO Longhorn PVC, single-replica `Recreate` Deployment,
+- `app-dev.yaml`: 300 GiB RWO Longhorn PVC, single-replica `Recreate` Deployment,
   and internal ClusterIP Service on port 8003. It requests one GPU through
   `runtimeClassName: nvidia`; device index `0` is the container-visible GPU.
 
@@ -23,7 +27,7 @@ The deployment operator performs database and cluster changes in this order:
 
 1. Verify the namespace, NVIDIA RuntimeClass/device plugin, one allocatable GPU,
    Longhorn storage and existing `harbor-robot-pull` registry Secret. The service
-   requests 4 CPU / 8 GiB RAM and limits 8 CPU / 16 GiB; GPU scheduling or RAM
+   requests 2 CPU / 4 GiB RAM and limits 8 CPU / 8 GiB; GPU scheduling or RAM
    availability may keep it Pending. Two session processes share the one GPU;
    two active slots do not guarantee any particular system fits in VRAM.
 2. Provision the separate `neodynamics` PostgreSQL database and the two roles
@@ -59,9 +63,10 @@ no host address or credential value belongs in these manifests.
 | `neodynamics-runtime-secret` | `NEOMD_SERVER_PG_DSN` | `neodynamics_runtime` role in the `neodynamics` database |
 | `neodynamics-runtime-secret` | `service-token` | Mounted as `/var/run/neodynamics-auth/service-token` |
 | `neodynamics-migration-secret` | `NEOMD_SERVER_PG_DSN` | `neodynamics_migrator` role, migration Job only |
+| `md-publication-auth` | `token` | Mounted as `/var/run/md-publication/token`; distinct reverse-publication credential shared with NeoAPI worker |
 
 The migrator owns the `neomd_service` schema and runs the packaged migrations
-(currently 001–012) through `neomd-server migrate`. It needs the corresponding
+(currently 001–015) through `neomd-server migrate`. It needs the corresponding
 schema-creation/DDL authority in this database only. The runtime role is not the
 database/schema owner and needs CONNECT, schema USAGE, table SELECT/INSERT/UPDATE/
 DELETE, and sequence USAGE/SELECT in `neomd_service`. The database operator must
@@ -79,8 +84,9 @@ from letters, digits and `._~-`, optionally followed by one newline.
 
 ## Explicit staging profile
 
-The ConfigMap and the DSN Secret together provide all 42 fields required by
-`RuntimeSettings.from_env`. These are resource/operational limits, **not changes
+The ConfigMap and the DSN Secret provide all 42 fields required by
+`RuntimeSettings.from_env`; the same ConfigMap also provides the 11 required
+`PublicationSettings` fields. These are resource/operational limits, **not changes
 to forcefields, integrators, timesteps, simulation methods or preparation rules**.
 Paused/preparing/finalizing time does not consume the running allowance; paused
 sessions still hold their active slot. Existing durable pool policy must agree
@@ -92,7 +98,7 @@ All variable suffixes below have the `NEOMD_SERVER_` prefix.
 | --- | --- |
 | `MAX_ACTIVE`, `MAX_QUEUED`, `MAX_RUNNING_SECONDS` | Approved 2 active, 2 queued, 3600 actual-running seconds/session |
 | `QUEUE_TTL_SECONDS` | 900 seconds: bounded test queue residence |
-| `CAPACITY_BYTES` | 171798691840 (160 GiB): below the 200 GiB PVC, leaving 40 GiB headroom |
+| `CAPACITY_BYTES` | 257698037760 (240 GiB): below the 300 GiB PVC, leaving 60 GiB headroom for the retained multi-phase batch |
 | `MAX_OUTPUT_BYTES` | 21474836480 (20 GiB) reserved per accepted session |
 | `MAX_UPLOAD_BYTES` | 268435456 (256 MiB) per prepared bundle |
 | `MAX_UPLOAD_PART_BYTES`, `MAX_UPLOAD_PARTS` | 67108864 (64 MiB) per part, at most 128 parts; total still capped at 256 MiB |
@@ -146,11 +152,12 @@ return a closed exit status without printing credentials. The probe reads the
 resident startup qualification; it does not run another simulation or certify
 large-system throughput, database transactions, upload or publication.
 
-The resident runtime includes an optional reverse-publication coordinator
-(`src/neomd_server/publication_runtime.py`) that activates only from explicit
-`NEOMD_SERVER_PUBLICATION_*` settings. These templates still add no publication
-env and claim no deployed publication capability: remote publication, real OSS
-receipts and receipt-guarded cleanup in a deployed rollout remain unqualified
-local-only evidence. See [service runtime](../docs/service-runtime.md),
+The resident runtime includes a reverse-publication coordinator
+(`src/neomd_server/publication_runtime.py`) activated by the explicit
+`NEOMD_SERVER_PUBLICATION_*` settings in this combined api-dev deployment.
+The publication token is mounted from the separate `md-publication-auth`
+Secret; the worker receives the matching credential and provider ID. Actual
+publication receipts and guarded local cleanup are part of the R01 live
+qualification record. See [service runtime](../docs/service-runtime.md),
 [private transport](../docs/private-transport.md), and
 [ledger ownership](../docs/service-ledger.md) for the current implementation.

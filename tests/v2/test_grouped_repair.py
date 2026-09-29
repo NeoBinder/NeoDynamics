@@ -104,7 +104,8 @@ def known_terminal_source(tmp_path, *, evidence="client_declared", gap=False):
     desc = copy.deepcopy(source.descriptor)
     sequence = desc["polymer_sequences"][0]
     sequence.update(evidence=evidence, residue_names=["ALA"] * (3 if gap else 2),
-                    residue_bindings=[{"sequence_index": i, "source_residue_id": row["source_residue_id"]}
+                    residue_bindings=[{"sequence_index": 2 if gap == "internal" and i == 1 else i,
+                                       "source_residue_id": row["source_residue_id"]}
                                       for i, row in enumerate(desc["residue_bindings"])])
     canonical = ({0: {"residue_names": sequence["residue_names"],
                       "residue_bindings": sequence["residue_bindings"]}}
@@ -143,6 +144,53 @@ def test_known_missing_sequence_stretch_blocks_even_with_explicit_terminal_claim
     with pytest.raises(PlanValidationErrors, match="gap|sequence|stretch"):
         group_and_repair_protein(source, platform="CPU", seed=123)
     assert source.source_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("evidence", ["client_declared", "canonical_file"])
+@pytest.mark.parametrize("gap,missing", [("internal", 1), ("terminal", 2)])
+@pytest.mark.parametrize("repair", ["grouped", "source_only"])
+def test_unpositioned_known_residue_fails_before_fixer(tmp_path, monkeypatch, evidence, gap, missing, repair):
+    from pdbfixer import PDBFixer
+
+    from neomd.grouped_repair import group_and_repair_protein
+    from neomd.preparation import inspect_protein, repair_standard_residues
+
+    source = known_terminal_source(tmp_path, evidence=evidence, gap=gap)
+    before = (source.source_path.read_bytes(), copy.deepcopy(source.descriptor),
+              source.positions_nm.tobytes())
+    assert inspect_protein(source)["findings"] == [
+        {"code": "detected_gap", "input_chain_index": 0, "sequence_indices": [missing]},
+    ]
+
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("missing-residue preparation reached PDBFixer")
+
+    monkeypatch.setattr(PDBFixer, "findMissingAtoms", must_not_run)
+    producer = group_and_repair_protein if repair == "grouped" else repair_standard_residues
+    with pytest.raises(PlanValidationErrors) as caught:
+        producer(source, platform="CPU", seed=123)
+    sequence_errors = [error for error in caught.value.errors if error.key == "repair.sequence"]
+    assert len(sequence_errors) == 1
+    assert f"[{missing}] have no residue coordinates" in sequence_errors[0].message
+    assert "model missing residues upstream" in sequence_errors[0].message
+    assert (source.source_path.read_bytes(), source.descriptor, source.positions_nm.tobytes()) == before
+
+
+@pytest.mark.parametrize("replacement", ["client_declared", "unknown"])
+def test_trusted_missing_residue_sequence_cannot_be_downgraded_to_observed_fragment(tmp_path, replacement):
+    original = known_terminal_source(tmp_path, evidence="canonical_file", gap="internal")
+    canonical = original.canonical_sequences
+    desc = copy.deepcopy(original.descriptor)
+    sequence = desc["polymer_sequences"][0]
+    sequence["evidence"] = replacement
+    sequence["residue_names"] = ["ALA", "ALA"] if replacement == "client_declared" else None
+    sequence["residue_bindings"] = (
+        [{"sequence_index": index, "source_residue_id": row["source_residue_id"]}
+         for index, row in enumerate(desc["residue_bindings"])]
+        if replacement == "client_declared" else []
+    )
+    with pytest.raises(PlanValidationErrors, match="trusted canonical sequence"):
+        load_protein_source(original.source_path, desc, canonical_sequences=canonical)
 
 
 @pytest.mark.parametrize("fault", ["missing_N", "missing_C", "unknown_heavy", "heavy_name_hydrogen"])

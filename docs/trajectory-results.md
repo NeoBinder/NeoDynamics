@@ -1,6 +1,7 @@
 # Sealed trajectory result evidence
 
-The resident service writes `result-manifest.json` after a completed or stopped
+The resident service writes `result-manifest.json` after a completed, stopped or
+scientifically failed
 owner-thread session closes its output writers. It registers the manifest as an
 ordinary local JSON artifact, using the existing worker lease and generation
 fences. This is local production evidence; it is not an OSS publication receipt,
@@ -74,9 +75,46 @@ inventory before observing the terminal state.
 not_written` and an empty list mean no DCD was actually produced, for example a
 minimization or a run stopped before its first reporting boundary. A present
 zero-frame DCD instead has `trajectory_state: written`. Neither label guesses
-whether reporting was disabled. Failed, lost or recovery-required attempts do
-not receive a completed-result claim. A finalization error preserves the existing
-recovery-required behavior and output reservation.
+whether reporting was disabled. An Eq scientific-step exception has
+`terminal_state: failed`, a typed failure code and sealed diagnostic artifacts.
+Its DCD is `unverified`, and it has no eligible final-state artifact. Lost or
+recovery-required attempts do not receive a completed-result claim. A
+finalization error preserves the existing recovery-required behavior and output
+reservation.
+
+Completed periodic Min and Eq results include `final_state`, one sealed
+`final-state.f64le` artifact. It contains the full System-ordered xyz coordinates
+followed by the live 3×3 periodic box, all little-endian float64 nanometers.
+The artifact has exactly `24 * particle_count + 72` bytes. The descriptor binds
+its SHA-256, particle count and ordered identity hash. A target Eq may use a
+completed Min final state; a target Prod may use a completed Eq final state.
+The target must use the same prepared System and supplies the exact eligible
+six-field continuation descriptor. Its fresh Context receives the sealed xyz
+and box, and velocities are reinitialized at the target protocol's temperature
+and seed. `phase-start.f64le` retains the exact sealed source state bytes.
+`phase-start.json` records the source hash, the fresh Context's observed state
+hash and velocity policy. CPU readback must be byte exact. The qualified CUDA
+single-precision Context may round each Cartesian position component by at most
+`1e-6 nm` (`1e-5 Å`); its box, step and full particle count must match exactly.
+The observed hash can therefore differ from the sealed input hash on CUDA.
+Each phase remains a separate session and result. No checkpoint or prior
+control state is carried across.
+After a reverse-publication receipt, the provider retains the exact sealed Min
+or Eq source files for 24 hours from receipt acceptance, with their output
+capacity reservation held until a guarded expiry sweep removes them. The
+continuation endpoint becomes unavailable at the deadline even if the sweep has
+not run. Other completed methods release their reservation after guarded local
+cleanup. Published downloads remain governed by the public artifact service.
+Admission and the public continuation lookup close early enough to leave the
+configured queue TTL, worker startup timeout and 60 seconds of scheduling slack
+before the 24-hour cleanup deadline. A request beyond that admission cutoff is
+rejected without creating a target session. Worker startup still rechecks source
+authority and bytes; an exceptional delay beyond those bounds cannot start
+science and is classified as recovery-required.
+The minimization QC box-escape check is a placement heuristic. A uniformly
+translated periodic system can fail it while retaining valid minimum-image
+distances and energy; review that diagnostic alongside clash and bonded-geometry
+checks before interpreting a failed soft QC verdict.
 
 A desktop importer verifies the manifest bytes against a trusted result artifact
 descriptor, its execution/protocol receipt, the prepared bundle, full particle
@@ -92,3 +130,6 @@ ledger qualification is `tests/server/test_result_runtime.py`. The latter uses
 the explicitly isolated PostgreSQL fixture, temporary storage and declared test
 budgets. It covers all nine qualified methods plus early stop and checkpoint
 separation; it does not qualify OSS, GPU deployment or recovery policy.
+`tests/server/test_phase_continuation.py` runs the bounded Min→Eq→Prod service
+chain with an explicit retained component bundle and capture, plus a failed Eq
+case using an injected scientific-step exception.

@@ -1,0 +1,7 @@
+{
+  "schema_id": "urn:neodyn:component-preparation:v1:diagnostic",
+  "schema_version": 1,
+  "code": "invalid_reference",
+  "path": "/bad~2escape",
+  "detail": "Referenced package identity differs."
+}

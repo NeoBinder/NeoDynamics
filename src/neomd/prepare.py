@@ -80,6 +80,148 @@ def load_complex(complex_path):
     return app.PDBxFile(complex_path)
 
 
+def _reject_missing_residue_positions(source_path):
+    """Stop when a source declares polymer residues without coordinates.
+
+    PDB SEQRES and PDBx entity/atom label sequence metadata are evidence of
+    omitted residues. Bare coordinate files have no such evidence; callers
+    must supply a coordinate-complete revision after external gap modeling.
+    """
+    path = Path(source_path)
+    if path.suffix.lower() == ".pdb":
+        declared, counts, observed = {}, {}, {}
+        with path.open() as stream:
+            for line in stream:
+                if line.startswith("SEQRES"):
+                    chain = line[11:12]
+                    declared.setdefault(chain, []).extend(line[19:70].split())
+                    try:
+                        counts[chain] = int(line[13:17])
+                    except ValueError as error:
+                        raise ConfigValueError(
+                            "invalid SEQRES residue count; cannot verify coordinate coverage",
+                            key="protein", source=str(path),
+                        ) from error
+                elif line.startswith(("ATOM  ", "HETATM")):
+                    chain = line[21:22]
+                    key = (line[22:26], line[26:27])
+                    observed.setdefault(chain, {}).setdefault(key, line[17:20].strip())
+        for chain, names in declared.items():
+            rows = [name for name in observed.get(chain, {}).values() if name in names]
+            if len(names) != counts[chain] or rows != names:
+                raise ConfigValueError(
+                    f"polymer chain {chain.strip() or '(blank)'} declares {len(names)} SEQRES "
+                    f"residues but has {len(rows)} matching coordinate residues; "
+                    "missing or mismatched residue positions require upstream modeling "
+                    "and a new coordinate-complete source before prepare_system",
+                    key="protein", source=str(path),
+                )
+        return
+    if path.suffix.lower() != ".pdbx":
+        return
+    try:
+        import gemmi
+    except ImportError as error:
+        raise ConfigValueError(
+            "PDBx polymer-sequence coverage requires gemmi; install the engine "
+            "environment before prepare_system", key="protein", source=str(path),
+        ) from error
+
+    def rows(block, category):
+        table = block.find_mmcif_category(category)
+        tags = [tag.split(".", 1)[1] for tag in table.tags]
+        return [dict(zip(tags, list(row), strict=True)) for row in table]
+
+    try:
+        block = gemmi.cif.read_file(str(path)).sole_block()
+        sequence_rows = rows(block, "_entity_poly_seq.")
+        if not sequence_rows:
+            return
+        declared = {}
+        for row in sequence_rows:
+            declared.setdefault(row["entity_id"], set()).add(int(row["num"]))
+        chain_entities = {row["id"]: row["entity_id"]
+                          for row in rows(block, "_struct_asym.")}
+        observed = {}
+        for row in rows(block, "_atom_site."):
+            chain = row["label_asym_id"]
+            entity = row.get("label_entity_id", chain_entities.get(chain))
+            if entity not in declared:
+                continue
+            chain_entities.setdefault(chain, entity)
+            if chain_entities[chain] != entity:
+                raise ValueError("polymer chain has inconsistent entity identity")
+            label = row.get("label_seq_id")
+            if label in (None, ".", "?"):
+                raise ValueError(f"polymer chain {chain} has no label sequence mapping")
+            observed.setdefault(chain, set()).add(int(label))
+        if not any(entity in declared for entity in chain_entities.values()):
+            raise ValueError("declared polymer entities have no mapped chain")
+        for chain, entity in chain_entities.items():
+            if entity not in declared:
+                continue
+            missing = sorted(declared[entity] - observed.get(chain, set()))
+            extra = sorted(observed.get(chain, set()) - declared[entity])
+            if extra:
+                raise ConfigValueError(
+                    f"polymer chain {chain} has coordinate labels outside its declared "
+                    f"sequence: {extra[:12]}; supply a consistent source before prepare_system",
+                    key="protein", source=str(path),
+                )
+            if missing:
+                preview = ", ".join(map(str, missing[:12]))
+                if len(missing) > 12:
+                    preview += ", ..."
+                raise ConfigValueError(
+                    f"polymer chain {chain} has {len(missing)} declared residues without "
+                    f"coordinate positions (sequence positions: {preview}); "
+                    "model missing residues upstream and submit a new coordinate-complete "
+                    "source before prepare_system",
+                    key="protein", source=str(path),
+                )
+    except (KeyError, TypeError, ValueError, RuntimeError) as error:
+        raise ConfigValueError(
+            f"cannot verify PDBx polymer sequence and coordinate mapping: {error}",
+            key="protein", source=str(path),
+        ) from error
+
+
+def _reject_unqualified_residue_links(topology, source_path):
+    """Reject attached residue groups that this builder cannot parameterize jointly."""
+    from .preparation import STANDARD_RESIDUES
+
+    peptide_residues = STANDARD_RESIDUES | {"SEP", "ACE", "NME"}
+    for left, right in topology.bonds():
+        first, second = left.residue, right.residue
+        if first is second:
+            continue
+        peptide_link = (
+            first.chain is second.chain
+            and abs(first.index - second.index) == 1
+            and first.name in peptide_residues
+            and second.name in peptide_residues
+            and {left.name, right.name} == {"C", "N"}
+        )
+        disulfide_link = (
+            first.name in {"CYS", "CYX"}
+            and second.name in {"CYS", "CYX"}
+            and left.name == right.name == "SG"
+        )
+        if peptide_link or disulfide_link:
+            continue
+        endpoints = (
+            f"{first.name} {first.chain.id}:{first.id}:{left.name}",
+            f"{second.name} {second.chain.id}:{second.id}:{right.name}",
+        )
+        raise ConfigValueError(
+            "covalently attached residues " + " -- ".join(endpoints)
+            + " require a qualified joint parameter template; "
+            "prepare_system cannot prepare this source graph",
+            key="protein",
+            source=str(source_path),
+        )
+
+
 def sys_params_from_config(sys_config):
     """createSystem kwargs from the ``system_params`` config (defaults are
     physics: constraints HBonds, nonbonded PME, cutoff 1.0 nm, rigid water,
@@ -395,7 +537,9 @@ def _make_system(
     # if system without protein, no box_vectors/modeller got, then get them
     # from ligands
     if protein_config:
+        _reject_missing_residue_positions(protein_config["path"])
         protein = load_complex(protein_config["path"])
+        _reject_unqualified_residue_links(protein.topology, protein_config["path"])
         if lineage is not None:
             if (lineage.descriptors.get("protein", {}).get("kind") == "canonical_structure"
                     and protein.getNumFrames() != 1):
@@ -410,6 +554,7 @@ def _make_system(
             custom_bonds(
                 protein.topology, protein.positions, protein_config["custom_res_bonds"]
             )
+            _reject_unqualified_residue_links(protein.topology, protein_config["path"])
         modeller = app.Modeller(protein.topology, protein.positions)
     if ligands_config:
         ligands = _ligands_from_config(ligands_config)
@@ -868,7 +1013,9 @@ def export_system_bundle(bundle, directory, *, sources=None, topology_particle_i
     return replace(bundle, prepared_manifest=manifest)
 
 
-def verify_prepared_system(manifest_path, *, expected_sha256=None, profile=None):
+def verify_prepared_system(manifest_path, *, expected_sha256=None, profile=None,
+                           trusted_topology_file=None, expected_system_constraints=None,
+                           expected_force_types=None):
     """Verify actual System/topology correspondence after bundle byte validation.
 
     For untrusted intake the caller MUST approve the XML force/type vocabulary
@@ -896,13 +1043,19 @@ def verify_prepared_system(manifest_path, *, expected_sha256=None, profile=None)
     manifest = read_prepared_bundle(manifest_path, expected_sha256=expected_sha256)
     root = Path(manifest_path).resolve().parent
     names = [name for name in manifest["artifacts"] if name in {"topology.pdb", "topology.pdbx"}]
-    if len(names) != 1 or "system.xml" not in manifest["artifacts"]:
+    if (len(names) != (0 if trusted_topology_file is not None else 1)
+            or trusted_topology_file is not None
+            and (profile is not None or manifest["schema_version"] != 2)
+            or trusted_topology_file is not None
+            and (type(expected_system_constraints) is not int
+                 or not isinstance(expected_force_types, list))
+            or "system.xml" not in manifest["artifacts"]):
         _raise([_error("artifacts", "exactly one topology and a System XML are required")])
     _, _, unit, serializer = _openmm()
     errors = []
     try:
         system = serializer.deserialize((root / "system.xml").read_text())
-        structure = load_complex(str(root / names[0]))
+        structure = load_complex(str(trusted_topology_file or root / names[0]))
     except Exception as error:
         raise ValueError("prepared System or topology cannot be loaded") from error
     if system.getNumParticles() != manifest["particle_count"]:
@@ -926,7 +1079,7 @@ def verify_prepared_system(manifest_path, *, expected_sha256=None, profile=None)
     if not np.allclose(evaluated, coords, rtol=0, atol=1e-12):
         errors.append(_error("coordinates", "virtual-site positions disagree with the actual System"))
     loaded_coords = np.asarray(structure.positions.value_in_unit(unit.nanometer), dtype=np.float64)
-    tolerance = 0.000051 if names[0].endswith(".pdb") else 0.0000051
+    tolerance = 0.000051 if names and names[0].endswith(".pdb") else 0.0000051
     if not np.allclose(loaded_coords, coords[mapping], rtol=0, atol=tolerance):
         errors.append(_error("topology_particle_indices", "topology coordinates do not match declared System rows within writer precision"))
     residues = {row["residue_id"]: row for row in manifest["residues"]}
@@ -948,9 +1101,13 @@ def verify_prepared_system(manifest_path, *, expected_sha256=None, profile=None)
     if actual_bonds != declared_bonds:
         errors.append(_error("bonds", "topology bond endpoints differ from manifest"))
     parameters = manifest["parameters"]
-    if system.getNumConstraints() != parameters["system_constraints"]:
+    constraints = (expected_system_constraints if trusted_topology_file is not None
+                   else parameters["system_constraints"])
+    force_types = (expected_force_types if trusted_topology_file is not None
+                   else parameters["force_types"])
+    if system.getNumConstraints() != constraints:
         errors.append(_error("parameters.system_constraints", "actual constraint count differs from manifest"))
-    if [type(force).__name__ for force in system.getForces()] != parameters["force_types"]:
+    if [type(force).__name__ for force in system.getForces()] != force_types:
         errors.append(_error("parameters.force_types", "actual force inventory differs from manifest"))
     box = manifest["box_vectors_nm"]
     actual_box = [list(v.value_in_unit(unit.nanometer)) for v in system.getDefaultPeriodicBoxVectors()]

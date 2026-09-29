@@ -17,6 +17,7 @@ from pathlib import Path
 from neomd.rbfe import window_dirname
 from neomd.sinks import DCD_HEADER_SIZE, dcd_frame_size, dcd_last_step, read_dcd_header
 
+from .continuation import FINAL_STATE_FILENAME, read_sealed_final_state
 from .contract import ContractError, canonical_bytes, content_hash, validate
 from .protocols import particle_identity_hash
 
@@ -83,7 +84,7 @@ def _header(output, count):
 
 
 def write_result_manifest(*, sink, outputs, prepared_manifest, prepared, protocol,
-                          descriptor, execution, terminal, producer):
+                          descriptor, execution, terminal, producer, input_continuation=None):
     """Write a versioned local manifest after the owner closes all writers.
 
     Only completed/stopped attempts are eligible. Artifact IDs identify immutable
@@ -96,8 +97,9 @@ def write_result_manifest(*, sink, outputs, prepared_manifest, prepared, protoco
         validate("PreparedBinding", prepared)
     except ContractError as error:
         problems.extend(error.problems)
-    if terminal.get("state") not in {"completed", "stopped"}:
-        problems.append(("/execution/terminal_state", "only sealed completed/stopped output is eligible"))
+    failed = terminal.get("state") == "failed"
+    if terminal.get("state") not in {"completed", "stopped", "failed"}:
+        problems.append(("/execution/terminal_state", "only sealed completed/stopped/failed output is eligible"))
     if (prepared.get("prepared_revision_id") != prepared_manifest.get("prepared_revision_id")
             or prepared.get("mapping_sha256") != prepared_manifest.get("artifacts", {}).get("mapping.json", {}).get("sha256")
             or descriptor.get("prepared_revision_id") != prepared.get("prepared_revision_id")):
@@ -108,10 +110,51 @@ def write_result_manifest(*, sink, outputs, prepared_manifest, prepared, protoco
     if terminal.get("method") != method:
         problems.append(("/execution/method", "terminal method differs from registered protocol"))
     trajectories, seen_ids, seen_series = [], set(), set()
+    final_state = None
+    diagnostics = []
     windows = descriptor.get("rbfe", {}).get("windows", [])
     names = ({f"{window_dirname(i, len(windows))}/output.dcd": i for i in range(len(windows))}
              if method == "rbfe" else {"output.dcd": None})
     for output in outputs:
+        if failed:
+            try:
+                validate("ArtifactDescriptor", output.descriptor)
+                name = output.path.relative_to(sink.root).as_posix()
+                if (artifact_stat(output.path.lstat()) != output.stat
+                        or any(output.descriptor[key] != execution[key]
+                               for key in ("session_id", "attempt_id", "generation"))
+                        or output.descriptor["artifact_id"] in seen_ids):
+                    raise ValueError("failed output descriptor mismatch")
+                seen_ids.add(output.descriptor["artifact_id"])
+                diagnostics.append({
+                    "name": name,
+                    **{key: output.descriptor[key] for key in (
+                        "artifact_id", "content_sha256", "size_bytes", "kind")},
+                })
+            except (ContractError, ValueError, KeyError, OSError):
+                problems.append((f"/diagnostic_artifacts/{len(diagnostics)}", "sealed diagnostic artifact is invalid"))
+            continue
+        if output.path.name == FINAL_STATE_FILENAME:
+            try:
+                validate("ArtifactDescriptor", output.descriptor)
+                if (output.path.relative_to(sink.root).as_posix() != FINAL_STATE_FILENAME
+                        or final_state is not None
+                        or any(output.descriptor[key] != execution[key]
+                               for key in ("session_id", "attempt_id", "generation"))):
+                    raise ValueError("final state binding mismatch")
+                read_sealed_final_state(output.path,
+                                        expected_sha256=output.descriptor["content_sha256"],
+                                        particle_count=prepared_manifest["particle_count"])
+                final_state = {
+                    **{key: output.descriptor[key] for key in (
+                        "artifact_id", "content_sha256", "size_bytes")},
+                    "encoding": "f64le_positions_box_v1", "unit": "nm",
+                    "particle_count": prepared_manifest["particle_count"],
+                    "particle_identity_sha256": particle_identity_hash(prepared_manifest),
+                }
+            except (ContractError, ValueError, KeyError, OSError):
+                problems.append(("/final_state", "sealed full-particle final state is invalid"))
+            continue
         if output.descriptor.get("kind") != "trajectory":
             continue
         path = f"/trajectories/{len(trajectories)}"
@@ -158,9 +201,25 @@ def write_result_manifest(*, sink, outputs, prepared_manifest, prepared, protoco
         "particles": {"count": prepared_manifest["particle_count"],
                       "order": "system_particle_index",
                       "identity_sha256": particle_identity_hash(prepared_manifest)},
-        "trajectory_state": "written" if trajectories else "not_written",
+        "trajectory_state": "unverified" if failed else "written" if trajectories else "not_written",
         "trajectories": sorted(trajectories, key=lambda entry: entry["series"].get("window_index", 0)),
     }
+    if input_continuation is not None:
+        validate("ContinuationDescriptor", input_continuation)
+        result["input_continuation"] = input_continuation
+    if failed:
+        exception_type = terminal.get("failure")
+        if (not isinstance(exception_type, str) or not exception_type.isascii()
+                or not exception_type.replace("_", "a").isalnum()
+                or not exception_type[0].isalpha() or len(exception_type) > 128):
+            problems.append(("/failure/exception_type", "scientific failure type is invalid"))
+        else:
+            result["failure"] = {"code": "scientific_step_failed", "exception_type": exception_type}
+        result["diagnostic_artifacts"] = diagnostics
+    elif final_state is not None:
+        result["final_state"] = final_state
+    elif terminal.get("state") == "completed" and method in {"min", "eq"} and prepared_manifest["box_vectors_nm"] is not None:
+        problems.append(("/final_state", "completed periodic phase requires sealed final state"))
     try:
         validate(RESULT_SCHEMA, result)
     except ContractError as error:

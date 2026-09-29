@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:neodyn:component-operations:v1:catalog",
+  "title": "Component operation method availability and bounds",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "methods",
+    "limits"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "methods": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "$ref": "#/$defs/Method"
+      }
+    },
+    "limits": {
+      "$ref": "#/$defs/Limits"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "Method": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "method_id",
+        "availability"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "component_review",
+            "component_generate",
+            "component_import",
+            "component_assemble"
+          ]
+        },
+        "method_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$"
+        },
+        "availability": {
+          "enum": [
+            "available",
+            "unavailable"
+          ]
+        },
+        "qualification_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"availability": {"const": "available"}}, "required": ["availability"]},
+          "then": {"required": ["qualification_sha256", "scope"]}
+        },
+        {
+          "if": {"properties": {"availability": {"const": "unavailable"}}, "required": ["availability"]},
+          "then": {"not": {"anyOf": [{"required": ["qualification_sha256"]}, {"required": ["scope"]}]}}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "component_assemble"},
+                               "availability": {"const": "available"}},
+                 "required": ["kind", "availability"]},
+          "then": {"properties": {"scope": {"required": ["profiles"]}}}
+        }
+      ]
+    },
+    "Scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["chemistry_scope", "states", "platform", "resource_sha256", "receipt_sha256"],
+      "properties": {
+        "chemistry_scope": {"type": "string", "minLength": 1, "maxLength": 256},
+        "states": {
+          "type": "array", "minItems": 1, "maxItems": 8,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["state_sha256", "formal_charge"],
+            "properties": {
+              "state_sha256": {"$ref": "#/$defs/sha256"},
+              "formal_charge": {"type": "integer", "minimum": -128, "maximum": 128}
+            }
+          }
+        },
+        "platform": {"const": "CPU"},
+        "resource_sha256": {"$ref": "#/$defs/sha256"},
+        "receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "profiles": {
+          "type": "array", "minItems": 1, "maxItems": 8,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["source_sha256", "state_sha256s", "package_methods", "resource_sha256", "receipt_sha256"],
+            "properties": {
+              "source_sha256": {"$ref": "#/$defs/sha256"},
+              "state_sha256s": {
+                "type": "array", "minItems": 1, "maxItems": 8,
+                "items": {"$ref": "#/$defs/sha256"}
+              },
+              "package_methods": {
+                "type": "array", "minItems": 1, "maxItems": 8,
+                "items": {
+                  "type": "object", "additionalProperties": false,
+                  "required": ["method_id", "resource_sha256"],
+                  "properties": {
+                    "method_id": {"type": "string", "minLength": 1, "maxLength": 64},
+                    "resource_sha256": {"$ref": "#/$defs/sha256"}
+                  }
+                }
+              },
+              "resource_sha256": {"$ref": "#/$defs/sha256"},
+              "receipt_sha256": {"$ref": "#/$defs/sha256"}
+            }
+          }
+        }
+      }
+    },
+    "Limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_input_count",
+        "max_blob_bytes",
+        "max_result_bytes"
+      ],
+      "properties": {
+        "max_input_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "max_blob_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 67108864
+        },
+        "max_result_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "size": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 67108864
+    }
+  }
+}
