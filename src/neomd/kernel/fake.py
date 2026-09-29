@@ -359,6 +359,28 @@ class FakeKernel:
         """The synthetic system's fixed box ((3, 3) nm rows, None = vacuum)."""
         return None if self._box is None else self._box.copy()
 
+    # ------------------------------------------------------------------
+    # leg boundaries (port.LegOps, ADR-0011)
+    # ------------------------------------------------------------------
+
+    def start_leg(self, index: int) -> None:
+        """Zero the step axis (and reseed for ``index > 0``).
+
+        Leg 0 is the stream the kernel was constructed with — the same
+        ``RandomState(spec.seed)`` that seeded the Maxwell-Boltzmann
+        velocities — so only the clock resets.  Later legs reseed the noise
+        stream to ``spec.seed + index`` while keeping positions and
+        velocities, which is this adapter's analogue of OpenMM's fresh
+        Context.  The most recent boost readings belong to the leg that just
+        ended; they are dropped as in :meth:`permute_ligands`.
+        """
+        if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+            raise ValueError("leg index must be a non-negative integer")
+        if index:
+            self._rng = np.random.RandomState(self.spec.seed + index)
+            self._boost_last = {}
+        self._step = 0
+
     def energy_forces(self) -> EnergyReport:
         """Bias potential (kJ/mol, sum of installed bias energies) + ZERO
         forces (bias forces are not propagated into the dynamics); kinetic
@@ -489,7 +511,7 @@ class FakeKernel:
             rows.append(dict(label=choice.label, groups=[group], matched=0,
                              assigned=0, claimed=0, force_types={}))
         return dict(particles=[dict(particle_index=i, mass_dalton=float(m), virtual_site=False, topology_atom_index=None) for i, m in enumerate(self._masses)], bonds=[],
-                    semantics='ordered-any-atom-first-defined-wins', channels=rows,
+                    semantics='ordered-boundary-aware-first-defined-wins', channels=rows,
                     residual=dict(groups=[], assigned=0), component_count=0,
                     excluded_restraint_groups=sorted(g for g, _ in self._biases),
                     adapter='fake: no physical force-field interactions')

@@ -5,7 +5,8 @@ plus optional capability protocols (`BiasOps`, `BiasParamOps`,
 `GroupEnergy`, `StructureWriter`, `MoleculeGroups` — topology-bond
 connectivity for `output.wrap_coordinates`, via the openmm-free `wrap.py`;
 `BoostOps` — GaMD-style energy-dependent force scaling, ADR-0005, with the
-duck-typed dual-boost companion `torsion_force_groups()`) negotiated via
+duck-typed dual-boost companion `torsion_force_groups()`; `LegOps` —
+`start_leg(index)` for GaMD's per-stage legs, ADR-0011) negotiated via
 `provides()`. Three adapters: `openmm` (production, the only core file
 importing openmm), `fake` (deterministic textbook Langevin, the CI
 workhorse), `replay` (golden-tape playback; must be imported before

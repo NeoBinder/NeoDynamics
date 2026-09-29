@@ -18,12 +18,12 @@ key path and a did-you-mean suggestion.
 | Key | Required | Type | Meaning |
 |---|---|---|---|
 | `alchemical` | no | mapping | RBFE λ-window state (method `rbfe`, ADR-0003/0007): `lambda_values` (this window's λ, {param: value in [0,1]}), `ladder` (every window's λ — the du.tsv column vocabulary) and the fake-kernel `mock_bias`. |
-| `barostat` | no | mapping | Barostat settings (e.g. `frequency` in steps, `pressure`); the plan seed is injected as `seed` at kernel-spec build time. Absent means no added barostat. `managed: true` opts into complete isotropic proposal-state checkpoints (default false outside GaMD). GaMD automatically uses managed proposals; other methods retain native OpenMM trajectories unless opted in. |
+| `barostat` | no | mapping | Barostat settings (e.g. `frequency` in steps, `pressure`); the plan seed is injected as `seed` at kernel-spec build time. Absent means no added barostat. `managed: true` opts into complete isotropic proposal-state checkpoints (default false for every method, GaMD included); without it the run keeps OpenMM's native proposals, whose adaptive width and counters are not checkpointed, so a mid-leg resume is statistically equivalent rather than bit-exact. |
 | `colvars` | no | mapping name -> spec | Collective variables for metadynamics (1-3 CVs); each spec needs `type` plus the CV vocabulary's keys (see the CV table below). |
 | `continue_md` | no | bool | Resume the run from its checkpoint: the single resume owner restores the kernel and trims every tape to the checkpoint step. Derived default: false. |
 | `debug` | no | bool or mapping | Debug switches. |
 | `forcefield` | no | mapping | Forcefield settings (dead/unreachable in v1; a real whitelisted key in v2). |
-| `gamd` | no | mapping | GaMD boost parameters (method `gamd`, ADR-0005): `mode` (total\|dual\|channels), `sigma0`, calibration pre-run knobs (`calibration_steps`, `calibration_interval`), `frequency`; explicit `channels: [{label, groups}]` for LiGaMD-style setups. |
+| `gamd` | no | mapping | GaMD boost parameters (method `gamd`, ADR-0005/0010): `mode` (total\|dual\|channels), `sigma0` (boost strength; absent = 6 kcal/mol, a written number is in `energy_unit`, default kJ/mol), staged-protocol knobs and its output namespace `output.gamd` (tape switch, cadences), optional `restart_from` / `calibration_input` for continues; explicit `channels: [{label, groups}]` for LiGaMD-style setups. Stage lengths live in the per-stage `steps` mapping. |
 | `input_files` | yes | mapping | Input paths for the run (see the `input_files` table below). |
 | `integrator` | no | mapping | Langevin integrator settings. `dt` (picoseconds, > 0) is required; `friction_coeff` defaults to 1.0 at kernel-spec build time. |
 | `meta_set` | no | mapping | Method settings carried inside one whitelisted mapping — also the documented ride-along for plugin settings. Metadynamics reads `biasFactor` (> 1.0), `height` (kJ/mol) and `frequency` (steps between hills) from it. |
@@ -56,14 +56,15 @@ key path and a did-you-mean suggestion.
 
 | Key | Meaning |
 |---|---|
-| `checkpoint_interval` | Steps between `output.ckpt` writes; 0 = off. |
+| `checkpoint_interval` | Steps between `output.ckpt` writes; 0 = off. A staged method (gamd) also writes `<stage>.ckpt` at the same cadence. |
 | `output_dir` | Required: the run's output directory (non-empty string). |
+| `progress_interval` | Steps between console progress records — the `已运行 / 阶段 / 已完成 / 速率 / 预计结束` line (default 5000). It covers the preparation legs of a staged method and the production loop; the percent/rate/ETA are always the CURRENT stage's. |
 | `report_interval` | Steps between energy-log rows (`output.state`). |
 | `report_restraint` | bool — switch for the `restraint.tsv` tape. |
 | `report_smd` | bool — switch for the `smd.tsv` tape (default on). |
 | `restraint_interval` | Steps between `restraint.tsv` rows. Derived view: mirrors `report_interval` when a `restraint` section exists and `report_restraint` is true, else 0. |
-| `state_interval` | Steps between `output.state` flushes; 0 = off. |
-| `trajectory_interval` | Steps between `output.dcd` frames; 0 = off. |
+| `state_interval` | Steps between `output.state` flushes; 0 = off. A staged method (gamd) writes one `<stage>.state` per stage instead. |
+| `trajectory_interval` | Steps between `output.dcd` frames; 0 = off. A staged method (gamd) writes one `<stage>.dcd` per stage instead. |
 | `wrap_coordinates` | bool — wrap coordinate artifacts (`output.dcd` frames, `last.pdbx`) into the periodic box, whole molecule by whole molecule (default true; set false for raw / unwrapped). `neomd run --wrap/--unwrap` overrides. |
 
 ### `integrator` keys
@@ -89,20 +90,21 @@ sampling methods register through the extension rack (`neomd.methods`).
 
 | Key | Required | Description | Default |
 |---|---|---|---|
-| `gamd` | yes | mapping: mode (total \| dual), sigma0 (kJ/mol, default 6.0), calibration_steps, calibration_interval, frequency (gamd.tsv cadence), channels (optional explicit [{label, groups}] — LiGaMD group definitions) | — |
-| `steps` | yes | int, the FINAL step of the whole run — the calibration pre-run advances the same counter (plan-level key) | — |
+| `gamd` | yes | mapping: mode (total \| dual), sigma0 (boost strength; absent = 6 kcal/mol = 25.104 kJ/mol, a written number is in energy_unit, default kJ/mol), channels (optional explicit [{label, groups}] — LiGaMD group definitions), calibration_input (optional external energy tape / gamd_calibration.json), restart_from (optional continue stage rerun); the sampling and recording cadences live in output.gamd | — |
+| `steps` | yes | per-stage mapping {unbiased_eq, unbiased_production, biased_eq, biased_eq2, production} — each value is that stage's own step requirement and the length of its leg (method 'gamd' only; ADR-0010 + ADR-0011); biased_eq2 defaults to 0 and may be omitted | — |
 | `temperature` | yes | number, kelvin (plan-level key) | — |
-| `continue_md` | no | bool; restore output.ckpt, trim gamd.tsv and push the saved gamd_calibration.json parameters (the calibration pre-run never re-runs) | None |
-| `gamd.adaptation_interval` | no | positive adaptation sampling interval; defaults to calibration_interval | None |
-| `gamd.boost_preparation_steps` | no | nonnegative fixed initial-boost preparation steps (default 0) | None |
-| `gamd.boosts` | no | ordered [{label, selectors:[{atom_indices,force_types}], sigma0?, threshold_policy?, energy_unit?}] with optional final {label,remaining:true}; zero-based any-atom match, first-defined owns each term; restraints excluded | None |
+| `continue_md` | no | bool; restore output.ckpt (or input_files.checkpoint), trim tapes, and continue — mid-stage resume in a gamd directory, adopt from a foreign checkpoint, or with gamd.restart_from a boundary rerun | None |
+| `gamd.boosts` | no | ordered [{label, selectors:[{atom_indices,force_types,include_boundary?}], sigma0?, threshold_policy?, energy_unit?}] with optional final {label,remaining:true}; force_types takes bond/angle/dihedral/nonbonded or the scalar 'all'; include_boundary is true/false per selected force type (bond/angle/dihedral default false, nonbonded default true) and controls whether crossing terms join the boost; a named type force_types does not select is an error; first-defined owns each term; restraints excluded | None |
+| `gamd.calibration_input` | no | optional path to an energy-sample tape (gamd.tsv / state.tsv — the latter feeds only the total channel) or a gamd_calibration.json whose (threshold, k) are adopted verbatim; the file's sha256 is recorded as provenance and the internal statistics stage never recomputes parameters | None |
 | `gamd.channels` | no | legacy explicit channel definitions [{label, groups}] over force-group ids (LiGaMD: point at the ligand dihedral / ligand-nonbonded groups of a system that separates them into their own force groups) | None |
 | `gamd.energy_unit` | no | kJ/mol (default) or kcal/mol; kcal/mol is explicitly multiplied by 4.184 | None |
-| `gamd.equilibration_steps` | no | nonnegative adaptive boosted equilibration steps (default 0); production freezes parameters | None |
 | `gamd.exchange` | no | experimental deterministic ligand relabel: copies, reference_atoms, interval? (default 1), designated_slot?, ligand_reference_atoms? (copy offsets), cutoff_nm?, periodic?; with cutoff retain designated copy at distance <= cutoff; only when designated is outside swap the nearest other copy at distance <= cutoff; without cutoff choose nearest of all slots; no energy or Metropolis acceptance gate; not a qualified equilibrium PMF sampler | None |
-| `gamd.preparation_steps` | no | nonnegative conventional-MD preparation steps (default 0) | None |
+| `gamd.restart_from` | no | optional stage name; with continue_md, rerun from the previous stage's boundary checkpoint (ckpt/<stage>.ckpt) instead of resuming mid-stage; parameters are pinned to the boundary calibration unless calibration_input is given | None |
 | `gamd.threshold_policy` | no | upper (default, lower fallback) or lower, independently overridable per boost | None |
-| `output.report_gamd` | no | bool, default true — the gamd.tsv boost trace switch (driver._TAPE_SWITCHES) | None |
+| `output.gamd` | no | mapping: report (bool, default true — the gamd.tsv boost-trace switch the driver owns), sample_interval (equilibration V(P) statistics cadence, default 1000), trace_interval (production tape cadence, default 5000) | None |
+| `output.gamd.report` | no | boolean, default true: write the production.tsv boost trace (the CE2 analysis input) | None |
+| `output.gamd.sample_interval` | no | steps between the equilibration legs' V(P) statistics samples that calibrate the next boost stage (default 1000); the stage lengths must span at least a few samples | None |
+| `output.gamd.trace_interval` | no | steps between production.tsv boost rows (default 5000); rows a saved frame does not match add bytes, not information, so this is the fallback cadence when no finer frame source exists | None |
 
 ### `method: metadynamics`
 

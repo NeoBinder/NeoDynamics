@@ -52,8 +52,13 @@ class LigandExchange:
     contradicts that ordering rather than guessed to be applied or not.
     """
 
-    def __init__(self, kernel, settings, sink=None, *, resumed=False):
+    def __init__(self, kernel, settings, sink=None, *, resumed=False, clock=None):
         self.kernel, self.sink = kernel, sink
+        #: journal clock: maps a leg-relative integration step onto the
+        #: monotone axis the event ledger is ordered by.  GaMD runs LEGS whose
+        #: step axes restart at 0 (ADR-0011), so the default identity would
+        #: make event order non-monotone; gamd passes its virtual clock.
+        self.clock = (lambda step: int(step)) if clock is None else clock
         self.settings = dict(settings)
         allowed = {"copies", "designated_slot", "reference_atoms", "ligand_reference_atoms",
                    "interval", "cutoff_nm", "periodic"}
@@ -88,10 +93,10 @@ class LigandExchange:
             if saved.get("schema_version") != 2 or saved["fingerprint"] != self.fingerprint:
                 raise ValueError("ligand exchange configuration changed since checkpoint")
             pending = saved.get("pending")
-            if pending is not None and pending["step"] <= kernel.current_step:
+            if pending is not None and pending["step"] <= self.clock(kernel.current_step):
                 raise ValueError("checkpoint intersects an incomplete ligand exchange transaction")
             from neomd.resume import trim_exchange_events
-            trim_exchange_events(sink, kernel.current_step)
+            trim_exchange_events(sink, self.clock(kernel.current_step))
             for event in self.events:
                 permutation = event["permutation"]
                 if (not event.get("changed") or sorted(permutation) != list(range(len(self.copies)))
@@ -103,12 +108,12 @@ class LigandExchange:
                 self.event_count += 1
                 self.last_event_step = event["step"]
             saved_last = saved.get("last_event_step")
-            if saved_last is None or saved_last <= kernel.current_step:
+            if saved_last is None or saved_last <= self.clock(kernel.current_step):
                 if (saved.get("event_count") != self.event_count
                         or saved_last != self.last_event_step
                         or saved.get("slot_to_identity") != self.slot_to_identity):
                     raise ValueError("ligand exchange journal is missing committed history")
-            self._last_checked_step = kernel.current_step
+            self._last_checked_step = self.clock(kernel.current_step)
         elif sink is not None:
             sink.write_bytes(EVENTS_FILENAME, b"")
         self.persist()
@@ -163,7 +168,8 @@ class LigandExchange:
     def on_step(self, step, view=None):
         if step != self.kernel.current_step or step % self.interval:
             raise ValueError("exchange hook must run on the current configured step boundary")
-        if step <= self._last_checked_step:
+        journal_step = self.clock(step)
+        if journal_step <= self._last_checked_step:
             return
         box = self.kernel.box_vectors() if self.periodic else None
         if self.periodic and box is None:
@@ -185,12 +191,12 @@ class LigandExchange:
         if eligible:
             permutation[self.slot], permutation[winner] = permutation[winner], permutation[self.slot]
         identities = [self.slot_to_identity[i] for i in permutation]
-        event = {"step": int(step), "selected_slot": winner, "distances_nm": distances,
+        event = {"step": int(journal_step), "selected_slot": winner, "distances_nm": distances,
                  "permutation": permutation, "slot_to_identity": identities,
                  "changed": permutation != list(range(len(self.copies)))}
         self.last_check = event
         if not event["changed"]:
-            self._last_checked_step = step
+            self._last_checked_step = journal_step
             return
         self.pending = event
         self.persist()  # intent precedes mutation; no checkpoint may be emitted inside this hook
@@ -199,7 +205,7 @@ class LigandExchange:
             self.sink.append_bytes(EVENTS_FILENAME, json.dumps(event, separators=(",", ":")).encode() + b"\n")
         self.slot_to_identity = identities
         self.event_count += 1
-        self.last_event_step = step
-        self._last_checked_step = step
+        self.last_event_step = journal_step
+        self._last_checked_step = journal_step
         self.pending = None
         self.persist()  # completion precedes every reporter and checkpoint at this step

@@ -83,7 +83,9 @@ def test_openmm_metadata_direct_and_lazy_resume_preserve_native_state(tmp_path, 
 
     _, _, spec = fixture(tmp_path, periodic=npt)
     if npt:
-        spec = replace(spec, barostat={"frequency": 3, "seed": 419})
+        # Explicit opt-in: only adapter-owned proposal state can be resumed
+        # bit-exactly mid-leg (ADR-0009); native NPT state is not checkpointed.
+        spec = replace(spec, barostat={"frequency": 3, "seed": 419, "managed": True})
 
     def build(settings):
         kernel = OpenMMKernel(settings)
@@ -92,7 +94,7 @@ def test_openmm_metadata_direct_and_lazy_resume_preserve_native_state(tmp_path, 
 
     kernel = build(spec)
     assert provides(kernel, CheckpointMetadataOps)
-    kernel.step(7)  # Preserve a nonzero managed NPT scheduling phase.
+    kernel.step(7)  # Preserve a nonzero scheduling phase for the managed case.
     raw = kernel.snapshot()
     kernel.set_checkpoint_metadata(control(0))
     saved = kernel.snapshot()

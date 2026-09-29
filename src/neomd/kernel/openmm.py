@@ -216,9 +216,17 @@ class OpenMMKernel:
         self.spec = spec
         self.system = _deserialize_system(spec.system_xml)
         _apply_system_modifications(self.system, spec)
-        # Ordinary MD keeps native proposal/RNG behavior, including legacy
-        # trajectories. GaMD enables managed proposals when boosts install;
-        # other methods opt in explicitly for complete proposal-state resume.
+        # Every method keeps OpenMM's native proposal/RNG behavior, including
+        # legacy trajectories.  Boost forces are ordinary System forces, so
+        # native proposals already evaluate the boosted potential; managed
+        # proposals are an explicit opt-in (``barostat.managed``) that owns the
+        # proposal state for bit-exact mid-leg resume.  GaMD does NOT select it
+        # (ADR-0009): on a mid-leg resume it behaves like ordinary MD and
+        # metadynamics — statistically equivalent, not bit-exact.
+        #: (frequency, seed) of the managed barostat, kept so a leg rebuild
+        #: (LegOps.start_leg) can recreate its proposal state from the same
+        #: configuration — the live object is per-Context, the config is not.
+        self._barostat_config: tuple[int, int] | None = None
         self._barostat = (self._configure_barostat()
                           if (spec.barostat or {}).get("managed", False) else None)
         self._structure = _load_structure(spec.topology_file)
@@ -247,7 +255,10 @@ class OpenMMKernel:
             self.system = _assemble_ml_region(
                 self.system, spec, self._initial_positions,
                 self._structure.topology)
-        # eager validation of integrator/platform without creating a Context
+        # eager validation of integrator/platform without creating a Context;
+        # every Context gets its OWN integrator instance (``_new_simulation``)
+        # because a leg rebuild (ADR-0011) needs a fresh, independently seeded
+        # one and OpenMM integrators are not shareable across Contexts
         self._integrator = _make_integrator(spec)
         self._platform_kwargs = _platform_config(spec)
         #: (force group id, Force) pairs installed through install_bias()
@@ -265,6 +276,10 @@ class OpenMMKernel:
         #: boost channels (port.BoostOps, ADR-0005): label ->
         #: (concrete group tuple, threshold E, k); None-ish empty = no boost
         self._boost: dict[str, tuple] = {}
+        #: (flat atom index, per-molecule counts) cache for the managed NPT
+        #: proposal's rigid-molecule shift.  Connectivity is a SYSTEM property,
+        #: so one build per kernel is valid for every Context it creates.
+        self._molecule_layout: tuple[np.ndarray, np.ndarray] | None = None
         self._energy_model = None
         self._energy_group_terms = {}
         self._partition_report = None
@@ -307,26 +322,7 @@ class OpenMMKernel:
         random seed").
         """
         if self._simulation is None:
-            simulation = app.Simulation(
-                self._structure.topology,
-                self.system,
-                self._integrator,
-                **self._platform_kwargs,
-            )
-            # prefer the box recorded in the complex file header
-            # (the loaded topology); fall back to the System's default box
-            # when the complex has none.  Resume paths are unaffected —
-            # checkpoint/state loads overwrite the box with the recorded one.
-            box_vectors = self._structure.topology.getPeriodicBoxVectors()
-            if box_vectors is None:
-                box_vectors = self.system.getDefaultPeriodicBoxVectors()
-            if self.spec.initial_box_vectors_nm is not None:
-                cell = np.asarray(self.spec.initial_box_vectors_nm, dtype=np.float64)
-                if (cell.shape != (3, 3) or not np.isfinite(cell).all()
-                        or not np.isfinite(np.linalg.det(cell)) or np.linalg.det(cell) <= 0):
-                    raise ValueError("initial_box_vectors_nm must be a finite positive-volume 3x3 box")
-                box_vectors = cell * unit.nanometer
-            simulation.context.setPeriodicBoxVectors(*box_vectors)
+            simulation = self._new_simulation(self.spec.seed)
             # KernelSpec.global_parameters (the RBFE λ seam, ADR-0003/0007):
             # applied BEFORE the resume branches so a fresh run starts under
             # the window's λ, while a resumed run keeps the checkpoint's own
@@ -354,6 +350,94 @@ class OpenMMKernel:
                 volume = simulation.context.getState().getPeriodicBoxVolume().value_in_unit(unit.nanometer**3)
                 self._barostat.initialize_volume(volume)
         return self._simulation
+
+    def _new_simulation(self, seed: int) -> app.Simulation:
+        """A fresh Context over the SAME System, seeded ``seed``.
+
+        Shared by the lazy :attr:`simulation` property and the leg rebuild
+        (ADR-0011): the integrator is rebuilt with ``seed`` (OpenMM treats 0
+        as "pick a unique random seed", so a real run always passes a nonzero
+        one), the box comes from the COMPLEX FILE HEADER falling back to the
+        System default, and nothing else is initialized — the caller owns
+        positions/velocities/global parameters.  ``spec.resume`` is
+        deliberately NOT consulted here: a leg inherits live state, it does
+        not re-load the run's entry checkpoint.
+        """
+        integrator = _make_integrator(self.spec)
+        integrator.setRandomNumberSeed(seed)
+        simulation = app.Simulation(
+            self._structure.topology,
+            self.system,
+            integrator,
+            **self._platform_kwargs,
+        )
+        # prefer the box recorded in the complex file header
+        # (the loaded topology); fall back to the System's default box
+        # when the complex has none.  Resume paths are unaffected —
+        # checkpoint/state loads overwrite the box with the recorded one.
+        box_vectors = self._structure.topology.getPeriodicBoxVectors()
+        if box_vectors is None:
+            box_vectors = self.system.getDefaultPeriodicBoxVectors()
+        simulation.context.setPeriodicBoxVectors(*box_vectors)
+        return simulation
+
+    # ------------------------------------------------------------------
+    # leg boundaries (port.LegOps, ADR-0011)
+    # ------------------------------------------------------------------
+
+    def start_leg(self, index: int) -> None:
+        """Zero the step axis and, for ``index > 0``, rebuild the Context.
+
+        The fresh Context runs the SAME System under a Langevin integrator
+        seeded ``spec.seed + index`` (and a managed barostat seeded the same
+        way), so each leg's random stream is independent yet reproducible.
+        Positions/velocities/box carry over verbatim; Context-scoped values
+        this adapter owns — ``spec.global_parameters`` and the installed
+        boost channels' threshold/k — are re-applied, because a new Context
+        starts from the System's declared defaults.  A method pushing its own
+        parameters does so after this call.  Leg 0 is the Context the run
+        already started from (the factory's own seeding, or an adopted
+        checkpoint): only its step counter is zeroed, so an adopted external
+        axis is dropped rather than continued.
+        """
+        if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+            raise ValueError("leg index must be a non-negative integer")
+        if self._simulation is None:
+            if index == 0:
+                return  # a fresh Context is already at step 0 of leg 0
+            # later legs inherit the state of the legs before them; a run
+            # whose earlier legs were zero-length (or had no sink to snapshot
+            # into) reaches here with no Context yet, so build the first one
+            # exactly as the lazy property would and continue from its state
+            self.simulation
+        context = self._simulation.context
+        if index == 0:
+            # an adopted external axis is dropped, not continued; the
+            # Context (and therefore the RNG stream) is left alone
+            context.setStepCount(0)
+            return
+        state = context.getState(getPositions=True, getVelocities=True)
+        positions = state.getPositions(asNumpy=True)
+        velocities = state.getVelocities(asNumpy=True)
+        box = state.getPeriodicBoxVectors(asNumpy=True) if self._system_periodic else None
+        simulation = self._new_simulation(self.spec.seed + index)
+        if box is not None:
+            simulation.context.setPeriodicBoxVectors(*box)
+        simulation.context.setPositions(positions)
+        simulation.context.setVelocities(velocities)
+        simulation.context.setStepCount(0)
+        self._simulation = simulation
+        if self._barostat is not None:
+            from .barostat import IsotropicBarostat
+            frequency, seed = self._barostat_config or (self._barostat.frequency, 0)
+            self._barostat = IsotropicBarostat(frequency, 0 if not seed else seed + index)
+            volume = simulation.context.getState().getPeriodicBoxVolume().value_in_unit(unit.nanometer**3)
+            self._barostat.initialize_volume(volume)
+        for name, value in (self.spec.global_parameters or {}).items():
+            simulation.context.setParameter(name, float(value))
+        for label, (_groups, threshold, k) in self._boost.items():
+            simulation.context.setParameter(f'E_{label}', float(threshold))
+            simulation.context.setParameter(f'k_{label}', float(k))
 
     # ------------------------------------------------------------------
     # state observation
@@ -543,6 +627,7 @@ class OpenMMKernel:
         if frequency == 0:
             return None
         result = IsotropicBarostat(frequency, force.getRandomNumberSeed())
+        self._barostat_config = (frequency, int(force.getRandomNumberSeed()))
         # Retain native pressure/temperature Context parameters, but never
         # allow native and managed implementations to propose twice.
         force.setFrequency(0)
@@ -570,13 +655,17 @@ class OpenMMKernel:
         if not math.isfinite(new_volume) or new_volume <= 0:
             raise ValueError('trial volume must be finite and positive')
         scale = (new_volume / old_volume) ** (1 / 3)
-        molecules = context.getMolecules()
+        flat, counts = self._molecule_shift_layout(context)
         proposed = positions.copy()
         # OpenMM uses each molecule's geometric center, NOT its mass COM.
         # Translate the complete molecule, preserving internal constraints.
-        for molecule in molecules:
-            indices = list(molecule)
-            proposed[indices] += positions[indices].mean(axis=0) * (scale - 1)
+        # Vectorized: a per-molecule Python loop costs HUNDREDS of milliseconds
+        # at solvated-system scale, and this runs once per proposal (i.e. every
+        # ``barostat.frequency`` steps) — it dominated GaMD's NPT throughput.
+        starts = np.concatenate(([0], np.cumsum(counts)[:-1]))
+        centres = np.add.reduceat(positions[flat], starts) / counts[:, None]
+        proposed[flat] += np.repeat(centres, counts, axis=0) * (scale - 1)
+        molecules = counts.size
         initial_energy = old.getPotentialEnergy().value_in_unit(unit.kilojoule_per_mole)
         pressure = context.getParameter(openmm.MonteCarloBarostat.Pressure())
         temperature = context.getParameter(openmm.MonteCarloBarostat.Temperature())
@@ -589,7 +678,7 @@ class OpenMMKernel:
             context.computeVirtualSites()
             trial_energy = context.getState(getEnergy=True).getPotentialEnergy().value_in_unit(unit.kilojoule_per_mole)
             work = metropolis_work(trial_energy - initial_energy, pressure, old_volume,
-                                   new_volume, temperature, len(molecules))
+                                   new_volume, temperature, int(molecules))
             if not math.isfinite(work):
                 raise ValueError('nonfinite NPT trial work')
             uniform = ((state.rng.random() if work > 0 else 0.)
@@ -604,7 +693,25 @@ class OpenMMKernel:
         state.record(accepted, old_volume)
         return dict(accepted=accepted, initial_energy=initial_energy, trial_energy=trial_energy,
                     work=work, old_volume=old_volume, trial_volume=new_volume,
-                    molecules=len(molecules))
+                    molecules=int(molecules))
+
+    def _molecule_shift_layout(self, context) -> tuple[np.ndarray, np.ndarray]:
+        """(flat molecule atoms in order, per-molecule atom counts), cached.
+
+        ``Context.getMolecules()`` itself materializes one index array per
+        molecule, which is also expensive to redo per proposal; connectivity
+        does not change for a given System, so one build per kernel suffices.
+        """
+        if self._molecule_layout is None:
+            molecules = context.getMolecules()
+            counts = np.fromiter((len(molecule) for molecule in molecules),
+                                 dtype=np.int64, count=len(molecules))
+            if counts.size == 0 or int(counts.sum()) != self.num_particles:
+                raise ValueError('managed NPT needs every particle in a molecule')
+            flat = np.concatenate([np.asarray(molecule, dtype=np.int64)
+                                   for molecule in molecules])
+            self._molecule_layout = (flat, counts)
+        return self._molecule_layout
 
     # ------------------------------------------------------------------
     # bias installation
@@ -1131,11 +1238,12 @@ class OpenMMKernel:
         """
         import xml.etree.ElementTree as ET
 
-        from .partition import selections
+        from .partition import nonbonded_claims, selections
 
         if self._simulation is not None or self._boost or self._energy_model is not None:
             raise RuntimeError('compile partitions before Context/boost creation, only once')
         chosen = selections(boosts, self.num_particles)
+        claims = nonbonded_claims(chosen)
         self._validate_boost_parameter_names(choice.label for choice in chosen)
         bias_groups = {g for g, _ in self._installed}
         forces = list(self.system.getForces())
@@ -1215,54 +1323,119 @@ class OpenMMKernel:
                 if force.getNonbondedMethod() == openmm.NonbondedForce.LJPME:
                     raise ValueError('LJPME partition is not qualified; PME electrostatics is supported')
                 original = openmm.XmlSerializer.serialize(force)
-                active = set(range(self.num_particles))
-                previous = add(openmm.XmlSerializer.deserialize(original))
-                base_terms.append((previous, 1))
-                for j, choice in enumerate(chosen):
-                    selected = set(active) if choice.remaining else set(choice.atoms_for('nonbonded'))
-                    removed = active & selected
-                    total = len(selected)
-                    matched = len(active) * (len(active) - 1) // 2 if choice.remaining else (
-                        self.num_particles * (self.num_particles - 1) // 2
-                        - (self.num_particles - total) * (self.num_particles - total - 1) // 2)
-                    assigned = len(active) * (len(active) - 1) // 2 - (
-                        (len(active) - len(removed)) * (len(active) - len(removed) - 1) // 2)
-                    long_range = (force.getNonbondedMethod() in (force.PME, force.Ewald)
-                                  or (force.getNonbondedMethod() == force.CutoffPeriodic
-                                      and force.getUseDispersionCorrection()))
-                    if long_range:
-                        matched += total
-                        assigned += len(removed)
-                    rows[j]['matched'] += matched
-                    rows[j]['assigned'] += assigned
-                    rows[j]['claimed'] += matched - assigned
-                    if not removed:
-                        continue
-                    active -= removed
-                    terms = [(previous, 1)] if previous is not None else []
-                    if active:
+                long_range = (force.getNonbondedMethod() in (force.PME, force.Ewald)
+                              or (force.getNonbondedMethod() == force.CutoffPeriodic
+                                  and force.getUseDispersionCorrection()))
+                full = frozenset(range(self.num_particles))
+                cache = {}
+
+                def masked(atoms):
+                    """Cached masked subset copy; ``None`` for the empty subset."""
+                    key = frozenset(atoms)
+                    if not key:
+                        return None
+                    if key not in cache:
                         component = openmm.XmlSerializer.deserialize(original)
-                        for i in range(self.num_particles):
-                            if i not in active:
-                                q, sigma, epsilon = component.getParticleParameters(i)
-                                component.setParticleParameters(i, q * 0, sigma, epsilon * 0)
-                        for i in range(component.getNumExceptions()):
-                            a, b, q, sigma, epsilon = component.getExceptionParameters(i)
-                            if a not in active or b not in active:
-                                component.setExceptionParameters(i, a, b, q * 0, sigma, epsilon * 0)
-                        previous = add(component)
-                        terms.append((previous, -1))
+                        if key != full:
+                            for i in range(self.num_particles):
+                                if i not in key:
+                                    q, sigma, epsilon = component.getParticleParameters(i)
+                                    component.setParticleParameters(i, q * 0, sigma, epsilon * 0)
+                            for i in range(component.getNumExceptions()):
+                                a, b, q, sigma, epsilon = component.getExceptionParameters(i)
+                                if a not in key or b not in key:
+                                    component.setExceptionParameters(i, a, b, q * 0, sigma, epsilon * 0)
+                        cache[key] = add(component)
+                    return cache[key]
+
+                def pairs(count):
+                    return count * (count - 1) // 2 if count > 0 else 0
+
+                base_terms.append((masked(full), 1))
+                # The unclaimed nonbonded energy is a signed combination of
+                # masked subset energies.  An include=True claim strips every
+                # pair touching its union; an include=False claim subtracts that
+                # set's own block M(S) (see ADR-0009 on the PME block
+                # definition, which has no atom-pair owner).
+                unclaimed = {full: 1}
+                chained = frozenset()
+                claimed_atoms = frozenset()
+                channel_terms = [[] for _ in chosen]
+                assigned_pairs = 0
+                total_pairs = pairs(self.num_particles)
+                for j, choice in enumerate(chosen):
+                    claim = claims[j]
+                    if claim is None or choice.remaining:
+                        continue
+                    terms = []
+                    if claim['include']:
+                        union = claim['sets'][0]
+                        reduced = {}
+                        for atoms, coefficient in unclaimed.items():
+                            rest = atoms - union
+                            if rest:
+                                reduced[rest] = reduced.get(rest, 0) + coefficient
+                        reduced = {a: c for a, c in reduced.items() if c}
+                        for atoms, coefficient in unclaimed.items():
+                            terms.append((atoms, coefficient))
+                        for atoms, coefficient in reduced.items():
+                            terms.append((atoms, -coefficient))
+                        unclaimed = reduced
+                        before = chained
+                        touching = total_pairs - pairs(self.num_particles - len(union))
+                        already = (touching + total_pairs - pairs(self.num_particles - len(before))
+                                   - total_pairs + pairs(self.num_particles - len(before | union)))
+                        rows[j]['matched'] += touching
+                        rows[j]['assigned'] += touching - already
+                        rows[j]['claimed'] += already
+                        rows[j]['force_types']['nonbonded'] = (
+                            rows[j]['force_types'].get('nonbonded', 0) + touching - already)
+                        assigned_pairs += touching - already
+                        if long_range:
+                            rows[j]['matched'] += len(union)
+                            rows[j]['assigned'] += len(union - before)
+                            rows[j]['claimed'] += len(union & before)
+                            rows[j]['force_types']['nonbonded'] += len(union - before)
+                        chained = chained | union
+                        claimed_atoms = claimed_atoms | union
                     else:
-                        previous = None
-                    group_terms[groups[j]].extend(terms)
-                    rows[j]['force_types']['nonbonded'] = rows[j]['force_types'].get('nonbonded', 0) + assigned
-                if previous is not None:
-                    group_terms[residual_group].append((previous, 1))
-                residual_count += len(active) * (len(active) - 1) // 2
-                if (force.getNonbondedMethod() in (force.PME, force.Ewald)
-                        or (force.getNonbondedMethod() == force.CutoffPeriodic
-                            and force.getUseDispersionCorrection())):
-                    residual_count += len(active)
+                        matched = 0
+                        union = frozenset().union(*claim['sets'])
+                        for subset in claim['sets']:
+                            terms.append((subset, 1))
+                            unclaimed[subset] = unclaimed.get(subset, 0) - 1
+                            if not unclaimed[subset]:
+                                del unclaimed[subset]
+                            matched += pairs(len(subset))
+                            claimed_atoms = claimed_atoms | subset
+                        rows[j]['matched'] += matched
+                        rows[j]['assigned'] += matched
+                        rows[j]['force_types']['nonbonded'] = (
+                            rows[j]['force_types'].get('nonbonded', 0) + matched)
+                        assigned_pairs += matched
+                        if long_range:
+                            rows[j]['matched'] += len(union)
+                            rows[j]['assigned'] += len(union)
+                            rows[j]['force_types']['nonbonded'] += len(union)
+                    channel_terms[j] = terms
+                for j, terms in enumerate(channel_terms):
+                    group_terms[groups[j]].extend(
+                        (masked(atoms), coefficient)
+                        for atoms, coefficient in terms if atoms)
+                leftover = total_pairs - assigned_pairs
+                target = next((j for j, choice in enumerate(chosen) if choice.remaining), None)
+                long_leftover = self.num_particles - len(claimed_atoms) if long_range else 0
+                if target is not None:
+                    rows[target]['matched'] += leftover + long_leftover
+                    rows[target]['assigned'] += leftover + long_leftover
+                    rows[target]['force_types']['nonbonded'] = (
+                        rows[target]['force_types'].get('nonbonded', 0)
+                        + leftover + long_leftover)
+                else:
+                    residual_count += leftover + long_leftover
+                group_terms[groups[target] if target is not None else residual_group].extend(
+                    (masked(atoms), coefficient)
+                    for atoms, coefficient in unclaimed.items() if atoms)
             else:
                 raise ValueError(f'unsupported base force for explicit partition: {name}')
             source_ids.append(force_id)
@@ -1284,9 +1457,9 @@ class OpenMMKernel:
                  for b in self._structure.topology.bonds()]
         self._partition_report = dict(
             particles=particles, bonds=bonds,
-            semantics='ordered-any-atom-first-defined-wins', channels=rows,
+            semantics='ordered-boundary-aware-first-defined-wins', channels=rows,
             residual=dict(groups=[residual_group], assigned=residual_count),
-            nonbonded_strategy='telescoping full subset energies including PME self/background',
+            nonbonded_strategy='signed masked-subset energies: any-member all-claims plus internal blocks including PME self/background',
             component_count=len(components),
             count_semantics='bonded terms, unordered nonbonded pairs, and one atomic long-range term per particle for PME/Ewald/dispersion',
             excluded_restraint_groups=sorted(bias_groups))
@@ -1313,8 +1486,10 @@ class OpenMMKernel:
                 raise ValueError('boost groups hold installed additive biases')
             installed[channel.label] = (groups, float(channel.threshold), float(channel.k))
         self._validate_boost_parameter_names(installed)
-        if installed and self._barostat is None:
-            self._barostat = self._configure_barostat()
+        # Installing boosts does NOT take over the volume proposal: the boost
+        # energies live in the System, so OpenMM's native barostat already
+        # accepts against the boosted potential.  Only an explicit
+        # ``barostat.managed`` installs the adapter-owned proposal state.
         if self._energy_model is None:
             components, group_terms, base_terms, source_ids = [], {}, [], []
             for index, force in enumerate(self.system.getForces()):

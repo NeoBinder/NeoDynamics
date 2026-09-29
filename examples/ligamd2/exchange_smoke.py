@@ -61,16 +61,17 @@ def main():
         app.PDBxFile.writeFile(topology, positions * unit.nanometer, stream)
     serialized.write_text(openmm.XmlSerializer.serialize(system))
     plan = {
-        'method': 'gamd', 'steps': 50, 'temperature': 298, 'seed': 2026,
+        'method': 'gamd', 'temperature': 298, 'seed': 2026,
+        'steps': {'unbiased_eq': 0, 'unbiased_production': 10, 'biased_eq': 0,
+                  'biased_eq2': 0, 'production': 40},
         'integrator': {'dt': 0.001, 'friction_coeff': 1.0},
         'input_files': {'complex': str(structure), 'system': str(serialized)},
         'output': {'output_dir': str(output / 'run'), 'trajectory_interval': 5,
-                   'state_interval': 5, 'checkpoint_interval': 5},
-        'gamd': {'calibration_steps': 10, 'calibration_interval': 2, 'frequency': 5,
-                 'boosts': [
+                   'state_interval': 5, 'checkpoint_interval': 5,
+                   'gamd': {'sample_interval': 2, 'trace_interval': 5}},
+        'gamd': {'boosts': [
                      {'label': 'slot', 'sigma0': 2, 'threshold_policy': 'upper',
-                      'selectors': [{'atom_indices': [1, 2],
-                                     'force_types': ['bond', 'angle', 'dihedral', 'nonbonded']}]},
+                      'selectors': [{'atom_indices': [1, 2], 'force_types': 'all'}]},
                      {'label': 'remaining', 'remaining': True, 'sigma0': 2,
                       'threshold_policy': 'lower'}],
                  'exchange': {'copies': [[1, 2], [3, 4]], 'designated_slot': 0,

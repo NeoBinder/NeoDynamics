@@ -52,19 +52,25 @@ ALA2_PDB = DATA / "ala2" / "ala2.pdb"
 ALA2_SYSTEM = DATA / "ala2" / "system.xml"
 
 
-def out(directory, **extra) -> dict:
+def out(directory, *, sample_interval=10, trace_interval=10, **extra) -> dict:
+    """The plan's output section; GaMD's cadences live in output.gamd (ADR-0011)."""
     output = {"output_dir": str(directory), "state_interval": 0,
-              "trajectory_interval": 0, "checkpoint_interval": 0}
+              "trajectory_interval": 0, "checkpoint_interval": 0,
+              "gamd": {"sample_interval": sample_interval,
+                       "trace_interval": trace_interval}}
     output.update(extra)
     return output
 
 
 def gamd_config(steps: int = 200, **overrides) -> dict:
-    """A minimal valid GaMD plan dict (total mode + a distance wall
-    restraint, so the fake kernel has a varying potential to boost)."""
+    """A minimal valid GaMD plan dict (per-stage steps: a 100-step
+    unbiased production calibrates, the rest is production — plus a
+    distance wall restraint, so the fake kernel has a varying potential
+    to boost).  ``steps`` keeps its historical TOTAL meaning."""
     config = {
         "method": "gamd",
-        "steps": steps,
+        "steps": {"unbiased_eq": 0, "unbiased_production": 100,
+                  "biased_eq": 0, "biased_eq2": 0, "production": steps - 100},
         "temperature": 298,
         "seed": 2026,
         "integrator": {"dt": 0.002, "friction_coeff": 1.0},
@@ -74,8 +80,7 @@ def gamd_config(steps: int = 200, **overrides) -> dict:
             "dist": {"type": "distance", "grp1": "0", "grp2": "1",
                      "restr_k": 500.0, "max_nm": 0.8},
         },
-        "gamd": {"mode": "total", "sigma0": 6.0, "calibration_steps": 100,
-                 "calibration_interval": 10, "frequency": 10},
+        "gamd": {"mode": "total", "sigma0": 6.0},
     }
     config.update(overrides)
     return config
@@ -151,12 +156,19 @@ def test_install_boost_rejects_duplicates_and_wrong_types():
 
 
 def _hand_reading(E: float, k: float, P: float, clamp: bool) -> tuple:
-    """(dV, scale) the integrator math must produce for one reading."""
-    depth = E - P
-    b = min(1.0, max(0.0, k * depth)) if clamp else k * depth
-    boost = 0.5 * (E - P) * b if clamp else (0.5 * k * depth * depth
-                                             if k > 0.0 and depth > 0.0 else 0.0)
-    return boost, 1.0 - b
+    """(dV, scale) the integrator math must produce for one reading.
+
+    Mirrors ``kernel.partition.boost_value``: with ``b = min(1, k*depth)`` the
+    integral of the force scale is ``b*depth - b²/(2k)``, whose C1 linear tail
+    past depth ``1/k`` is part of the definition (ADR-0009).  ``clamp=False``
+    keeps the unsaturated spelling of the same expression, which callers use
+    only where their fixture cannot reach saturation.
+    """
+    depth = max(0.0, E - P)
+    b = min(1.0, k * depth) if clamp else k * depth
+    if k == 0.0:
+        return 0.0, 1.0
+    return b * depth - 0.5 * b * b / k, 1.0 - b
 
 
 def test_fake_end_to_end_total_boost(tmp_path):
@@ -165,11 +177,17 @@ def test_fake_end_to_end_total_boost(tmp_path):
     assert outcome.phases_run == ["gamd"]
     result = outcome.results[0]
     assert isinstance(result, MethodResult)
-    assert result.steps_done == 200
+    # legs restart at 0: ``steps_done`` is the PRODUCTION leg's step count;
+    # the 100-step calibration leg lives in the journal's per-leg ``completed``
+    assert result.steps_done == 100
+    journal = json.loads((tmp_path / "gamd_stages.json").read_text())
+    assert journal["completed"]["unbiased_production"] == 100
+    assert journal["completed"]["production"] == 100
     assert set(result.channels) == {"total"}
 
     cal = json.loads((tmp_path / CALIBRATION_FILENAME).read_text())
-    assert cal["sigma0"] == 6.0
+    # sigma0 is a plan input, never a runtime record (ADR-0010 revision)
+    assert "sigma0" not in cal
     channel = cal["channels"]["total"]
     assert channel["k"] == result.channels["total"]["k"]
     assert 0.0 < channel["k"] <= 1.0 / (channel["vmax"] - channel["vmin"])
@@ -178,7 +196,9 @@ def test_fake_end_to_end_total_boost(tmp_path):
     assert lines[0] == ("# step\ttotal__boost\ttotal__energy\ttotal__scale"
                         "\ttotal_boost\ttime_ps\tphase\tparameter_revision\tslot_to_identity")
     steps = [int(row.split("\t")[0]) for row in lines[1:]]
-    assert steps == list(range(110, 201, 10))  # calibration ended at 100
+    # gamd.tsv is production-only and its step column is leg-relative: the
+    # production leg restarts at 0 (calibration ran in its own leg)
+    assert steps == list(range(10, 101, 10))
     for row in lines[1:]:
         step, boost, energy, scale = row.split("\t")[:4]
         boost, energy, scale = float(boost), float(energy), float(scale)
@@ -218,26 +238,28 @@ def test_fake_calibration_stats_match_hand_computed_selection(tmp_path):
 
 
 def test_fake_resume_matches_straight_run(tmp_path):
-    """Kill/resume property: run 100(cal)+50, then continue to 200 == a
-    straight 200 — tape rows, calibration params and positions identical."""
+    """Kill/resume property: a straight 100-step production leg == one split
+    into 50 (session 1) + a continued leg to 100 — every leg restarts at 0,
+    so the resumed leg runs its remainder only; tape rows, calibration
+    params and positions stay identical."""
     straight_dir = tmp_path / "straight"
     straight = drive(
         Plan.from_dict(gamd_config(output=out(straight_dir))),
         kernel_factory=_fake_factory(seed=77), sink=LocalDirSink(straight_dir))
-    assert straight.results[0].steps_done == 200
+    assert straight.results[0].steps_done == 100  # production leg
 
     split_dir = tmp_path / "split"
     first = drive(
         Plan.from_dict(gamd_config(steps=150, output=out(split_dir))),
         kernel_factory=_fake_factory(seed=77), sink=LocalDirSink(split_dir))
-    assert first.results[0].steps_done == 150
+    assert first.results[0].steps_done == 50  # production leg of session 1
     assert (split_dir / "output.ckpt").exists()
 
     second = drive(
         Plan.from_dict(gamd_config(steps=200, continue_md=True,
                                    output=out(split_dir))),
         kernel_factory=_fake_factory(seed=77), sink=LocalDirSink(split_dir))
-    assert second.results[0].steps_done == 200
+    assert second.results[0].steps_done == 100  # production leg completed
 
     # the calibration NEVER re-runs: same parameters both legs
     cal = json.loads((split_dir / CALIBRATION_FILENAME).read_text())
@@ -252,14 +274,18 @@ def test_fake_resume_matches_straight_run(tmp_path):
         straight.results[0].positions_sha256
 
 
-def test_fake_resume_without_calibration_file_fails(tmp_path):
+def test_resume_rewrites_a_deleted_calibration_file(tmp_path):
+    """gamd_stages.json is the single resume journal — the calibration json
+    is derived output; deleting it does not break resume and it is
+    rewritten by the next persist."""
     drive(Plan.from_dict(gamd_config(steps=150, output=out(tmp_path))),
           kernel_factory=_fake_factory(), sink=LocalDirSink(tmp_path))
     (tmp_path / CALIBRATION_FILENAME).unlink()
-    with pytest.raises(FileNotFoundError, match=CALIBRATION_FILENAME):
-        drive(Plan.from_dict(gamd_config(steps=200, continue_md=True,
-                                         output=out(tmp_path))),
-              kernel_factory=_fake_factory(), sink=LocalDirSink(tmp_path))
+    outcome = drive(Plan.from_dict(gamd_config(steps=200, continue_md=True,
+                                               output=out(tmp_path))),
+                    kernel_factory=_fake_factory(), sink=LocalDirSink(tmp_path))
+    assert outcome.results[0].steps_done == 100  # production leg (leg-relative)
+    assert (tmp_path / CALIBRATION_FILENAME).exists()
 
 
 def test_fake_degenerate_calibration_stays_zero_strength(tmp_path):
@@ -298,21 +324,21 @@ def test_fake_dual_mode_uses_torsion_bias_groups(tmp_path):
                         "\tdihedral__boost\tdihedral__energy"
                         "\tdihedral__scale\ttotal_boost\ttime_ps\tphase"
                         "\tparameter_revision\tslot_to_identity")
-    assert len(lines) == 11  # header + rows at 110..200
+    assert len(lines) == 11  # header + production-leg rows at 10..100
 
 
 def test_dual_mode_without_torsions_refuses_cleanly(tmp_path):
-    config = gamd_config(output=out(tmp_path),
-                         gamd={"mode": "dual", "calibration_steps": 100,
-                               "calibration_interval": 10, "frequency": 10})
+    config = gamd_config(output=out(tmp_path), gamd={"mode": "dual"})
     del config["restraint"]  # no dihedral anywhere
     with pytest.raises(NotImplementedError, match="torsion"):
         drive(Plan.from_dict(config), kernel_factory=_fake_factory(),
               sink=LocalDirSink(tmp_path))
 
 
-def test_report_gamd_false_skips_the_tape(tmp_path):
-    drive(Plan.from_dict(gamd_config(output=out(tmp_path, report_gamd=False))),
+def test_output_gamd_report_false_skips_the_tape(tmp_path):
+    drive(Plan.from_dict(gamd_config(
+              output=out(tmp_path, gamd={"report": False, "sample_interval": 10,
+                                         "trace_interval": 10}))),
           kernel_factory=_fake_factory(), sink=LocalDirSink(tmp_path))
     assert not (tmp_path / TAPE_FILENAME).exists()
     assert (tmp_path / CALIBRATION_FILENAME).exists()  # physics still ran
@@ -347,11 +373,9 @@ def test_registry_lists_gamd_method():
 
 
 def test_reweight_observable_through_analysis(tmp_path):
-    drive(Plan.from_dict(gamd_config(steps=300, output=out(tmp_path),
-                                     gamd={"mode": "total", "sigma0": 6.0,
-                                           "calibration_steps": 100,
-                                           "calibration_interval": 10,
-                                           "frequency": 5})),
+    drive(Plan.from_dict(gamd_config(steps=300,
+                                     output=out(tmp_path, trace_interval=5),
+                                     gamd={"mode": "total", "sigma0": 6.0})),
           kernel_factory=_fake_factory(), sink=LocalDirSink(tmp_path))
     steps, boost, scale = read_gamd_trace(tmp_path / TAPE_FILENAME)
     assert list(boost) == ["total"]
@@ -380,15 +404,15 @@ def test_reweight_observable_through_analysis(tmp_path):
 def openmm_gamd_config(steps: int, mode: str, directory, **extra) -> dict:
     config = {
         "method": "gamd",
-        "steps": steps,
+        "steps": {"unbiased_eq": 0, "unbiased_production": 100,
+                  "biased_eq": 0, "biased_eq2": 0, "production": steps - 100},
         "temperature": 298,
         "seed": 2026,
         "integrator": {"integrator_name": "LangevinIntegrator",
                        "dt": 0.002, "friction_coeff": 1.0},
         "input_files": {"complex": str(ALA2_PDB), "system": str(ALA2_SYSTEM)},
         "output": out(directory, **extra),
-        "gamd": {"mode": mode, "sigma0": 6.0, "calibration_steps": 100,
-                 "calibration_interval": 10, "frequency": 10},
+        "gamd": {"mode": mode, "sigma0": 6.0},
     }
     config.update(extra)
     return config
@@ -405,12 +429,12 @@ def test_openmm_gamd_ala2(tmp_path, mode):
     assert elapsed < 30.0  # budget: small ala2 fixture, CPU platform
     assert outcome.phases_run == ["gamd"]
     result = outcome.results[0]
-    assert result.steps_done == 160
+    assert result.steps_done == 60  # production leg = 160 - 100 calibration
 
     cal = json.loads((directory / CALIBRATION_FILENAME).read_text())["channels"]
     assert set(cal) == ({"total", "dihedral"} if mode == "dual" else {"total"})
     lines = (directory / TAPE_FILENAME).read_text().splitlines()
-    assert len(lines) == 7  # header + rows at 110..160
+    assert len(lines) == 7  # header + production-leg rows at 10..60
     # tape columns follow the channel INSTALLATION order, not sorted keys
     tape_labels = [column.rsplit("__", 1)[0]
                    for column in lines[0].split("\t")[1:]

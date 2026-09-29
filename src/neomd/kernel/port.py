@@ -1,7 +1,7 @@
 """KernelPort — the physics-kernel seam: the closed operation surface every
 driver, probe and method calls, plus the optional capability protocols
-(BiasOps, BiasParamOps, GroupEnergy, StructureWriter, BoostOps) negotiated
-via :func:`provides` — never assumed.
+(BiasOps, BiasParamOps, GroupEnergy, StructureWriter, BoostOps, LegOps)
+negotiated via :func:`provides` — never assumed.
 
 See ``docs/architecture.md`` and ``docs/adr/0005-gamd-boost-seam.md``.
 """
@@ -29,6 +29,7 @@ __all__ = [
     "BoostChannelIR",
     "BoostReading",
     "BoostOps",
+    "LegOps",
     "PartitionOps",
     "LigandExchangeOps",
     "CVIR",
@@ -334,8 +335,9 @@ class KernelSpec:
     #: system modifications applied before the Context exists (barostat
     #: addition / mass overrides); the openmm
     #: adapter implements them, other kernels may ignore them.
-    #: managed=True opts non-GaMD methods into proposal-state checkpointing;
-    #: GaMD enables it automatically. Otherwise native OpenMM behavior remains.
+    #: managed=True opts a method into adapter-owned proposal state
+    #: (``NEOMD-NPT-1`` checkpoint block) so a mid-leg resume is bit-exact;
+    #: every method, GaMD included, keeps native OpenMM proposals otherwise.
     barostat: dict | None = None  # pressure, frequency, temperature, seed, managed
     particle_masses: dict[int, float] | None = None  # {particle index: dalton}
     #: zero-interaction NonbondedForce exceptions, flattened
@@ -593,12 +595,44 @@ class BoostOps(Protocol):
 
 
 @runtime_checkable
+class LegOps(Protocol):
+    """OPTIONAL capability: restart the integration axis at a leg boundary.
+
+    A *leg* is one contiguous stretch of integration with its own step axis
+    (ADR-0011: the GaMD stages are legs). ``start_leg(index)`` zeroes the
+    kernel clock so the leg's first step is step 0, and — for ``index > 0`` —
+    rebuilds the integration Context from the SAME System under a freshly
+    derived integrator seed (``spec.seed + index``), so every leg draws an
+    independent, reproducible Langevin stream. Positions, velocities and box
+    vectors carry over verbatim; the RNG and the volume-proposal state (native
+    or adapter-owned) do not. Leg 0 is the Context the run already started from (the
+    factory's own seeding, or an adopted checkpoint): only its step counter
+    is zeroed, so an adopted external axis is dropped rather than continued.
+
+    ``index > 0`` inherits positions/velocities from the current Context; a
+    kernel that has not created one yet builds its first Context exactly as
+    the fresh path would and continues from that state. The adapter
+    re-applies the Context-scoped parameter values it owns
+    (``spec.global_parameters``, the installed boost channels' threshold/k)
+    to the rebuilt Context; a method that pushes its own parameters does so
+    after the call.
+    """
+
+    def start_leg(self, index: int) -> None:
+        """Begin leg ``index``: step counter 0, derived RNG for ``index > 0``."""
+        ...
+
+
+@runtime_checkable
 class PartitionOps(Protocol):
-    """Optional ordered any-atom decomposition of original force-field terms.
+    """Optional ordered boundary-aware decomposition of original force-field terms.
 
     Returns an auditable report with ordered ``channels`` rows containing
-    label, groups, matched, assigned and claimed counts. Installed user biases
-    never participate. Must be invoked before a Context or boost exists.
+    label, groups, matched, assigned and claimed counts. A selector owns
+    internal terms (all atoms inside its group) of the force types it lists;
+    crossing terms join it only where that type's ``include_boundary`` is true.
+    Installed user biases never participate. Must be invoked before a Context
+    or boost exists.
     """
 
     def compile_boost_partitions(self, boosts: Sequence[Mapping]) -> dict: ...

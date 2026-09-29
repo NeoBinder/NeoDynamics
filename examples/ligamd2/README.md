@@ -18,11 +18,14 @@ virtual-site correspondence when translating topology indices. The resolved
 lists are visible in the plan and partition provenance; inspect the partition
 report before a long simulation. No pocket or ligand is inferred.
 
-This template selects the complete bond/angle/torsion/nonbonded term when any
-listed atom participates. Pocket boundary bonded terms therefore differ from
-the LiGaMD2 paper's internal-only pocket partition. The 9/6 kcal/mol sigma0 pair
-is an illustrative published pair, not a universal or automatically qualified
-choice. Its values convert to 37.656/25.104 kJ/mol internally. Durations here are
+The default partition is the LiGaMD2 internal-bonded convention: a listed atom
+group owns its internal bond/angle/torsion terms plus every nonbonded pair with
+one atom in the group, while bonded terms crossing the group boundary stay out
+and fall to the `remaining` boost (or stay unboosted without one). Set
+`include_boundary: {bond: true, angle: true, dihedral: true}` on a selector to
+include crossing bonded terms instead. The 9/6 kcal/mol sigma0 pair is an
+illustrative published pair, not a universal or automatically qualified choice.
+Its values convert to 37.656/25.104 kJ/mol internally. Durations here are
 examples, not the paper's replicated microsecond validation protocol.
 
 A single explicit boost is valid: remove the final `remaining` entry to keep all

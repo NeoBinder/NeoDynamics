@@ -29,8 +29,26 @@
   there loses the last deposit and breaks exact resume.
 - ML/MM assembly precedes Context creation; NNP forces never enter
   `system.xml` (not XML-serializable); the fake kernel ignores `ml_region`.
-  GaMD calibration is a bounded method-side stage; resume re-pushes persisted
-  calibration, never recalibrates.
+  GaMD calibration is a bounded method-side stage; resume re-pushes the
+  persisted parameter set, and only a resume that moves which stage ends the
+  chain re-derives it from the restored samples. Its five-stage steps mapping,
+  boundary checkpoints (`ckpt/entry.ckpt`, `ckpt/<stage>.ckpt`) and
+  `restart_from` semantics are ADR-0010/0011: each stage is a LEG with its
+  own Context (`kernel.start_leg(index)`), its own step axis from 0 and no
+  global axis anywhere (an adopted external checkpoint contributes
+  coordinates/velocities but its step axis is dropped); the driver stops on
+  each leg's last step and calls `begin_next_leg`. `gamd_stages.json`
+  (schema 4) is the only continue journal, stage lengths stay out of the
+  resume fingerprint (a continue may change sigma0/policy/unit/cadences and
+  the stage lengths — it warns and names the drifted keys — but NOT the boost
+  layout: ordered channels plus each channel's selection are the System the
+  restored state belongs to; old directories are judged from their
+  `gamd_metadata.json`), and a boundary restart re-enters that leg and
+  re-trims every per-stage tape through `resume.trim_to` with a
+  per-artifact bound (resume stays the trimming owner). The running leg is
+  committed into the checkpoint envelope (`gamd_leg`) because a leg's clock
+  and RNG stream are Context state: the journal alone cannot tell one leg's
+  start from the next leg's when the clock reads 0.
 - `prepare_method_stepper(..., probes=sequence)` replaces reporting only:
   scientific hooks, method state and checkpoint/finalization writes stay
   independent, and an empty probe list is not file-free execution.
@@ -77,6 +95,16 @@ project-root-relative; local guides carry kernel and method-specific constraints
   unsupported kernels emit one warning and keep raw coordinates.
 - Run messages use the `neomd` INFO logger and idempotent console setup; explicit
   levels preserve `--silent`. Progress records use `inline=True` except the
-  final completion record, which stays in scrollback.
+  final completion record, which stays in scrollback. A leg-staged method's
+  PREPARATION reports too: `LegReporter` (cached per preparation, so a leg
+  spanning many bounded turns prints its header ONCE — `entering stage X (N
+  steps)`, or `resuming stage X at step E (N more steps)`) plus per-leg
+  progress (elapsed / stage / percent / rate / ETA), and the counts are always
+  the CURRENT leg's — never a cross-stage total.  The cadence is the plan's
+  `output.progress_interval` (default 5000 steps, resolved by
+  `driver.progress_interval`), added to the chunk boundaries in both the
+  preparation loop and `MDStepper.advance` so the line really fires on
+  schedule; every intermediate record is `inline=True` (same-line
+  replacement) and only a leg's closing record stays in the scrollback.
 - OpenMM private accesses stay behind the pinned 8.6.x version gate; QC writes
   `qc_report.json` via sinks at preparation/minimization tails, soft by default.

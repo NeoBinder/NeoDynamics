@@ -28,8 +28,10 @@ configured in the plan's `output` section.
 
 Checkpoint compatibility depends on the system, kernel and execution environment.
 Default native OpenMM NPT is not qualified for bit-exact continuation because
-its checkpoint omits some barostat proposal state. GaMD uses managed proposals;
-other methods can opt in with `barostat.managed: true`. Managed and native NPT
+its checkpoint omits some barostat proposal state; every method therefore treats
+a mid-run resume as statistically equivalent, and only a leg/stage boundary is a
+guaranteed restore point. Opt in with `barostat.managed: true` for bit-exact
+mid-run continuation. Managed and native NPT
 trajectories and checkpoints are not interchangeable. See the
 [GaMD continuation contract](methods/gamd.md) and
 [barostat configuration](reference/configuration.md).

@@ -88,10 +88,13 @@ _TOP_LEVEL = {
     ),
     "gamd": (
         "mapping",
-        "GaMD boost parameters (method `gamd`, ADR-0005): `mode` "
-        "(total|dual|channels), `sigma0`, calibration pre-run knobs "
-        "(`calibration_steps`, `calibration_interval`), `frequency`; "
-        "explicit `channels: [{label, groups}]` for LiGaMD-style setups.",
+        "GaMD boost parameters (method `gamd`, ADR-0005/0010): `mode` "
+        "(total|dual|channels), `sigma0` (boost strength; absent = 6 kcal/mol, "
+        "a written number is in `energy_unit`, default kJ/mol), staged-protocol knobs "
+        "and its output namespace `output.gamd` (tape switch, cadences), "
+        "optional `restart_from` / `calibration_input` for continues; "
+        "explicit `channels: [{label, groups}]` for LiGaMD-style setups. "
+        "Stage lengths live in the per-stage `steps` mapping.",
     ),
     "opes_set": (
         "mapping",
@@ -116,9 +119,10 @@ _TOP_LEVEL = {
         "Barostat settings (e.g. `frequency` in steps, `pressure`); the plan "
         "seed is injected as `seed` at kernel-spec build time. Absent means "
         "no added barostat. `managed: true` opts into complete isotropic "
-        "proposal-state checkpoints (default false outside GaMD). GaMD "
-        "automatically uses managed proposals; other methods retain native "
-        "OpenMM trajectories unless opted in.",
+        "proposal-state checkpoints (default false for every method, GaMD "
+        "included); without it the run keeps OpenMM's native proposals, whose "
+        "adaptive width and counters are not checkpointed, so a mid-leg resume "
+        "is statistically equivalent rather than bit-exact.",
     ),
     "continue_md": (
         "bool",
@@ -201,10 +205,18 @@ _INPUT_FILES = {
 #: output sub-key -> meaning; validated through neomd.validate_config
 _OUTPUT = {
     "output_dir": "Required: the run's output directory (non-empty string).",
+    "progress_interval": ("Steps between console progress records — the "
+                          "`已运行 / 阶段 / 已完成 / 速率 / 预计结束` line "
+                          "(default 5000). It covers the preparation legs of "
+                          "a staged method and the production loop; the "
+                          "percent/rate/ETA are always the CURRENT stage's."),
     "report_interval": "Steps between energy-log rows (`output.state`).",
-    "trajectory_interval": "Steps between `output.dcd` frames; 0 = off.",
-    "state_interval": "Steps between `output.state` flushes; 0 = off.",
-    "checkpoint_interval": "Steps between `output.ckpt` writes; 0 = off.",
+    "trajectory_interval": ("Steps between `output.dcd` frames; 0 = off. "
+                             "A staged method (gamd) writes one `<stage>.dcd` per stage instead."),
+    "state_interval": ("Steps between `output.state` flushes; 0 = off. "
+                       "A staged method (gamd) writes one `<stage>.state` per stage instead."),
+    "checkpoint_interval": ("Steps between `output.ckpt` writes; 0 = off. A staged "
+                            "method (gamd) also writes `<stage>.ckpt` at the same cadence."),
     "restraint_interval": "Steps between `restraint.tsv` rows. Derived view: "
                           "mirrors `report_interval` when a `restraint` "
                           "section exists and `report_restraint` is true, "

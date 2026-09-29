@@ -122,9 +122,8 @@ def read_gamd(path) -> GamdData:
                or sorted(row) != list(range(size)) for row in identities):
             raise AnalysisError('slot_to_identity rows must be equally sized permutations')
         phases = np.asarray(col['phase'])
-        if not set(phases).issubset({'preparation', 'calibration', 'equilibration',
-                                     'production', 'conventional', 'adaptive',
-                                     'statistics', 'boost_preparation'}):
+        if not set(phases).issubset({'unbiased_eq', 'unbiased_production',
+                                     'biased_eq', 'biased_eq2', 'production'}):
             raise AnalysisError('unknown GaMD sampling phase')
         if any(not value for value in col['parameter_revision']):
             raise AnalysisError('missing GaMD parameter revision')
@@ -209,21 +208,56 @@ def _verify_exchange_ledger(path, metadata, steps, identities):
         raise AnalysisError('saved frames intersect an incomplete exchange transaction')
 
 
+def _stage_lengths(path):
+    """The producer's per-stage leg lengths, or {} without a readable journal."""
+    journal = path.with_name('gamd_stages.json')
+    if not journal.exists():
+        return {}
+    try:
+        configured = json.loads(journal.read_text()).get('configured')
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(configured, dict):
+        return {}
+    return {str(stage): value for stage, value in configured.items()}
+
+
 def _verify_parameter_history(path, phases, revisions, steps, labels):
-    """When present, the producer parameter history must explain production rows."""
+    """When present, the producer parameter history must explain production rows.
+
+    The producer runs each stage as a LEG (ADR-0011): every stage's clock
+    restarts at 0, so a history entry's ``step`` is the SOURCE stage's own
+    position while a tape ``step`` is the production leg's — the two are not
+    comparable.  The leg-aware invariant is that the set was fixed at the END
+    of its source stage, i.e. at that stage's configured length.
+    """
     calibration = path.with_name('gamd_calibration.json')
     if not calibration.exists():
         return
-    history = json.loads(calibration.read_text()).get('parameter_history', [])
+    history = json.loads(calibration.read_text()).get('parameter_history', {})
+    if not isinstance(history, dict):
+        raise AnalysisError(
+            'calibration history is a pre-stage-keyed list: this run directory\n'
+            'was produced before the stage-keyed journal contract (schema 3).\n'
+            'Adopt its output.ckpt into a fresh run (input_files.checkpoint) '
+            'or analyse it with the matching release')
+    by_revision = {int(entry.get('revision', 0)): (stage, entry)
+                   for stage, entry in history.items()}
+    lengths = _stage_lengths(path)
     for phase, revision, step in zip(phases, revisions, steps):
         if phase != 'production':
             continue
         number = int(revision)
-        if number < 1 or number > len(history):
+        if number < 1 or number not in by_revision:
             raise AnalysisError('production parameter revision is absent from calibration history')
-        state = history[number - 1]
-        if state['step'] > step or set(state['channels']) != set(labels):
+        stage, state = by_revision[number]
+        if set(state['channels']) != set(labels):
             raise AnalysisError('production parameters are stale or incompatible with saved frame')
+        declared = lengths.get(stage)
+        if declared is not None and int(state['step']) != int(declared):
+            raise AnalysisError(
+                'production parameters were not fixed at the end of their '
+                'source stage')
 
 
 @dataclass(frozen=True)
