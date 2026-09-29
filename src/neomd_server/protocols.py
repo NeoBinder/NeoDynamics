@@ -25,8 +25,14 @@ from neomd.prepared import file_digest
 
 from .contract import ContractError, canonical_bytes, content_hash
 
-__all__ = ["CompiledProtocol", "CoordinateReference", "ScientificLimits", "compile_protocol",
-           "validate_protocol", "particle_identity_hash"]
+__all__ = [
+    "CompiledProtocol",
+    "CoordinateReference",
+    "ScientificLimits",
+    "compile_protocol",
+    "validate_protocol",
+    "particle_identity_hash",
+]
 
 
 @dataclass(frozen=True)
@@ -51,7 +57,11 @@ class ScientificLimits:
     max_reference_bytes: int
 
     def __post_init__(self):
-        for value in (self.max_bias_grid_points, self.max_reference_frames, self.max_reference_bytes):
+        for value in (
+            self.max_bias_grid_points,
+            self.max_reference_frames,
+            self.max_reference_bytes,
+        ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise ValueError("scientific resource limits must be positive integers")
 
@@ -70,10 +80,13 @@ class CompiledProtocol:
 def _validator(name):
     root = Path(__file__).resolve().parents[2] / "contracts/scientific-protocol/v1"
     if not root.exists():
-        root = Path(sysconfig.get_path("data")) / "share/neodynamics/contracts/scientific-protocol/v1"
+        root = (
+            Path(sysconfig.get_path("data")) / "share/neodynamics/contracts/scientific-protocol/v1"
+        )
     return jsonschema.Draft202012Validator(
         json.loads((root / f"{name}.schema.json").read_text()),
-        format_checker=jsonschema.FormatChecker())
+        format_checker=jsonschema.FormatChecker(),
+    )
 
 
 def _shape_problems(value, name):
@@ -81,10 +94,12 @@ def _shape_problems(value, name):
     for error in _validator(name).iter_errors(value):
         path = "/" + "/".join(map(str, error.absolute_path))
         # Do not include submitted values, paths, expressions or URLs in errors.
-        message = {"additionalProperties": "unexpected fields; use the versioned scientific vocabulary",
-                   "required": "missing required fields: " + ", ".join(error.validator_value)
-                   if isinstance(error.validator_value, list) else "missing required field"}.get(
-                       error.validator, f"does not satisfy {error.validator or 'closed schema'}")
+        message = {
+            "additionalProperties": "unexpected fields; use the versioned scientific vocabulary",
+            "required": "missing required fields: " + ", ".join(error.validator_value)
+            if isinstance(error.validator_value, list)
+            else "missing required field",
+        }.get(error.validator, f"does not satisfy {error.validator or 'closed schema'}")
         if error.validator == "additionalProperties" and isinstance(error.instance, dict):
             known = error.schema.get("properties", {})
             for key in error.instance.keys() - known.keys():
@@ -125,17 +140,49 @@ def _artifact(directory, manifest, name):
     return path
 
 
-_GROUPS = frozenset(["grp1", "grp2", "grp3", "grp4", "grp1_idx", "grp2_idx", "grp3_idx",
-                    "grp4_idx", "min1_idx1", "min2_idx1", "min_idx2", "particles", "restr_grp",
-                    "gate_grp", "pocket_grp", "vec_grp1", "vec_grp2",
-                    *[f"{part}_grp{i}" for part in ("rec", "lig") for i in range(1, 4)]])
-_RAMP_KEYS = frozenset(["restr_k", "restr_k_per_atom", "min_nm", "max_nm", "min_degree",
-                        "max_degree", "order", "maxRMSD_nm", "ref_position_nm"])
+_GROUPS = frozenset(
+    [
+        "grp1",
+        "grp2",
+        "grp3",
+        "grp4",
+        "grp1_idx",
+        "grp2_idx",
+        "grp3_idx",
+        "grp4_idx",
+        "min1_idx1",
+        "min2_idx1",
+        "min_idx2",
+        "particles",
+        "restr_grp",
+        "gate_grp",
+        "pocket_grp",
+        "vec_grp1",
+        "vec_grp2",
+        *[f"{part}_grp{i}" for part in ("rec", "lig") for i in range(1, 4)],
+    ]
+)
+_RAMP_KEYS = frozenset(
+    [
+        "restr_k",
+        "restr_k_per_atom",
+        "min_nm",
+        "max_nm",
+        "min_degree",
+        "max_degree",
+        "order",
+        "maxRMSD_nm",
+        "ref_position_nm",
+    ]
+)
 
 
 def _is_ramp(key, value):
-    return key in _RAMP_KEYS and isinstance(value, list) and (
-        key != "ref_position_nm" or isinstance(value[0], list))
+    return (
+        key in _RAMP_KEYS
+        and isinstance(value, list)
+        and (key != "ref_position_nm" or isinstance(value[0], list))
+    )
 
 
 def _anchors(value):
@@ -149,6 +196,7 @@ def _bounds(problems, path, parameters, kind, steering):
     for lower, upper in pairs:
         if lower in parameters and upper in parameters and kind != "dihedral":
             lo, hi = _anchors(parameters[lower]), _anchors(parameters[upper])
+
             def times_for(values):
                 if not steering or len(values) == 1:
                     return np.linspace(0, 1, len(values))
@@ -156,22 +204,38 @@ def _bounds(problems, path, parameters, kind, steering):
                     return np.linspace(0, 1, len(values))
                 # Native SMD uses floor-sized segments and extends the last.
                 segment = steering // (len(values) - 1)
-                return np.asarray([i * segment for i in range(len(values) - 1)] + [steering]) / steering
+                return (
+                    np.asarray([i * segment for i in range(len(values) - 1)] + [steering])
+                    / steering
+                )
 
             lo_times, hi_times = times_for(lo), times_for(hi)
             times = np.unique(np.concatenate([lo_times, hi_times]))
             if np.any(np.interp(times, lo_times, lo) > np.interp(times, hi_times, hi)):
                 problems.append((path, f"{lower} must not exceed {upper}, including ramp anchors"))
     bounds = [k for k in parameters if k.startswith(("min_", "max_"))]
-    if kind in {"distance", "angle", "dist_ref_position", "xyz_box", "distances_pair"} and not bounds:
+    if (
+        kind in {"distance", "angle", "dist_ref_position", "xyz_box", "distances_pair"}
+        and not bounds
+    ):
         problems.append((path, "at least one restraint wall is required"))
-    if kind == "dist_ref_position" and sum(k in parameters for k in ("restr_k", "restr_k_per_atom")) != 1:
+    if (
+        kind == "dist_ref_position"
+        and sum(k in parameters for k in ("restr_k", "restr_k_per_atom")) != 1
+    ):
         problems.append((path, "choose exactly one of restr_k and restr_k_per_atom"))
     if kind == "funnel" and (parameters["width"] < 0 or parameters["buffer"] < 0):
         problems.append((path, "funnel width and buffer must be nonnegative"))
-    if kind == "boresch" and (parameters["r0_nm"] <= 0 or any(
-            not 0 < parameters[key] < 180 for key in ("thetaA0_degree", "thetaB0_degree"))):
-        problems.append((path, "Boresch distance must be positive and equilibrium angles strictly between 0 and 180 degrees"))
+    if kind == "boresch" and (
+        parameters["r0_nm"] <= 0
+        or any(not 0 < parameters[key] < 180 for key in ("thetaA0_degree", "thetaB0_degree"))
+    ):
+        problems.append(
+            (
+                path,
+                "Boresch distance must be positive and equilibrium angles strictly between 0 and 180 degrees",
+            )
+        )
     if steering:
         for key, value in parameters.items():
             if _is_ramp(key, value) and len(value) > steering + 1:
@@ -190,9 +254,13 @@ def _reference_data(reference, kind, manifest, directory, resolver, limits, requ
         if frame_count > limits.max_reference_frames:
             raise _ReferenceLimitError("reference frame count exceeds the host scientific limit")
         if requirements["reference_coordinate_bytes"] + size > limits.max_reference_bytes:
-            raise _ReferenceLimitError("total reference coordinate bytes exceed the host scientific limit")
+            raise _ReferenceLimitError(
+                "total reference coordinate bytes exceed the host scientific limit"
+            )
         requirements["reference_coordinate_bytes"] += size
-        requirements["max_reference_frames"] = max(requirements["max_reference_frames"], frame_count)
+        requirements["max_reference_frames"] = max(
+            requirements["max_reference_frames"], frame_count
+        )
 
     if reference["kind"] == "prepared_start":
         if kind in {"path_s", "path_z"}:
@@ -208,10 +276,12 @@ def _reference_data(reference, kind, manifest, directory, resolver, limits, requ
     meta = dict(result.metadata)
     if _shape_problems(meta, "coordinate-reference"):
         raise ValueError("registered coordinate metadata fails its versioned schema")
-    if (meta["reference_id"] != reference["reference_id"]
-            or meta["prepared_revision_id"] != manifest["prepared_revision_id"]
-            or meta["particle_identity_sha256"] != particle_identity_hash(manifest)
-            or meta["particle_count"] != count):
+    if (
+        meta["reference_id"] != reference["reference_id"]
+        or meta["prepared_revision_id"] != manifest["prepared_revision_id"]
+        or meta["particle_identity_sha256"] != particle_identity_hash(manifest)
+        or meta["particle_count"] != count
+    ):
         raise ValueError("registered reference identity or prepared revision does not match")
     # JSON Schema integers include lexical 2.0; use integral dimensions after
     # validation so an interoperable JSON number cannot become a slice error.
@@ -219,8 +289,11 @@ def _reference_data(reference, kind, manifest, directory, resolver, limits, requ
     expected_size = frame_count * count * 3 * 8
     reserve(frame_count)
     path = Path(result.path)
-    if (meta["size_bytes"] != expected_size or path.stat().st_size != expected_size
-            or file_digest(path) != meta["content_sha256"]):
+    if (
+        meta["size_bytes"] != expected_size
+        or path.stat().st_size != expected_size
+        or file_digest(path) != meta["content_sha256"]
+    ):
         raise ValueError("registered coordinate bytes do not match metadata")
     frames = np.memmap(path, mode="r", dtype="<f8", shape=(frame_count, count, 3))
     if any(not np.isfinite(frame).all() for frame in frames):
@@ -234,7 +307,7 @@ def _reference_data(reference, kind, manifest, directory, resolver, limits, requ
         index = int(reference.get("frame_index", 0))
         if index >= len(frames):
             raise ValueError("reference frame_index is out of range")
-        frames = frames[index:index + 1]
+        frames = frames[index : index + 1]
     return frames
 
 
@@ -247,15 +320,21 @@ def _write_reference(path, frames):
     with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as handle:
         temporary = Path(handle.name)
         try:
-            handle.write("data_reference\nloop_\n_atom_site.Cartn_x\n_atom_site.Cartn_y\n_atom_site.Cartn_z\n_atom_site.pdbx_PDB_model_num\n")
+            handle.write(
+                "data_reference\nloop_\n_atom_site.Cartn_x\n_atom_site.Cartn_y\n_atom_site.Cartn_z\n_atom_site.pdbx_PDB_model_num\n"
+            )
             for model, frame in enumerate(frames, 1):
                 for row in frame:
-                    handle.write(" ".join(format(float(x) * 10, ".17g") for x in row) + f" {model}\n")
+                    handle.write(
+                        " ".join(format(float(x) * 10, ".17g") for x in row) + f" {model}\n"
+                    )
             handle.write("#\n")
             handle.flush()
             if path.exists():
                 if file_digest(path) != file_digest(temporary):
-                    raise ValueError("immutable compiled reference already exists with different bytes")
+                    raise ValueError(
+                        "immutable compiled reference already exists with different bytes"
+                    )
             else:
                 # Atomic no-replace publication, safe for same-descriptor retries.
                 os.link(temporary, path)
@@ -263,10 +342,18 @@ def _write_reference(path, frames):
             temporary.unlink(missing_ok=True)
 
 
-def compile_protocol(descriptor, *, prepared_manifest, prepared_directory, limits: ScientificLimits,
-                     output_directory, protocol_directory,
-                     reference_resolver: Callable[[str], CoordinateReference] | None = None,
-                     materialize_references: bool = True):
+def compile_protocol(
+    descriptor,
+    *,
+    prepared_manifest,
+    prepared_directory,
+    limits: ScientificLimits,
+    output_directory,
+    protocol_directory,
+    reference_resolver: Callable[[str], CoordinateReference] | None = None,
+    materialize_references: bool = True,
+    trusted_topology_file=None,
+):
     """Resolve stable IDs and construct an immutable Plan from safe science JSON.
 
     The caller owns authorization, schema/hash verification of the prepared
@@ -282,17 +369,34 @@ def compile_protocol(descriptor, *, prepared_manifest, prepared_directory, limit
     problems = []
     if not isinstance(limits, ScientificLimits):
         raise TypeError("host must supply ScientificLimits")
-    requirements = {"bias_grid_points": 0, "max_reference_frames": 0, "reference_coordinate_bytes": 0}
+    requirements = {
+        "bias_grid_points": 0,
+        "max_reference_frames": 0,
+        "reference_coordinate_bytes": 0,
+    }
     if data["method"] in {"metadynamics", "opes"}:
-        requirements["bias_grid_points"] = math.prod(int(cv["parameters"]["bins"]) for cv in data["colvars"])
+        requirements["bias_grid_points"] = math.prod(
+            int(cv["parameters"]["bins"]) for cv in data["colvars"]
+        )
         if requirements["bias_grid_points"] > limits.max_bias_grid_points:
-            problems.append(("/colvars", "combined bias grid points exceed the host scientific limit"))
+            problems.append(
+                ("/colvars", "combined bias grid points exceed the host scientific limit")
+            )
     if data["prepared_revision_id"] != manifest["prepared_revision_id"]:
         problems.append(("/prepared_revision_id", "does not match the authorized prepared bundle"))
     pending = manifest["parameters"].get("system_modifications")
-    has_pending = any(value not in (None, {}, []) for value in pending.values()) if isinstance(pending, dict) else bool(pending)
+    has_pending = (
+        any(value not in (None, {}, []) for value in pending.values())
+        if isinstance(pending, dict)
+        else bool(pending)
+    )
     if has_pending:
-        problems.append(("/prepared", "pending System modifications must be materialized and exported before registration"))
+        problems.append(
+            (
+                "/prepared",
+                "pending System modifications must be materialized and exported before registration",
+            )
+        )
     particles = {row["identity_id"]: row for row in manifest["particles"]}
     digest = content_hash(data)
     protocol_root = Path(protocol_directory).resolve()
@@ -311,7 +415,12 @@ def compile_protocol(descriptor, *, prepared_manifest, prepared_directory, limit
                     if particle is None:
                         problems.append((f"{path}/{key}/{i}", "unknown prepared AtomId"))
                     elif not particle["control_eligible"] or particle["identity_kind"] != "atom":
-                        problems.append((f"{path}/{key}/{i}", "selection requires an eligible massive prepared atom"))
+                        problems.append(
+                            (
+                                f"{path}/{key}/{i}",
+                                "selection requires an eligible massive prepared atom",
+                            )
+                        )
                     else:
                         indices.append(particle["particle_index"])
                 result[key] = indices
@@ -326,46 +435,93 @@ def compile_protocol(descriptor, *, prepared_manifest, prepared_directory, limit
     for section, prefix in (("colvars", "cv_"), ("restraints", "r_"), ("steering", "s_")):
         for i, definition in enumerate(data.get(section, [])):
             path = f"/{section}/{i}"
-            identity, kind, parameters = definition["id"], definition["type"], definition["parameters"]
+            identity, kind, parameters = (
+                definition["id"],
+                definition["type"],
+                definition["parameters"],
+            )
             if identity in seen_ids:
-                problems.append((path + "/id", "definition UUID must be unique across CVs and restraints"))
+                problems.append(
+                    (path + "/id", "definition UUID must be unique across CVs and restraints")
+                )
             seen_ids.add(identity)
             name = prefix + UUID(identity).hex
             names[section][identity] = name
             spec = {"type": kind, **convert(parameters, path + "/parameters")}
             if section == "colvars":
-                suffix = "_degree" if kind in {"angle", "dihedral"} else "" if kind in {"coordination", "path_s"} else "_nm"
+                suffix = (
+                    "_degree"
+                    if kind in {"angle", "dihedral"}
+                    else ""
+                    if kind in {"coordination", "path_s"}
+                    else "_nm"
+                )
                 if parameters["min_cv" + suffix] >= parameters["max_cv" + suffix]:
-                    problems.append((path + "/parameters", "CV grid lower bound must be below upper bound"))
+                    problems.append(
+                        (path + "/parameters", "CV grid lower bound must be below upper bound")
+                    )
                 if kind == "coordination" and parameters.get("mm", 12) <= parameters.get("nn", 6):
-                    problems.append((path + "/parameters", "coordination denominator exponent must exceed numerator exponent"))
+                    problems.append(
+                        (
+                            path + "/parameters",
+                            "coordination denominator exponent must exceed numerator exponent",
+                        )
+                    )
             else:
-                _bounds(problems, path + "/parameters", parameters, kind,
-                        data["steps"] if section == "steering" else False)
+                _bounds(
+                    problems,
+                    path + "/parameters",
+                    parameters,
+                    kind,
+                    data["steps"] if section == "steering" else False,
+                )
             if "reference" in parameters:
                 try:
-                    frames = _reference_data(parameters["reference"], kind, manifest, prepared_directory,
-                                             reference_resolver, limits, requirements)
+                    frames = _reference_data(
+                        parameters["reference"],
+                        kind,
+                        manifest,
+                        prepared_directory,
+                        reference_resolver,
+                        limits,
+                        requirements,
+                    )
                     target = protocol_root / digest / f"{name}.pdbx"
                     generated[target] = frames
-                    spec["ref_path_file" if kind in {"path_s", "path_z"} else "ref_pos_file"] = str(target)
+                    spec["ref_path_file" if kind in {"path_s", "path_z"} else "ref_pos_file"] = str(
+                        target
+                    )
                 except _ReferenceLimitError as error:
                     problems.append((path + "/parameters/reference", str(error)))
                 except (ValueError, OSError, KeyError):
-                    problems.append((path + "/parameters/reference", "reference unavailable, mismatched, malformed or incompatible with this CV; verify frame selection and registered metadata"))
+                    problems.append(
+                        (
+                            path + "/parameters/reference",
+                            "reference unavailable, mismatched, malformed or incompatible with this CV; verify frame selection and registered metadata",
+                        )
+                    )
             translated[section][name] = spec
 
     physics = data["physics"]
-    raw = {"method": data["method"], "temperature": physics["temperature_K"], "seed": physics["seed"],
-           "integrator": {"integrator_name": "LangevinIntegrator", "dt": physics["timestep_ps"],
-                          "friction_coeff": physics["friction_per_ps"]},
-           "input_files": {}, "output": {"output_dir": str(Path(output_directory).resolve()),
-                                          "report_interval": 1000}}
+    raw = {
+        "method": data["method"],
+        "temperature": physics["temperature_K"],
+        "seed": physics["seed"],
+        "integrator": {
+            "integrator_name": "LangevinIntegrator",
+            "dt": physics["timestep_ps"],
+            "friction_coeff": physics["friction_per_ps"],
+        },
+        "input_files": {},
+        "output": {"output_dir": str(Path(output_directory).resolve()), "report_interval": 1000},
+    }
     if "barostat" in physics:
         if manifest["box_vectors_nm"] is None:
             problems.append(("/physics/barostat", "barostat requires a periodic prepared System"))
-        raw["barostat"] = {"pressure": physics["barostat"]["pressure_bar"],
-                           "frequency": physics["barostat"]["frequency_steps"]}
+        raw["barostat"] = {
+            "pressure": physics["barostat"]["pressure_bar"],
+            "frequency": physics["barostat"]["frequency_steps"],
+        }
     for key, value in data.get("reporting", {}).items():
         raw["output"][key.removesuffix("_steps")] = value
     if translated["restraints"]:
@@ -373,8 +529,10 @@ def compile_protocol(descriptor, *, prepared_manifest, prepared_directory, limit
     if "steps" in data:
         raw["steps"] = data["steps"]
     if data["method"] == "min":
-        raw["min_params"] = {"tolerance": data["minimization"]["tolerance_kj_mol_nm"],
-                             "maxiter": data["minimization"]["max_iterations"]}
+        raw["min_params"] = {
+            "tolerance": data["minimization"]["tolerance_kj_mol_nm"],
+            "maxiter": data["minimization"]["max_iterations"],
+        }
     if data["method"] == "smd":
         raw["smd"] = translated["steering"]
     if data["method"] in {"metadynamics", "opes"}:
@@ -384,38 +542,87 @@ def compile_protocol(descriptor, *, prepared_manifest, prepared_directory, limit
         if set(ids) != set(names["colvars"]):
             problems.append((f"/{method}/cv_ids", "must reference every defined CV exactly once"))
         else:
-            raw["colvars"] = {names["colvars"][identity]: translated["colvars"][names["colvars"][identity]] for identity in ids}
-        mapping = {"bias_factor": "biasFactor", "height_kj_mol": "height", "frequency_steps": "frequency",
-                   "update_context_frequency_steps": "update_context_frequency", "pace_steps": "pace", "barrier_kj_mol": "barrier"}
+            raw["colvars"] = {
+                names["colvars"][identity]: translated["colvars"][names["colvars"][identity]]
+                for identity in ids
+            }
+        mapping = {
+            "bias_factor": "biasFactor",
+            "height_kj_mol": "height",
+            "frequency_steps": "frequency",
+            "update_context_frequency_steps": "update_context_frequency",
+            "pace_steps": "pace",
+            "barrier_kj_mol": "barrier",
+        }
         raw["meta_set" if method == "metadynamics" else "opes_set"] = {
-            mapping.get(key, key): value for key, value in settings.items() if key != "cv_ids"}
+            mapping.get(key, key): value for key, value in settings.items() if key != "cv_ids"
+        }
     if data["method"] == "gamd":
         settings = data["gamd"]
-        if settings["calibration_steps"] >= data["steps"] or settings["calibration_interval_steps"] > settings["calibration_steps"]:
-            problems.append(("/gamd", "calibration must sample at least once and end before total steps"))
-        raw["gamd"] = {key.removesuffix("_kj_mol").removesuffix("_steps") if key not in {"calibration_steps"} else key: value for key, value in settings.items()}
+        if (
+            settings["calibration_steps"] >= data["steps"]
+            or settings["calibration_interval_steps"] > settings["calibration_steps"]
+        ):
+            problems.append(
+                ("/gamd", "calibration must sample at least once and end before total steps")
+            )
+        raw["gamd"] = {
+            key.removesuffix("_kj_mol").removesuffix("_steps")
+            if key not in {"calibration_steps"}
+            else key: value
+            for key, value in settings.items()
+        }
     try:
-        topology = [name for name in manifest["artifacts"] if name in {"topology.pdb", "topology.pdbx"}]
-        if len(topology) != 1:
-            raise ValueError("one prepared topology artifact is required")
-        raw["input_files"] = {"complex": str(_artifact(prepared_directory, manifest, topology[0])),
-                              "system": str(_artifact(prepared_directory, manifest, "system.xml"))}
+        topology = [
+            name for name in manifest["artifacts"] if name in {"topology.pdb", "topology.pdbx"}
+        ]
+        if trusted_topology_file is None:
+            if len(topology) != 1:
+                raise ValueError("one prepared topology artifact is required")
+            topology_path = _artifact(prepared_directory, manifest, topology[0])
+        elif topology:
+            raise ValueError(
+                "topology bridge is only for prepared bundles without a topology carrier"
+            )
+        else:
+            topology_path = Path(trusted_topology_file).resolve(strict=True)
+            if not topology_path.is_file() or topology_path.suffix != ".pdbx":
+                raise ValueError("trusted topology bridge must be a PDBx file")
+        raw["input_files"] = {
+            "complex": str(topology_path),
+            "system": str(_artifact(prepared_directory, manifest, "system.xml")),
+        }
         if data["method"] == "rbfe":
             windows = data["rbfe"]["windows"]
             keys = set(windows[0])
             if any(set(window) != keys for window in windows):
-                problems.append(("/rbfe/windows", "all lambda windows must use identical parameter names"))
+                problems.append(
+                    ("/rbfe/windows", "all lambda windows must use identical parameter names")
+                )
             if len({content_hash(window) for window in windows}) != len(windows):
                 problems.append(("/rbfe/windows", "lambda windows must be distinct"))
             tree = ElementTree.parse(raw["input_files"]["system"])
-            available = {node.attrib["name"] for node in tree.findall(".//GlobalParameters/Parameter") if "name" in node.attrib}
+            available = {
+                node.attrib["name"]
+                for node in tree.findall(".//GlobalParameters/Parameter")
+                if "name" in node.attrib
+            }
             if not keys <= available:
-                problems.append(("/rbfe/windows", "lambda parameters are not declared by the prepared System"))
+                problems.append(
+                    ("/rbfe/windows", "lambda parameters are not declared by the prepared System")
+                )
             if raw["output"]["report_interval"] <= 0:
-                problems.append(("/reporting/report_interval_steps", "RBFE requires positive energy reporting cadence"))
+                problems.append(
+                    (
+                        "/reporting/report_interval_steps",
+                        "RBFE requires positive energy reporting cadence",
+                    )
+                )
             raw["alchemical"] = {"lambda_values": windows[0], "ladder": windows}
     except (ValueError, OSError, KeyError, ElementTree.ParseError):
-        problems.append(("/prepared", "trusted prepared artifacts are absent, changed or malformed"))
+        problems.append(
+            ("/prepared", "trusted prepared artifacts are absent, changed or malformed")
+        )
     if problems:
         raise ContractError(problems)
     # Core Plan retains its collect-all immutable validation contract. File paths
@@ -424,5 +631,11 @@ def compile_protocol(descriptor, *, prepared_manifest, prepared_directory, limit
     if materialize_references:
         for path, frames in generated.items():
             _write_reference(path, frames)
-    return CompiledProtocol(plan, MappingProxyType(names["colvars"]), MappingProxyType(names["restraints"]),
-                            MappingProxyType(names["steering"]), digest, MappingProxyType(requirements))
+    return CompiledProtocol(
+        plan,
+        MappingProxyType(names["colvars"]),
+        MappingProxyType(names["restraints"]),
+        MappingProxyType(names["steering"]),
+        digest,
+        MappingProxyType(requirements),
+    )

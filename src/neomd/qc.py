@@ -553,9 +553,8 @@ def _check_coordinates(positions: np.ndarray, box: np.ndarray | None,
                 detail=(
                     f"atom {index} is more than {escape:.2f} of a box vector "
                     f"outside the unit cell (fractional position "
-                    f"{np.array2string(frac[index], precision=3)}); raw "
-                    f"coordinates this far out have no consistent minimum "
-                    f"image"),
+                    f"{np.array2string(frac[index], precision=3)}); check "
+                    f"the box origin and periodic image placement"),
                 atoms=(int(index),), labels=(labels[index],),
                 measured=float(np.max(np.abs(frac[index]))),
                 threshold=1.0 + escape, units="fractional"))

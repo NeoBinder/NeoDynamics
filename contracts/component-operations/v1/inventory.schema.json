@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:neodyn:component-operations:v1:inventory",
+  "title": "Complete component operation artifact inventory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "operation_id",
+    "receipt_id",
+    "artifacts",
+    "total_size_bytes"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "operation_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "receipt_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "$ref": "#/$defs/Artifact"
+      }
+    },
+    "total_size_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "not": {
+        "const": "00000000-0000-0000-0000-000000000000"
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[a-z0-9][a-z0-9._-]*(/[a-z0-9][a-z0-9._-]*)*$",
+      "not": {
+        "pattern": "(^|/)\\.\\.?(?:/|$)"
+      }
+    },
+    "Artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_id",
+        "role",
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "properties": {
+        "artifact_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "role": {
+          "enum": [
+            "manifest",
+            "topology",
+            "system",
+            "coordinates",
+            "mapping",
+            "report",
+            "source",
+            "forcefield",
+            "ligand",
+            "state",
+            "instance",
+            "package",
+            "assembly",
+            "qc",
+            "prepared",
+            "asset",
+            "log"
+          ]
+        },
+        "path": {
+          "$ref": "#/$defs/name"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    }
+  }
+}

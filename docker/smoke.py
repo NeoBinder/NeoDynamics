@@ -24,15 +24,31 @@ CONTRACTS = (
     "imd/v1/errors.json", "imd/v1/openapi.json", "imd/v1/protocol.schema.json",
     "scientific-protocol/v1/coordinate-reference.schema.json",
     "scientific-protocol/v1/protocol.schema.json",
+    "scientific-protocol-template/v1/bind.schema.json",
+    "scientific-protocol-template/v1/template.schema.json",
     "prepared-bundle/v1/manifest.schema.json", "prepared-bundle/v1/mapping.schema.json",
     "prepared-bundle/v1/source-input.schema.json", "prepared-bundle/v2/manifest.schema.json",
     "prepared-bundle/v2/mapping.schema.json", "prepared-bundle/v2/source-input.schema.json",
     "assembly-report/v1/report.schema.json", "topology-view/v1/page.schema.json",
     "topology-view/v1/view.schema.json", "protein-preparation/v1/catalog.schema.json",
     "molecular-topology/v1/topology.schema.json",
+    "component-operations/v1/catalog.schema.json",
+    "component-operations/v1/inventory.schema.json",
+    "component-operations/v1/operation.schema.json",
+    "component-operations/v1/qc.schema.json",
+    "component-operations/v1/receipt.schema.json",
+    "component-preparation/v1/artifact-reference.schema.json",
+    "component-preparation/v1/capability-catalog.schema.json",
+    "component-preparation/v1/chemical-state.schema.json",
+    "component-preparation/v1/component-instance.schema.json",
+    "component-preparation/v1/diagnostic.schema.json",
+    "component-preparation/v1/parameter-package.schema.json",
+    "component-preparation/v1/preparation-recipe.schema.json",
+    "component-system-qc/v1/report.schema.json",
     "protein-preparation/v2/catalog.schema.json", "protein-preparation/v2/request.schema.json",
     "protein-preparation/v2/operation.schema.json", "protein-preparation/v2/receipt.schema.json",
     "trajectory-result/v1/manifest.schema.json", "neoapi-md-publication/v1/openapi.yaml",
+    "trajectory-comparison/v1/operation.schema.json",
     "neoapi-md-publication/v1/schema.json", "neoapi-md-publication/v1/snapshot.json",
     "neoapi-md-publication/v1/README.md",
 )
@@ -42,6 +58,7 @@ FIXTURE_FILES = (
 )
 DEPENDENCY_ROOTS = (
     "NeoDynamics[server]", "OpenMM", "PDBFixer", "openff-toolkit", "openmmforcefields",
+    "gemmi>=0.7.5,<0.8",
 )
 
 
@@ -134,20 +151,23 @@ def check_installation(provenance_path: Path) -> dict:
         origins[module] = str(Path(spec.origin).resolve())
     if importlib.import_module("neomd").__version__ != version:
         raise SmokeError("neomd runtime version differs from distribution metadata")
-    versions = {name: importlib.metadata.version(name) for name in ("OpenMM", "pdbfixer")}
+    versions = {name: importlib.metadata.version(name) for name in ("OpenMM", "pdbfixer", "gemmi")}
     if versions["OpenMM"] not in {"8.6", "8.6.0"}:
         raise SmokeError("image requires exact OpenMM 8.6.0")
     if versions["pdbfixer"] not in {"1.12", "1.12.0"}:
         raise SmokeError("image requires exact PDBFixer 1.12.0")
+    if versions["gemmi"] != "0.7.5":
+        raise SmokeError("image requires exact Gemmi 0.7.5")
     # Check that the distribution is importable, not merely present as metadata.
     importlib.import_module("openmm")
     importlib.import_module("pdbfixer")
+    importlib.import_module("gemmi")
     server = Path(origins["neomd_server"]).parent
     migrations = server / "migrations"
-    if {path.name for path in migrations.glob("*.sql")} != {f"{n:03d}.sql" for n in range(1, 13)}:
-        raise SmokeError("installed migrations must contain exactly 001.sql through 012.sql")
+    if {path.name for path in migrations.glob("*.sql")} != {f"{n:03d}.sql" for n in range(1, 16)}:
+        raise SmokeError("installed migrations must contain exactly 001.sql through 015.sql")
     contracts = Path(sysconfig.get_path("data")) / "share/neodynamics/contracts"
-    assets = [(f"migrations/{n:03d}.sql", migrations / f"{n:03d}.sql") for n in range(1, 13)]
+    assets = [(f"migrations/{n:03d}.sql", migrations / f"{n:03d}.sql") for n in range(1, 16)]
     assets += [(f"contracts/{name}", contracts / name) for name in CONTRACTS]
     assets += [(f"fixture/{name}", server / "fixtures/qualification" / name) for name in FIXTURE_FILES]
     inventory = {}

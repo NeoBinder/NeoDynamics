@@ -45,6 +45,42 @@ def _caps(status, steering):
     return {"commands": status["controls"], "parameters": parameters}
 
 
+_CUDA_SINGLE_PHASE_START_TOLERANCE_NM = 1e-6
+
+
+def _phase_start_proof(start, source_positions, source_box, source_sha256, *, platform):
+    """Prove the Context started from exact sealed input, allowing CUDA f32 readback.
+
+    The source hash and stored phase-start bytes remain exact. Only a CUDA
+    single-precision Context's observed XYZ may differ by at most 1e-6 nm
+    per Cartesian component (1e-5 Å). The periodic box stays exact.
+    """
+    import numpy as np
+
+    from .continuation import final_state_bytes
+
+    source_bytes = final_state_bytes(source_positions, source_box)
+    if hashlib.sha256(source_bytes).hexdigest() != source_sha256:
+        raise ValueError("verified phase source changed before Context startup")
+    observed_bytes = final_state_bytes(start["positions_nm"], start["box_vectors_nm"])
+    if start["step"] != 0 or start["particle_count"] != len(source_positions):
+        raise ValueError("new Context has an invalid phase-start step or particle count")
+    if platform == "cpu":
+        if observed_bytes != source_bytes:
+            raise ValueError("new CPU Context does not exactly match verified phase handoff")
+    elif platform == "cuda":
+        observed_positions = np.asarray(start["positions_nm"], dtype=np.float64)
+        source_positions = np.asarray(source_positions, dtype=np.float64)
+        if (observed_positions.shape != source_positions.shape
+                or not np.array_equal(start["box_vectors_nm"], source_box)
+                or np.max(np.abs(observed_positions - source_positions))
+                > _CUDA_SINGLE_PHASE_START_TOLERANCE_NM):
+            raise ValueError("new CUDA Context exceeds single-precision phase handoff bound")
+    else:
+        raise ValueError("unsupported phase-start platform")
+    return source_bytes, hashlib.sha256(observed_bytes).hexdigest()
+
+
 def _command(payload, particles, steering):
     from .driver import CommandValidationErrors
 
@@ -156,34 +192,44 @@ def _checkpoint(session, sink, spec, *, descriptor):
         files.append(target)
     sealed = []
     artifacts = _publish_files(files, spec, closed_outputs=sealed)
-    entries = [{"name": name, "sha256": item["descriptor"]["content_sha256"],
-                "size_bytes": item["descriptor"]["size_bytes"],
-                "artifact_id": item["descriptor"]["artifact_id"], "local_ref": item["local_ref"],
-                "stat": list(proof.stat)}
-               for name, item, proof in zip(ordered_names, artifacts, sealed, strict=True)]
-    expected = {descriptor["checkpoint"]: descriptor["checkpoint_sha256"],
-                **descriptor["companion_sha256"]}
-    if any(item["sha256"] != expected[item["name"]] for item in entries if item["name"] in expected):
+    entries = [
+        {
+            "name": name,
+            "sha256": item["descriptor"]["content_sha256"],
+            "size_bytes": item["descriptor"]["size_bytes"],
+            "artifact_id": item["descriptor"]["artifact_id"],
+            "local_ref": item["local_ref"],
+            "stat": list(proof.stat),
+        }
+        for name, item, proof in zip(ordered_names, artifacts, sealed, strict=True)
+    ]
+    expected = {
+        descriptor["checkpoint"]: descriptor["checkpoint_sha256"],
+        **descriptor["companion_sha256"],
+    }
+    if any(
+        item["sha256"] != expected[item["name"]] for item in entries if item["name"] in expected
+    ):
         raise ValueError("checkpoint bytes differ from their scientific descriptor")
     metadata = root / "checkpoint-generation.json"
     metadata_bytes = encoded(
-            {
-                "schema_version": 2,
-                "checkpoint_id": checkpoint_id,
-                **spec["artifact_binding"],
-                "epoch": spec["epoch"],
-                "prepared": spec["input"]["prepared"],
-                "protocol": spec["input"]["protocol"],
-                "method": session.plan.method,
-                "step": descriptor["step"],
-                "control_revision": descriptor["control_revision"],
-                "platform": spec["platform"],
-                "platform_bound": True,
-                "files": entries,
-            }
+        {
+            "schema_version": 2,
+            "checkpoint_id": checkpoint_id,
+            **spec["artifact_binding"],
+            "epoch": spec["epoch"],
+            "prepared": spec["input"]["prepared"],
+            "protocol": spec["input"]["protocol"],
+            "method": session.plan.method,
+            "step": descriptor["step"],
+            "control_revision": descriptor["control_revision"],
+            "platform": spec["platform"],
+            "platform_bound": True,
+            "files": entries,
+        }
     )
     sink.check_extra_bytes(len(metadata_bytes))
-    with metadata.open('xb') as handle:
+    with metadata.open("xb") as handle:
         handle.write(metadata_bytes)
     artifacts.extend(_publish_files([metadata], spec, closed_outputs=sealed))
     objects = Path(spec["objects_directory"])
@@ -191,19 +237,29 @@ def _checkpoint(session, sink, spec, *, descriptor):
     if any(artifact_stat(item.path.lstat()) != item.stat for item in sealed):
         raise ValueError("checkpoint changed before publication")
     sink.audit()
-    evidence = {'version': 1, 'metadata': metadata_bytes.decode(),
-                'metadata_artifact_id': artifacts[-1]['local_ref'],
-                'artifacts': [{**item, 'relative_path': proof.path.relative_to(spec['attempt_directory']).as_posix(),
-                               'stat': list(proof.stat)}
-                              for item, proof in zip(artifacts, sealed, strict=True)]}
+    evidence = {
+        "version": 1,
+        "metadata": metadata_bytes.decode(),
+        "metadata_artifact_id": artifacts[-1]["local_ref"],
+        "artifacts": [
+            {
+                **item,
+                "relative_path": proof.path.relative_to(spec["attempt_directory"]).as_posix(),
+                "stat": list(proof.stat),
+            }
+            for item, proof in zip(artifacts, sealed, strict=True)
+        ],
+    }
     return CheckpointPublication.from_message(evidence).value()
 
 
 def emit_projection(spec, manifest, emit):
     """Stream the verified immutable AtomId projection in bounded ordered batches."""
     asset = spec["input"]["asset"]
-    if (manifest["particle_count"] != asset["particle_count"]
-            or manifest["topology_atom_count"] != asset["topology_atom_count"]):
+    if (
+        manifest["particle_count"] != asset["particle_count"]
+        or manifest["topology_atom_count"] != asset["topology_atom_count"]
+    ):
         raise ValueError("prepared particle counts changed")
     digest, rows, sequence, count = hashlib.sha256(), [], 0, 0
     for row in manifest["particles"]:
@@ -221,11 +277,22 @@ def emit_projection(spec, manifest, emit):
     if rows:
         emit({"type": "projection", "sequence": sequence, "rows": rows})
         sequence += 1
-    if digest.hexdigest() != asset["preview_projection_sha256"] or count != asset["topology_atom_count"]:
+    if (
+        digest.hexdigest() != asset["preview_projection_sha256"]
+        or count != asset["topology_atom_count"]
+    ):
         raise ValueError("prepared projection changed")
-    emit({"type": "projection_complete", "sequence": sequence, "count": count,
-          "sha256": digest.hexdigest(), "prepared": spec["input"]["prepared"],
-          "binding": spec["artifact_binding"], "epoch": spec["epoch"]})
+    emit(
+        {
+            "type": "projection_complete",
+            "sequence": sequence,
+            "count": count,
+            "sha256": digest.hexdigest(),
+            "prepared": spec["input"]["prepared"],
+            "binding": spec["artifact_binding"],
+            "epoch": spec["epoch"],
+        }
+    )
 
 
 def session_process(spec, commands, events, frames):
@@ -239,6 +306,8 @@ def session_process(spec, commands, events, frames):
     from neomd.kernel.port import KernelFactory
     from neomd.prepared import read_prepared_bundle
 
+    from .continuation import verify_continuation_input
+    from .contract import canonical_bytes
     from .driver import CommandValidationErrors, open_session
     from .probes import LivePreviewSampler
     from .protocols import CoordinateReference, ScientificLimits, compile_protocol
@@ -250,7 +319,7 @@ def session_process(spec, commands, events, frames):
     def emit(message):
         # The complete envelope (not only its proof) must fit the existing lane.
         if len(events.encode(message)) > events.max_message_bytes:
-            raise ValueError('IPC message exceeds bounded size')
+            raise ValueError("IPC message exceeds bounded size")
         while time.monotonic() < deadline:
             try:
                 events.put(message, timeout=0.05)
@@ -289,6 +358,13 @@ def session_process(spec, commands, events, frames):
             > spec["max_output_bytes"]
         ):
             raise OutputLimitExceeded("compiled inputs exceed reserved output capacity")
+        topology_bridge = None
+        if manifest.get("schema_version") == 2 and "topology.pdbx" not in manifest["artifacts"]:
+            from .template_binding import write_component_topology_bridge
+
+            topology_bridge = write_component_topology_bridge(
+                manifest, bundle, Path(spec["attempt_directory"]) / "references" / "topology.pdbx"
+            )
         compiled = compile_protocol(
             data["descriptor"],
             prepared_manifest=manifest,
@@ -297,8 +373,12 @@ def session_process(spec, commands, events, frames):
             protocol_directory=Path(spec["attempt_directory"]) / "references",
             reference_resolver=references.__getitem__,
             limits=ScientificLimits(**data["scientific_limits"]),
+            trusted_topology_file=topology_bridge,
         )
         positions = np.fromfile(bundle / "coordinates.f64le", dtype="<f8").reshape(-1, 3)
+        initial_box = None
+        if data.get("continuation") is not None:
+            positions, initial_box = verify_continuation_input(data, manifest)
         ensure_adapters()
 
         def factory(kernel_spec):
@@ -307,6 +387,7 @@ def session_process(spec, commands, events, frames):
                     kernel_spec,
                     device_index=spec["device_index"],
                     initial_positions_nm=tuple(map(tuple, positions)),
+                    initial_box_vectors_nm=(None if initial_box is None else tuple(map(tuple, initial_box))),
                     topology_particle_indices=tuple(manifest["topology_particle_indices"]),
                 )
             )
@@ -320,9 +401,27 @@ def session_process(spec, commands, events, frames):
         )
         budget = RunningBudget(spec["running_budget"]["limit_ns"])
         session = open_session(
-            compiled.plan, kernel_factory=factory, platform=spec["platform"], sink=sink,
+            compiled.plan,
+            kernel_factory=factory,
+            platform=spec["platform"],
+            sink=sink,
             running_budget=budget,
         )
+        if data.get("continuation") is not None:
+            start = session.frame()
+            source_bytes, observed_sha = _phase_start_proof(
+                start, positions, initial_box,
+                data["continuation"]["final_state_sha256"], platform=spec["platform"],
+            )
+            sink.write_bytes("phase-start.f64le", source_bytes)
+            sink.write_bytes("phase-start.json", canonical_bytes({
+                "source_final_state_sha256": data["continuation"]["final_state_sha256"],
+                "observed_context_state_sha256": observed_sha,
+                "particle_identity_sha256": data["continuation_authority"]["particle_identity_sha256"],
+                "velocity_policy": data["continuation"]["velocity_policy"],
+                "temperature_K": data["descriptor"]["physics"]["temperature_K"],
+                "seed": data["descriptor"]["physics"]["seed"],
+            }))
         sampler = LivePreviewSampler(session, particle_count=data["asset"]["particle_count"])
         particles = {row["identity_id"]: row for row in manifest["particles"]}
         steering = dict(compiled.steering_names)
@@ -333,8 +432,11 @@ def session_process(spec, commands, events, frames):
         host_stop_result = None
         while True:
             now = time.monotonic()
-            if (not budget_waiting and budget.exhausted
-                    and session.status()["state"] not in {"completed", "stopped", "failed"}):
+            if (
+                not budget_waiting
+                and budget.exhausted
+                and session.status()["state"] not in {"completed", "stopped", "failed"}
+            ):
                 budget.running(False)
                 budget_waiting = True
                 emit({"type": "budget_exhausted", "runtime": budget.sample()})
@@ -365,17 +467,26 @@ def session_process(spec, commands, events, frames):
                     applied = session.apply_command({"type": "stop"})
                     status = applied.status
                     checkpoint = _checkpoint(session, sink, spec, descriptor=applied.checkpoint)
-                    host_stop_result = {"type": "budget_stopped", "request_id": message["request_id"],
-                                        "step": status["step"], "control_revision": status["control_revision"],
-                                        "checkpoint": checkpoint}
+                    host_stop_result = {
+                        "type": "budget_stopped",
+                        "request_id": message["request_id"],
+                        "step": status["step"],
+                        "control_revision": status["control_revision"],
+                        "checkpoint": checkpoint,
+                    }
                     emit(host_stop_result)
                     last_report = 0
                 elif message["type"] == "command":
                     command_id = message["request"]["command_id"]
                     request = message["request"]
                     if budget_waiting or budget.exhausted:
-                        emit({"type": "rejected", "command_id": command_id,
-                              "error": "running_time_limit_exceeded"})
+                        emit(
+                            {
+                                "type": "rejected",
+                                "command_id": command_id,
+                                "error": "running_time_limit_exceeded",
+                            }
+                        )
                         continue
                     if time.monotonic() >= min(deadline, message["deadline"]):
                         emit(
@@ -395,7 +506,9 @@ def session_process(spec, commands, events, frames):
                         )
                         continue
                     try:
-                        applied = session.apply_command(_command(request["payload"], particles, steering))
+                        applied = session.apply_command(
+                            _command(request["payload"], particles, steering)
+                        )
                         status = applied.status
                     except CommandValidationErrors:
                         emit(
@@ -447,13 +560,20 @@ def session_process(spec, commands, events, frames):
             if budget_waiting or budget.exhausted:
                 time.sleep(0.01)
                 continue
-            session.advance(spec["step_quantum"])
+            try:
+                session.advance(spec["step_quantum"])
+            except Exception:
+                if data["descriptor"]["method"] != "eq" or session.status()["state"] != "failed":
+                    raise
+                terminal = session.status()
+                break
             sink.audit()
             if status["state"] == "paused":
                 time.sleep(0.01)
         budget.running(False)
         final_runtime = budget.sample(finalized=True)
-        checkpoint = _checkpoint(session, sink, spec, descriptor=session.checkpoint())
+        checkpoint = (None if terminal["state"] == "failed" else
+                      _checkpoint(session, sink, spec, descriptor=session.checkpoint()))
         session.close()
         session = None
         from neomd import __version__
@@ -462,16 +582,38 @@ def session_process(spec, commands, events, frames):
         finalization_id = str(uuid4())
         try:
             sink.audit()
-            seal = seal_outputs(sink, spec, terminal=terminal, runtime=final_runtime,
-                                producer={"name": "neomd-server", "neomd_version": __version__,
-                                          "openmm_version": version("OpenMM"), "platform": spec["platform"]})
-            finalization_id = seal['id']
+            seal = seal_outputs(
+                sink,
+                spec,
+                terminal=terminal,
+                runtime=final_runtime,
+                producer={
+                    "name": "neomd-server",
+                    "neomd_version": __version__,
+                    "openmm_version": version("OpenMM"),
+                    "platform": spec["platform"],
+                },
+            )
+            finalization_id = seal["id"]
         except Exception as error:
-            failure = 'output_limit_exceeded' if isinstance(error, OutputLimitExceeded) else 'integrity_mismatch'
-        emit({"type": "engine_closed", "observed_at": datetime.now(timezone.utc).isoformat(),
-              "status": terminal, "runtime": final_runtime, "capabilities": _caps(terminal, steering),
-              "checkpoint": checkpoint, "seal": seal, 'pre_seal_failure': failure,
-              'finalization_id': finalization_id})
+            failure = (
+                "output_limit_exceeded"
+                if isinstance(error, OutputLimitExceeded)
+                else "integrity_mismatch"
+            )
+        emit(
+            {
+                "type": "engine_closed",
+                "observed_at": datetime.now(timezone.utc).isoformat(),
+                "status": terminal,
+                "runtime": final_runtime,
+                "capabilities": _caps(terminal, steering),
+                "checkpoint": checkpoint,
+                "seal": seal,
+                "pre_seal_failure": failure,
+                "finalization_id": finalization_id,
+            }
+        )
     except Exception as error:
         code = "payload_too_large" if isinstance(error, OutputLimitExceeded) else "worker_lost"
         try:

@@ -1,0 +1,394 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:neodyn:component-system-qc:v1:report",
+  "title": "Independent component System QC report v1",
+  "description": "Internal scientific receipt for exact assembled bytes and independent direct OpenMM ForceField comparison. The exact canonical report byte digest must be authenticated by the caller.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "neomd-component-system-qc-v1"
+    },
+    "status": {
+      "const": "numerically_executable"
+    },
+    "assembly_manifest_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "recipe_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "source_content_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "package_sha256": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "producer": {
+          "const": "direct-openmm-forcefield-v1"
+        },
+        "platform": {
+          "const": "CPU"
+        },
+        "threads": {
+          "const": 1
+        },
+        "resource_order": {
+          "oneOf": [
+            {
+              "const": [
+                "protein",
+                "water_ions"
+              ]
+            },
+            {
+              "const": [
+                "protein",
+                "water_ions",
+                "gaff",
+                "ligand_template"
+              ]
+            },
+            {
+              "const": [
+                "protein",
+                "water_ions",
+                "ligand_template"
+              ]
+            },
+            {
+              "const": [
+                "protein",
+                "phosaa",
+                "water_ions"
+              ]
+            }
+          ]
+        },
+        "resource_sha256": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "protein": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "water_ions": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "protein",
+                "water_ions"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "protein": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "water_ions": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "gaff": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "ligand_template": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "protein",
+                "water_ions",
+                "gaff",
+                "ligand_template"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "protein": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "water_ions": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "ligand_template": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "protein",
+                "water_ions",
+                "ligand_template"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "protein": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "phosaa": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "water_ions": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "protein",
+                "phosaa",
+                "water_ions"
+              ]
+            }
+          ]
+        }
+      },
+      "required": [
+        "producer",
+        "platform",
+        "threads",
+        "resource_order",
+        "resource_sha256"
+      ]
+    },
+    "tolerances": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "term_abs": {
+          "type": "number",
+          "const": 1e-09
+        },
+        "term_rel": {
+          "type": "number",
+          "const": 1e-11
+        },
+        "box_abs_nm": {
+          "type": "number",
+          "const": 1e-12
+        },
+        "energy_abs_kj_mol": {
+          "type": "number",
+          "const": 0.001
+        },
+        "energy_rel": {
+          "type": "number",
+          "const": 1e-07
+        },
+        "force_abs_kj_mol_nm": {
+          "type": "number",
+          "const": 0.01
+        },
+        "force_rel": {
+          "type": "number",
+          "const": 1e-06
+        },
+        "charge_abs_e": {
+          "type": "number",
+          "const": 1e-06
+        }
+      },
+      "required": [
+        "term_abs",
+        "term_rel",
+        "box_abs_nm",
+        "energy_abs_kj_mol",
+        "energy_rel",
+        "force_abs_kj_mol_nm",
+        "force_rel",
+        "charge_abs_e"
+      ]
+    },
+    "inventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "particle_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2000000
+        },
+        "force_types": {
+          "const": [
+            "HarmonicAngleForce",
+            "HarmonicBondForce",
+            "NonbondedForce",
+            "PeriodicTorsionForce"
+          ]
+        },
+        "constraint_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "exception_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "virtual_site_count": {
+          "const": 0
+        },
+        "retained_water": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "generated_water": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sodium": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "chloride": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "particle_count",
+        "force_types",
+        "constraint_count",
+        "exception_count",
+        "virtual_site_count",
+        "retained_water",
+        "generated_water",
+        "sodium",
+        "chloride"
+      ]
+    },
+    "net_charge_e": {
+      "type": "number"
+    },
+    "component_checks": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "package_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "charge_sum_e": {
+            "type": "string",
+            "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$"
+          },
+          "charge_residual_e": {
+            "type": "string",
+            "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$"
+          },
+          "max_term_abs_delta": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "package_id",
+          "charge_sum_e",
+          "charge_residual_e",
+          "max_term_abs_delta"
+        ]
+      }
+    },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_system_term_abs_delta": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max_package_term_abs_delta": {
+          "type": "number",
+          "minimum": 0
+        },
+        "subject_energy_kj_mol": {
+          "type": "number"
+        },
+        "reference_energy_kj_mol": {
+          "type": "number"
+        },
+        "energy_abs_delta_kj_mol": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max_force_abs_delta_kj_mol_nm": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "max_system_term_abs_delta",
+        "max_package_term_abs_delta",
+        "subject_energy_kj_mol",
+        "reference_energy_kj_mol",
+        "energy_abs_delta_kj_mol",
+        "max_force_abs_delta_kj_mol_nm"
+      ]
+    },
+    "checks": {
+      "const": [
+        "exact assembly artifact hashes and canonical records reopened",
+        "state, instance, package and source particle maps agree",
+        "source package force terms and direct ForceField reference agree",
+        "periodic box, solvent/ion inventory and net charge agree",
+        "CPU potential energy and every force component agree"
+      ]
+    }
+  },
+  "required": [
+    "format",
+    "status",
+    "assembly_manifest_sha256",
+    "recipe_sha256",
+    "source_content_sha256",
+    "package_sha256",
+    "reference",
+    "tolerances",
+    "inventory",
+    "net_charge_e",
+    "component_checks",
+    "comparison",
+    "checks"
+  ]
+}

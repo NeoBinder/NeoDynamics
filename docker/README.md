@@ -36,9 +36,10 @@ Both paths use `podman build --network host`; workstation proxies/credentials ar
 not portable Dockerfile configuration. Keep container lock, OpenMM pin and driver
 CUDA compatibility aligned; do not copy a newer development CUDA lock blindly.
 
-The current container environment selects CUDA 13.2, OpenMM 8.6, NumPy 2.5.2 and
-PDBFixer 1.12. A matching driver tier and actual GPU smoke are required. These
-pins are packaging inputs, not permission to change engine science defaults.
+The current container environment selects CUDA 13.2, OpenMM 8.6, NumPy 2.5.2,
+PDBFixer 1.12 and Gemmi 0.7.5 for PDBx sequence coverage. A matching driver tier
+and actual GPU smoke are required. These pins are packaging inputs, not permission
+to change engine science defaults.
 
 ## Image qualification and provenance
 

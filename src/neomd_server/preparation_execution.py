@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import time
 from pathlib import Path
 from uuid import UUID
@@ -42,6 +43,139 @@ def _source_file(root, job):
     return path
 
 
+def _trusted_pdbx_sequences(path, descriptor):
+    """Bind deposited polymer rows to observed source UUIDs through atom_site.
+
+    The sequence comes only from uploaded mmCIF categories. Descriptor UUIDs
+    identify observed residues but cannot supply or override polymer positions.
+    A partial/inconsistent canonical table is rejected rather than treated as
+    client-declared evidence.
+    """
+    if path.suffix != ".pdbx":
+        return None
+    import gemmi
+
+    block = gemmi.cif.read_file(str(path)).sole_block()
+
+    def category(prefix, required):
+        table = block.find_mmcif_category(prefix)
+        if not len(table):
+            return []
+        names = [str(tag).removeprefix(prefix) for tag in table.tags]
+        if len(set(names)) != len(names) or not set(required) <= set(names):
+            raise ValueError(f"incomplete {prefix} canonical provenance")
+        return [dict(zip(names, row, strict=True)) for row in table]
+
+    sequence_rows = category("_entity_poly_seq.", ("entity_id", "num", "mon_id"))
+    if not sequence_rows:
+        return None
+    asym_rows = category("_struct_asym.", ("id", "entity_id"))
+    atom_rows = category("_atom_site.", ("group_PDB", "type_symbol", "label_atom_id",
+                                          "label_comp_id", "label_asym_id", "label_entity_id",
+                                          "label_seq_id", "Cartn_x", "Cartn_y", "Cartn_z",
+                                          "pdbx_PDB_model_num"))
+    if not asym_rows or not atom_rows:
+        raise ValueError("canonical polymer table lacks chain or observed atom provenance")
+    sequences = {}
+    for row in sequence_rows:
+        entity, name = row["entity_id"], row["mon_id"]
+        try:
+            number = int(row["num"])
+        except ValueError as error:
+            raise ValueError("invalid canonical polymer position") from error
+        if entity in {".", "?"} or name in {".", "?"} or number < 1:
+            raise ValueError("invalid canonical polymer row")
+        positions = sequences.setdefault(entity, {})
+        if number in positions:
+            raise ValueError("duplicate canonical polymer position")
+        positions[number] = name
+    for entity, positions in sequences.items():
+        if sorted(positions) != list(range(1, len(positions) + 1)):
+            raise ValueError(f"noncontiguous canonical polymer entity {entity}")
+    asyms = {}
+    for row in asym_rows:
+        asym, entity = row["id"], row["entity_id"]
+        if asym in asyms or asym in {".", "?"} or entity in {".", "?"}:
+            raise ValueError("ambiguous canonical chain/entity provenance")
+        asyms[asym] = entity
+    atom_bindings = {row["input_atom_index"]: row for row in descriptor["atom_bindings"]}
+    residue_bindings = {row["input_residue_index"]: row for row in descriptor["residue_bindings"]}
+    if (len(atom_rows) != len(atom_bindings) or set(atom_bindings) != set(range(len(atom_rows)))
+            or set(residue_bindings) != set(range(len(residue_bindings)))):
+        raise ValueError("observed atom/residue coverage differs from canonical source")
+    from neomd.prepared import BINDING_TOLERANCE_NM
+
+    trusted, chain_asym, observed = {}, {}, set()
+    prior_group = None
+    residue_index = -1
+    for atom_index, row in enumerate(atom_rows):
+        asym, entity = row["label_asym_id"], row["label_entity_id"]
+        if (asym not in asyms or asyms[asym] != entity
+                or row["pdbx_PDB_model_num"] != "1"):
+            raise ValueError("observed atom has inconsistent canonical chain/entity/model")
+        try:
+            xyz_nm = [float(row[key]) / 10 for key in ("Cartn_x", "Cartn_y", "Cartn_z")]
+        except ValueError as error:
+            raise ValueError("observed atom lacks numeric coordinates") from error
+        if not all(math.isfinite(value) for value in xyz_nm):
+            raise ValueError("observed atom has nonfinite coordinates")
+        atom = atom_bindings[atom_index]
+        if (atom["atom_name"] != row["label_atom_id"] or atom["element"] != row["type_symbol"]
+                or any(abs(a - b) > BINDING_TOLERANCE_NM for a, b in zip(atom["position_nm"], xyz_nm, strict=True))):
+            raise ValueError("observed atom differs from source descriptor")
+        polymer = entity in sequences
+        if polymer:
+            if row["group_PDB"] != "ATOM":
+                raise ValueError("polymer atom has inconsistent canonical category")
+            try:
+                number = int(row["label_seq_id"])
+            except ValueError as error:
+                raise ValueError("observed atom lacks numeric canonical position") from error
+            if number not in sequences[entity] or sequences[entity][number] != row["label_comp_id"]:
+                raise ValueError("observed residue disagrees with deposited polymer sequence")
+            group = (asym, number)
+        else:
+            # Water may share the uploaded source with a protein. It has no
+            # polymer position and cannot contribute canonical sequence trust.
+            if (row["group_PDB"] != "HETATM" or row["label_comp_id"] != "HOH"
+                    or row["label_seq_id"] not in {".", "?"}):
+                raise ValueError("nonpolymer atom lacks supported water provenance")
+            group = (asym, atom["source_residue_id"])
+        if group != prior_group:
+            if group in observed:
+                raise ValueError("canonical residue is noncontiguous in atom order")
+            observed.add(group)
+            residue_index += 1
+            if residue_index not in residue_bindings:
+                raise ValueError("canonical residue count exceeds descriptor")
+            residue = residue_bindings[residue_index]
+            chain = residue["input_chain_index"]
+            if (residue["name"] != row["label_comp_id"]
+                    or chain in chain_asym and chain_asym[chain] != asym
+                    or any(existing == asym for key, existing in chain_asym.items() if key != chain)):
+                raise ValueError("canonical residue/chain differs from descriptor")
+            chain_asym[chain] = asym
+            if polymer and chain not in trusted:
+                trusted[chain] = {"residue_names": [sequences[entity][i]
+                                                     for i in range(1, len(sequences[entity]) + 1)],
+                                  "residue_bindings": []}
+            if polymer:
+                trusted[chain]["residue_bindings"].append({
+                    "sequence_index": number - 1,
+                    "source_residue_id": residue["source_residue_id"],
+                })
+            prior_group = group
+        if atom["source_residue_id"] != residue_bindings[residue_index]["source_residue_id"]:
+            raise ValueError("canonical atom/residue UUID binding differs")
+    if residue_index + 1 != len(residue_bindings):
+        raise ValueError("canonical source has unbound descriptor residues")
+    for row in trusted.values():
+        indices = [item["sequence_index"] for item in row["residue_bindings"]]
+        if len(set(indices)) != len(indices):
+            raise ValueError("duplicate observed canonical sequence position")
+    return trusted
+
+
 def load_explicit_topology_source(job, *, require_complete=False):
     """Load an owner-authorized v2 source in the isolated scientific child.
 
@@ -66,7 +200,8 @@ def _load_source(job):
     path = _source_file(job["root"], job)
     if _digest(path) != job["canonical_bytes_sha256"]:
         raise LedgerError("integrity_mismatch")
-    source = load_protein_source(path, job["binding"])
+    canonical = _trusted_pdbx_sequences(path, job["binding"])
+    source = load_protein_source(path, job["binding"], canonical_sequences=canonical)
     return source, inspect_protein(source)
 
 
@@ -310,10 +445,13 @@ def _prepare_topology_process(job, result, parent_pid):
         outcome = {"error": "preparation_memory_limit_exceeded"}
     except Exception as error:
         from neomd.topology_adapter import ConnectivityPrerequisiteError
+        from neomd.topology_preparation import UnsupportedCovalentAttachmentError
         from neomd.topology_records import TopologyRecordError
 
         if isinstance(error, ConnectivityPrerequisiteError):
             outcome = {"error": "connectivity_incomplete"}
+        elif isinstance(error, UnsupportedCovalentAttachmentError):
+            outcome = {"error": "unsupported_relation"}
         elif isinstance(error, TopologyRecordError):
             outcome = {"error": "invalid_topology_record"}
         else:

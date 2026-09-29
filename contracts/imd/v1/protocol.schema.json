@@ -422,6 +422,16 @@
               "type": "null"
             }
           ]
+        },
+        "continuation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContinuationDescriptor"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -466,6 +476,9 @@
             "gamd",
             "rbfe"
           ]
+        },
+        "continuation": {
+          "$ref": "#/$defs/ContinuationDescriptor"
         }
       },
       "required": [
@@ -473,7 +486,26 @@
         "protocol_id",
         "method"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "continuation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "method": {
+                "enum": [
+                  "eq",
+                  "prod"
+                ]
+              }
+            }
+          }
+        }
+      ]
     },
     "CreateRequest": {
       "type": "object",
@@ -1838,7 +1870,7 @@
       "properties": {
         "name": {
           "type": "string",
-          "pattern": "^(manifest\\.json|mapping\\.json|coordinates\\.f64le|system\\.xml|topology\\.pdbx|assembly-report\\.json|forcefield/(protein\\.ff14SB|tip3p_standard)\\.xml|sources/[0-9]{4}\\.[a-z0-9]+)$",
+          "pattern": "^(manifest\\.json|mapping\\.json|coordinates\\.f64le|system\\.xml|topology\\.pdbx|assembly-report\\.json|assembly/(manifest|report|topology)\\.json|qc/component-system-qc\\.json|forcefield/(protein\\.ff14SB|tip3p_standard)\\.xml|sources/[0-9]{4}(\\.[a-z0-9]+|\\.json\\.gz))$",
           "maxLength": 128
         },
         "sha256": {
@@ -2893,6 +2925,99 @@
     },
     "TopologyPage": {
       "$ref": "urn:neodyn:topology-view:v1:page"
+    },
+    "ContinuationDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source_session_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "source_finalization_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "source_result_artifact_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "final_state_artifact_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "final_state_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "velocity_policy": {
+          "const": "reinitialize_at_target_temperature"
+        }
+      },
+      "required": [
+        "source_session_id",
+        "source_finalization_id",
+        "source_result_artifact_id",
+        "final_state_artifact_id",
+        "final_state_sha256",
+        "velocity_policy"
+      ]
+    },
+    "ContinuationEligibility": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "availability": {
+              "const": "available"
+            },
+            "prepared": {
+              "$ref": "#/$defs/PreparedBinding"
+            },
+            "source_method": {
+              "enum": [
+                "min",
+                "eq"
+              ]
+            },
+            "continuation": {
+              "$ref": "#/$defs/ContinuationDescriptor"
+            }
+          },
+          "required": [
+            "availability",
+            "prepared",
+            "source_method",
+            "continuation"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "availability": {
+              "const": "unavailable"
+            },
+            "reason": {
+              "enum": [
+                "source_not_completed",
+                "finalization_incomplete",
+                "method_unsupported",
+                "final_state_unavailable"
+              ]
+            }
+          },
+          "required": [
+            "availability",
+            "reason"
+          ]
+        }
+      ]
     }
   }
 }

@@ -18,6 +18,8 @@ from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse, Response
 from starlette.websockets import WebSocketDisconnect
 
+from .comparison import SCHEMA as COMPARISON_SCHEMA
+from .comparison import ComparisonStore
 from .contract import ContractError, validate
 from .ledger import LedgerError
 from .preview import PreviewCodec
@@ -260,6 +262,7 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
     """Assemble transport from owned async ports; lifespan owns the supervisor."""
     settings, statuses = transport_settings, _error_statuses()
     capacity = _Capacity(settings.max_connections)
+    comparisons = ComparisonStore(ledger, inputs)
 
     def error_value(code):
         if code not in statuses:
@@ -278,8 +281,12 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
             # Admission/storage policy rows exist only after supervisor.start().
             if preparations is not None:
                 await preparations.initialize()
+            if hasattr(ledger, "pool"):
+                await comparisons.initialize()
             yield
         finally:
+            if hasattr(ledger, "pool"):
+                await comparisons.close()
             if preparations is not None:
                 await preparations.close()
             await supervisor.close()
@@ -304,10 +311,11 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
     async def liveness():
         return {"status": "ok"}
 
-    def route(method, path, schema, result_schema, operation, status=200, limit=CONTROL_LIMIT):
+    def route(method, path, schema, result_schema, operation, status=200, limit=CONTROL_LIMIT,
+              request_limit=None):
         async def endpoint(request: Request):
             params = {key: value if key == "kind" else _canonical_id(value) for key, value in request.path_params.items()}
-            body = await _body(request, schema, settings, limit) if schema else None
+            body = await _body(request, schema, settings, request_limit or limit) if schema else None
             result = await operation(request.state.owner_scope, params, body, request)
             return Response(_encoded(result_schema, result, limit), status_code=status,
                             media_type="application/json", headers={"Cache-Control": "no-store"})
@@ -363,9 +371,26 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
                                                 after=after, limit=int(text))
 
     route("GET", "/capabilities", None, "RuntimeCapabilities", lambda s, p, b, r: supervisor.capabilities(s))
+    route("POST", "/comparisons/validate", f"{COMPARISON_SCHEMA}#/$defs/Plan",
+          f"{COMPARISON_SCHEMA}#/$defs/PlanAttestation",
+          lambda s, p, b, r: comparisons.validate_plan(s, b), limit=262144)
+    route("POST", "/comparisons/analyses", f"{COMPARISON_SCHEMA}#/$defs/AnalysisRequest",
+          f"{COMPARISON_SCHEMA}#/$defs/AnalysisOperation",
+          lambda s, p, b, r: comparisons.submit_analysis(s, b), 202,
+          limit=8_388_608, request_limit=262144)
+    route("GET", "/comparisons/analyses/by-request/{request_id}", None,
+          f"{COMPARISON_SCHEMA}#/$defs/AnalysisOperation",
+          lambda s, p, b, r: comparisons.analysis_by_request(s, p["request_id"]),
+          limit=8_388_608)
+    route("GET", "/comparisons/analyses/{operation_id}", None,
+          f"{COMPARISON_SCHEMA}#/$defs/AnalysisOperation",
+          lambda s, p, b, r: comparisons.analysis(s, p["operation_id"]),
+          limit=8_388_608)
     route("POST", "/sessions", "CreateRequest", "SessionSnapshot", create, 202)
     route("GET", "/sessions/by-request/{request_id}", None, "SessionSnapshot", lambda s, p, b, r: ledger.by_request(s, p["request_id"]))
     route("GET", "/sessions/{session_id}", None, "SessionSnapshot", lambda s, p, b, r: ledger.get(s, p["session_id"]))
+    route("GET", "/sessions/{session_id}/continuation", None, "ContinuationEligibility",
+          lambda s, p, b, r: inputs.continuation_eligibility(s, p["session_id"]))
     route("PUT", "/sessions/{session_id}/controller", "ControllerRequest", "ControllerReceipt", lambda s, p, b, r: ledger.controller(s, p["session_id"], b))
     route("GET", "/sessions/{session_id}/controller/requests/{request_id}", None, "ControllerReceipt", lambda s, p, b, r: ledger.controller_request(s, p["session_id"], p["request_id"]))
     route("POST", "/sessions/{session_id}/commands", "CommandRequest", "CommandReceipt", command, 202)
@@ -382,6 +407,10 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
     route("POST", "/prepared-bundles/uploads/{upload_id}/commit", "CommitInputRequest", "InputOperation", lambda s, p, b, r: inputs.commit_bundle(s, p["upload_id"], b), 202)
     route("GET", "/prepared-bundles/{bundle_id}", None, "PreparedAsset", lambda s, p, b, r: inputs.prepared(s, p["bundle_id"]))
     route("POST", "/protocols", "ProtocolRequest", "InputOperation", lambda s, p, b, r: inputs.register_protocol(s, b), 202)
+    route("POST", "/protocol-templates/bind",
+          "urn:neodyn:scientific-protocol-template-bind:v1#/$defs/TemplateBindRequest",
+          "urn:neodyn:scientific-protocol-template-bind:v1#/$defs/TemplateBindResult",
+          lambda s, p, b, r: inputs.bind_protocol_template(s, b))
     route("GET", "/protocols/by-request/{request_id}", None, "ProtocolAsset", lambda s, p, b, r: inputs.protocol_by_request(s, p["request_id"]))
     route("GET", "/input-operations/by-request/{kind}/{request_id}", None, "InputOperation", lambda s, p, b, r: inputs.input_operation_by_request(s, p["kind"], p["request_id"]))
     route("GET", "/input-operations/{operation_id}", None, "InputOperation", lambda s, p, b, r: inputs.input_operation(s, p["operation_id"]))
@@ -463,6 +492,44 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
           preparing(lambda s, p, b, r: preparations.get_topology(s, p["operation_id"])),
           200, PREPARATION_LIMIT)
 
+    COMPONENT_PREPARATION = "urn:neodyn:component-operations:v1"
+    route("GET", "/component-preparations/catalog", None,
+          f"{COMPONENT_PREPARATION}:catalog",
+          preparing(lambda s, p, b, r: preparations.component_catalog(s)))
+    route("POST", "/component-preparations/blob-uploads",
+          f"{COMPONENT_PREPARATION}:operation#/$defs/BlobUploadBeginRequest",
+          f"{COMPONENT_PREPARATION}:operation#/$defs/BlobUploadReceipt",
+          preparing(lambda s, p, b, r: preparations.begin_component_blob(s, b)))
+    route("GET", "/component-preparations/blob-uploads/by-request/{request_id}", None,
+          f"{COMPONENT_PREPARATION}:operation#/$defs/BlobUploadReceipt",
+          preparing(lambda s, p, b, r: preparations.component_blob_by_request(s, p["request_id"])))
+    route("GET", "/component-preparations/blob-uploads/{upload_id}", None,
+          f"{COMPONENT_PREPARATION}:operation#/$defs/BlobUploadReceipt",
+          preparing(lambda s, p, b, r: preparations.component_blob_upload(s, p["upload_id"])))
+    route("POST", "/component-preparations",
+          f"{COMPONENT_PREPARATION}:operation#/$defs/ComponentRequest",
+          f"{COMPONENT_PREPARATION}:operation",
+          preparing(lambda s, p, b, r: preparations.submit_component(s, b)), 202,
+          PREPARATION_LIMIT)
+    route("GET", "/component-preparations/by-request/{request_id}", None,
+          f"{COMPONENT_PREPARATION}:operation",
+          preparing(lambda s, p, b, r: preparations.component_by_request(s, p["request_id"])),
+          200, PREPARATION_LIMIT)
+    route("GET", "/component-preparations/{operation_id}/inventory", None,
+          f"{COMPONENT_PREPARATION}:inventory",
+          preparing(lambda s, p, b, r: preparations.component_inventory(s, p["operation_id"])))
+    route("GET", "/component-preparations/{operation_id}/qc", None,
+          f"{COMPONENT_PREPARATION}:qc",
+          preparing(lambda s, p, b, r: preparations.component_qc(s, p["operation_id"])))
+    route("POST", "/component-preparations/{operation_id}/cancel", None,
+          f"{COMPONENT_PREPARATION}:operation",
+          preparing(lambda s, p, b, r: preparations.cancel_component(s, p["operation_id"])),
+          200, PREPARATION_LIMIT)
+    route("GET", "/component-preparations/{operation_id}", None,
+          f"{COMPONENT_PREPARATION}:operation",
+          preparing(lambda s, p, b, r: preparations.get_component(s, p["operation_id"])),
+          200, PREPARATION_LIMIT)
+
     @app.put(PREFIX + "/preparations/source-uploads/{upload_id}/content")
     async def upload_preparation_source(request: Request):
         _content_type(request, "application/octet-stream")
@@ -487,6 +554,18 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
                                               _chunks(request, limit, settings))
         return Response(status_code=200, headers={"Cache-Control": "no-store"})
 
+    @app.put(PREFIX + "/component-preparations/blob-uploads/{upload_id}/content")
+    async def upload_component_blob(request: Request):
+        _content_type(request, "application/octet-stream")
+        if preparations is None:
+            raise LedgerError("service_unavailable")
+        upload_id = _canonical_id(request.path_params["upload_id"])
+        await preparations.component_blob_upload(request.state.owner_scope, upload_id)
+        limit = preparations.limits.max_source_bytes if preparations.limits else CONTROL_LIMIT
+        await preparations.put_source_content(request.state.owner_scope, upload_id,
+                                              _chunks(request, limit, settings))
+        return Response(status_code=200, headers={"Cache-Control": "no-store"})
+
     @app.get(PREFIX + "/preparations/{operation_id}/artifacts/{artifact_id}/content")
     async def preparation_artifact_content(request: Request):
         if preparations is None:
@@ -504,6 +583,17 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
             raise LedgerError("service_unavailable")
         params = {key: _canonical_id(value) for key, value in request.path_params.items()}
         await preparations.get_topology(request.state.owner_scope, params["operation_id"])
+        data = await preparations.artifact_content(request.state.owner_scope,
+                                                   params["operation_id"], params["artifact_id"])
+        return Response(data, media_type="application/octet-stream",
+                        headers={"Cache-Control": "no-store"})
+
+    @app.get(PREFIX + "/component-preparations/{operation_id}/artifacts/{artifact_id}/content")
+    async def component_preparation_artifact_content(request: Request):
+        if preparations is None:
+            raise LedgerError("service_unavailable")
+        params = {key: _canonical_id(value) for key, value in request.path_params.items()}
+        await preparations.get_component(request.state.owner_scope, params["operation_id"])
         data = await preparations.artifact_content(request.state.owner_scope,
                                                    params["operation_id"], params["artifact_id"])
         return Response(data, media_type="application/octet-stream",

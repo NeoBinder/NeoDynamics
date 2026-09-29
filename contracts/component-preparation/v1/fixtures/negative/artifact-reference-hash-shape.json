@@ -1,0 +1,11 @@
+{
+  "schema_id": "urn:neodyn:component-preparation:v1:artifact-reference",
+  "schema_version": 1,
+  "artifact_id": "00000000-0000-4000-8000-000000000009",
+  "kind": "parameter_asset",
+  "content_sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "size_bytes": 3,
+  "decoded_size_bytes": 3,
+  "encoding": "identity",
+  "media_type": "application/octet-stream"
+}

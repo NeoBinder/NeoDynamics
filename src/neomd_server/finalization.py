@@ -208,6 +208,7 @@ def finalize_outputs(spec, *, progress, artifacts=None):
     write_result_manifest(sink=sink, outputs=outputs, prepared_manifest=manifest,
                           prepared=data['prepared'], protocol=data['protocol'], descriptor=data['descriptor'],
                           execution={**spec['artifact_binding'], 'epoch': spec['epoch']},
+                          input_continuation=data.get('continuation'),
                           terminal=inventory['terminal'], producer=inventory['producer'])
     outputs.append(publish(root / RESULT_FILENAME, inventory['result_artifact_id'], counted=False))
     sink.audit()

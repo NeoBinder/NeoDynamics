@@ -1,0 +1,7 @@
+{
+  "schema_id": "urn:neodyn:component-preparation:v1:diagnostic",
+  "schema_version": 1,
+  "code": "invalid_reference",
+  "path": "/assignments/0/package_sha256",
+  "detail": "Referenced package identity differs."
+}

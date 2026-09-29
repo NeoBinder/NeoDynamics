@@ -320,6 +320,12 @@ class OpenMMKernel:
             box_vectors = self._structure.topology.getPeriodicBoxVectors()
             if box_vectors is None:
                 box_vectors = self.system.getDefaultPeriodicBoxVectors()
+            if self.spec.initial_box_vectors_nm is not None:
+                cell = np.asarray(self.spec.initial_box_vectors_nm, dtype=np.float64)
+                if (cell.shape != (3, 3) or not np.isfinite(cell).all()
+                        or not np.isfinite(np.linalg.det(cell)) or np.linalg.det(cell) <= 0):
+                    raise ValueError("initial_box_vectors_nm must be a finite positive-volume 3x3 box")
+                box_vectors = cell * unit.nanometer
             simulation.context.setPeriodicBoxVectors(*box_vectors)
             # KernelSpec.global_parameters (the RBFE λ seam, ADR-0003/0007):
             # applied BEFORE the resume branches so a fresh run starts under

@@ -25,12 +25,34 @@ The exact methods, paths and JSON schemas are maintained in
 `contracts/imd/v1/openapi.json` and `protocol.schema.json`. They cover capability
 discovery, session creation and request lookup, controller leases, commands,
 durable events, artifact descriptors, queued cancellation, prepared bundle
-intake, coordinate reference intake and scientific protocol registration.
+intake, coordinate reference intake, read-only semantic template binding and
+scientific protocol registration.
+The owner-scoped comparison endpoints are `POST /comparisons/validate`,
+`POST /comparisons/analyses`, `GET /comparisons/analyses/{operation_id}` and
+`GET /comparisons/analyses/by-request/{request_id}`. Their closed scientific
+contract and recovery behavior are described in
+[bounded trajectory comparisons](trajectory-comparisons.md).
+Owner-scoped `GET /sessions/{session_id}/continuation` reports either an
+available, exact source descriptor and prepared binding or an unavailable
+reason. Unknown and foreign sessions both return 404. Availability requires
+completed science, complete finalization and verified sealed result/final-state
+bytes; session creation and the worker verify the binding again. Failed and
+stopped sessions can retain reviewable output but cannot provide continuation.
+For a pool with reverse publication configured, availability also requires a
+completed publication receipt within the provider's 24-hour Min/Eq local-file
+window. The lookup closes before cleanup by the configured queue TTL plus worker
+startup timeout and 60 seconds of scheduling slack, so an accepted request has
+time to start under those bounds. An absent receipt, elapsed admission margin or
+completed cleanup closes the continuation path even when the public result
+remains downloadable.
 
 JSON control bodies and responses are limited to 1 MiB. Parsing rejects duplicate
 keys, nonfinite numbers, invalid UTF-8 and unknown schema fields. Error messages
 are closed codes from `errors.json`; exception text, filesystem paths and
 credentials are never returned. Responses use `Cache-Control: no-store`.
+Comparison plan and analysis request bodies have a narrower 256 KiB bound;
+analysis operation responses may reach 8 MiB because they retain bounded
+per-frame values and every replica's disposition.
 
 Prepared parts and coordinate content are streamed through independent explicit
 byte budgets. The transport checks both declared and received length, rejecting

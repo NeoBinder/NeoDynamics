@@ -77,3 +77,36 @@ native angular energy units, rejected unsafe fields/unknown identities,
 reference revision/order/hash/units, explicit resource guards and self-consistently
 rehashed malicious System changes. These tests qualify the compiler and generic
 scientific verifier, not service admission, recovery, deployment or force fields.
+
+## Semantic templates for component-prepared Systems
+
+`scientific-protocol-template/v1` keeps an authored protocol separate from its
+target prepared System. Its protocol fields are the registered v1 vocabulary
+without `prepared_revision_id`; every atom group contains logical selector UUIDs.
+Each selector anchors an exact source artifact SHA, component instance, reviewed
+state, source atom UUID and element. The binder resolves these through the
+hash-checked prepared mapping and assembly assignment into ordered prepared atom
+UUIDs and particle indices. It returns the template SHA, concrete protocol SHA,
+registration SHA, reference hashes and path-specific blockers. Missing, ambiguous,
+changed-state and ineligible atoms block binding. No name or coordinate-nearest
+fallback is used.
+
+The owner-scoped `POST /internal/md/v1/protocol-templates/bind` is a read-only
+preview. It checks the owned prepared asset and registered references, then calls
+the existing concrete compiler without materializing a reference or registering
+a protocol. The existing `POST /internal/md/v1/protocols` durably registers the
+returned concrete descriptor; its meaning and hash are unchanged. The initial
+template compatibility profile requires a numerically checked component v2
+bundle with HBonds, 4 amu hydrogen masses and an explicit timestep no greater
+than 0.002 ps. Pressure still requires a periodic System, and all scientific
+settings remain explicit in the template.
+
+Component v2 prepared bundles enter through the existing prepared upload and
+commit route. The uploaded files must exactly match the `prepared/` subset of a
+succeeded, same-owner component assembly receipt and inventory. Admission
+rechecks exact artifact bytes, independent QC links, source lineage and the
+actual OpenMM System. A checked, host-owned PDBx carrier is derived from the
+bundle's topology JSON and coordinates for the existing compiler's topology
+interface; it is not a new source or scientific result. The carrier is checked
+for atom order, names, elements, bonds, coordinates and periodic box within
+PDBx writer precision. Unowned uploads cannot acquire component authority.

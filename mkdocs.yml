@@ -48,6 +48,11 @@ nav:
       - Extending NeoDynamics: extending.md
   - Interactive service driver: interactive-driver.md
   - Prepared bundles: prepared-bundle.md
+  - Declarative component import: component-import.md
+  - Component system assembly: component-assembly.md
+  - OpenFF Sage component package: component-openff.md
+  - SEP peptide component package: component-sep.md
+  - Independent component System QC: component-system-qc.md
   - Protein preparation: protein-preparation.md
   - Service ledger: service-ledger.md
   - Scientific protocols: scientific-protocol.md
@@ -55,6 +60,7 @@ nav:
   - Runtime qualification: runtime-qualification.md
   - Resident service: service-runtime.md
   - Trajectory result evidence: trajectory-results.md
+  - Bounded trajectory comparisons: trajectory-comparisons.md
   - Tutorials:
       - Metadynamics: tutorials/metadynamics.md
       - Steered MD: tutorials/steered-md.md

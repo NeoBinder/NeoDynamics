@@ -1,0 +1,1289 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:neodyn:trajectory-comparison:v1",
+  "title": "NeoDynamics trajectory comparison v1",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "PreparedBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "bundle_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "prepared_revision_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "mapping_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "bundle_id",
+        "prepared_revision_id",
+        "manifest_sha256",
+        "mapping_sha256"
+      ]
+    },
+    "Artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1073741824
+        }
+      },
+      "required": [
+        "artifact_id",
+        "sha256",
+        "size_bytes"
+      ]
+    },
+    "VariantDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "assembly_operation_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "held_fixed": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "force_field_package",
+              "chemical_state",
+              "component_charge",
+              "system_charge",
+              "protein",
+              "water_settings",
+              "water_count",
+              "water_realization",
+              "ion_settings",
+              "ion_count",
+              "ion_realization",
+              "box",
+              "constraints",
+              "starting_poses"
+            ]
+          },
+          "minItems": 0,
+          "maxItems": 14,
+          "uniqueItems": true
+        },
+        "ion_decision": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "choice": {
+              "enum": [
+                "neutralize",
+                "specified_ionic_strength",
+                "retain_non_neutral"
+              ]
+            },
+            "rationale": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 512
+            }
+          },
+          "required": [
+            "choice",
+            "rationale"
+          ]
+        }
+      },
+      "required": [
+        "assembly_operation_id",
+        "held_fixed"
+      ]
+    },
+    "Variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "variant_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "prepared": {
+          "$ref": "#/$defs/PreparedBinding"
+        },
+        "binding_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "provenance": {
+          "$ref": "#/$defs/VariantDeclaration"
+        },
+        "reference_bindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "template_reference_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              "reference_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            },
+            "required": [
+              "template_reference_id",
+              "reference_id"
+            ]
+          },
+          "minItems": 0,
+          "maxItems": 16
+        }
+      },
+      "required": [
+        "variant_id",
+        "label",
+        "prepared",
+        "binding_sha256",
+        "provenance",
+        "reference_bindings"
+      ]
+    },
+    "ReplicaSlot": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "variant_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "replica_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "protocol_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "protocol_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "session_request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        }
+      },
+      "required": [
+        "variant_id",
+        "replica_index",
+        "seed",
+        "protocol_id",
+        "protocol_sha256",
+        "session_request_id"
+      ]
+    },
+    "LigandSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "instance_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "source_atom_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "minItems": 3,
+          "maxItems": 256,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "instance_id",
+        "source_atom_ids"
+      ]
+    },
+    "AnalysisDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "source_content_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "ligands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LigandSelection"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "observables": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "ligand_internal_rmsd",
+              "interligand_distance",
+              "temperature",
+              "volume"
+            ]
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "uniqueItems": true
+        },
+        "cohort": {
+          "const": "unperturbed"
+        },
+        "equilibration_discard_frames": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        }
+      },
+      "required": [
+        "schema_version",
+        "source_content_sha256",
+        "ligands",
+        "observables",
+        "cohort",
+        "equilibration_discard_frames"
+      ]
+    },
+    "Plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "template": {
+          "$ref": "urn:neodyn:scientific-protocol-template-bind:v1#/$defs/TemplateBindRequest/properties/template"
+        },
+        "template_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "method": {
+          "const": "prod"
+        },
+        "variants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Variant"
+          },
+          "minItems": 2,
+          "maxItems": 8
+        },
+        "replicas": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ReplicaSlot"
+          },
+          "minItems": 2,
+          "maxItems": 32
+        },
+        "analysis_definition": {
+          "$ref": "#/$defs/AnalysisDefinition"
+        }
+      },
+      "required": [
+        "schema_version",
+        "request_id",
+        "name",
+        "template",
+        "template_sha256",
+        "method",
+        "variants",
+        "replicas",
+        "analysis_definition"
+      ]
+    },
+    "ActualProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source_content_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "package_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "chemical_state_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "component_charge_e": {
+          "type": "number"
+        },
+        "system_charge_e": {
+          "type": "number"
+        },
+        "protein_residue_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "protein_identity_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "water_model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "water_settings_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "water_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "water_realization_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "ion_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ion_realization_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "ion_settings_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "ionic_strength_molar": {
+          "type": "number",
+          "minimum": 0
+        },
+        "box_vectors_nm": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "constraints": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "hydrogen_mass_amu": {
+          "type": "number",
+          "minimum": 0
+        },
+        "source_pose_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "particle_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "nonbonded_method": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        }
+      },
+      "required": [
+        "source_content_sha256",
+        "package_sha256",
+        "chemical_state_sha256",
+        "component_charge_e",
+        "system_charge_e",
+        "protein_residue_count",
+        "protein_identity_sha256",
+        "water_model",
+        "water_settings_sha256",
+        "water_count",
+        "water_realization_sha256",
+        "ion_count",
+        "ion_realization_sha256",
+        "ion_settings_sha256",
+        "ionic_strength_molar",
+        "box_vectors_nm",
+        "constraints",
+        "hydrogen_mass_amu",
+        "source_pose_sha256",
+        "particle_count",
+        "nonbonded_method"
+      ]
+    },
+    "AttestedVariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "variant_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "prepared": {
+          "$ref": "#/$defs/PreparedBinding"
+        },
+        "binding_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "assembly_operation_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "actual": {
+          "$ref": "#/$defs/ActualProvenance"
+        }
+      },
+      "required": [
+        "variant_id",
+        "prepared",
+        "binding_sha256",
+        "assembly_operation_id",
+        "actual"
+      ]
+    },
+    "ControlComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "enum": [
+            "force_field_package",
+            "chemical_state",
+            "component_charge",
+            "system_charge",
+            "protein",
+            "water_settings",
+            "water_count",
+            "water_realization",
+            "ion_settings",
+            "ion_count",
+            "ion_realization",
+            "box",
+            "constraints",
+            "starting_poses"
+          ]
+        },
+        "status": {
+          "enum": [
+            "held_fixed",
+            "differs"
+          ]
+        },
+        "values_sha256": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "minItems": 2,
+          "maxItems": 8
+        }
+      },
+      "required": [
+        "field",
+        "status",
+        "values_sha256"
+      ]
+    },
+    "SlotProof": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "variant_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "replica_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "protocol_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "protocol_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "template_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "variant_id",
+        "replica_index",
+        "seed",
+        "protocol_id",
+        "protocol_sha256",
+        "template_sha256"
+      ]
+    },
+    "PlanAttestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "plan_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "template_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "analysis_definition_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "variants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AttestedVariant"
+          },
+          "minItems": 2,
+          "maxItems": 8
+        },
+        "controls": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ControlComparison"
+          },
+          "minItems": 14,
+          "maxItems": 14
+        },
+        "slots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SlotProof"
+          },
+          "minItems": 2,
+          "maxItems": 32
+        },
+        "confounders": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "force_field_package",
+              "chemical_state",
+              "component_charge",
+              "system_charge",
+              "protein",
+              "water_settings",
+              "water_count",
+              "water_realization",
+              "ion_settings",
+              "ion_count",
+              "ion_realization",
+              "box",
+              "constraints",
+              "starting_poses"
+            ]
+          },
+          "minItems": 0,
+          "maxItems": 14,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schema_version",
+        "plan_sha256",
+        "template_sha256",
+        "analysis_definition_sha256",
+        "variants",
+        "controls",
+        "slots",
+        "confounders"
+      ]
+    },
+    "MemberSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "result_manifest": {
+          "$ref": "#/$defs/Artifact"
+        },
+        "trajectory": {
+          "$ref": "#/$defs/Artifact"
+        },
+        "state": {
+          "$ref": "#/$defs/Artifact"
+        }
+      },
+      "required": [
+        "result_manifest",
+        "trajectory",
+        "state"
+      ]
+    },
+    "AnalysisMember": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "variant_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "replica_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7
+        },
+        "session_request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "session_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "prepared": {
+          "$ref": "#/$defs/PreparedBinding"
+        },
+        "assembly_operation_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "protocol_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "protocol_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "scientific_state": {
+          "enum": [
+            "unsubmitted",
+            "queued",
+            "running",
+            "completed",
+            "stopped",
+            "failed",
+            "lost",
+            "recovery_required"
+          ]
+        },
+        "publication_state": {
+          "enum": [
+            "unpublished",
+            "complete",
+            "failed",
+            "interrupted"
+          ]
+        },
+        "applied_command_sha256": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/MemberSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "variant_id",
+        "replica_index",
+        "session_request_id",
+        "session_id",
+        "seed",
+        "prepared",
+        "assembly_operation_id",
+        "protocol_id",
+        "protocol_sha256",
+        "scientific_state",
+        "publication_state",
+        "applied_command_sha256",
+        "source"
+      ]
+    },
+    "AnalysisRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "comparison_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "plan_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "definition_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "definition": {
+          "$ref": "#/$defs/AnalysisDefinition"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AnalysisMember"
+          },
+          "minItems": 2,
+          "maxItems": 32
+        }
+      },
+      "required": [
+        "schema_version",
+        "request_id",
+        "comparison_id",
+        "plan_sha256",
+        "definition_sha256",
+        "definition",
+        "members"
+      ]
+    },
+    "Measurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "observable": {
+          "enum": [
+            "ligand_internal_rmsd",
+            "interligand_distance",
+            "temperature",
+            "volume"
+          ]
+        },
+        "selector": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 80
+        },
+        "unit": {
+          "enum": [
+            "nm",
+            "K",
+            "nm^3"
+          ]
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "minItems": 0,
+          "maxItems": 256
+        },
+        "time_ps": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0
+          },
+          "minItems": 0,
+          "maxItems": 256
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 0,
+          "maxItems": 256
+        },
+        "mean": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "within_replica_sem": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "observable",
+        "selector",
+        "unit",
+        "steps",
+        "time_ps",
+        "values",
+        "mean",
+        "within_replica_sem"
+      ]
+    },
+    "MemberResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "variant_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "replica_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7
+        },
+        "session_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_result_sha256": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scientific_state": {
+          "enum": [
+            "unsubmitted",
+            "queued",
+            "running",
+            "completed",
+            "stopped",
+            "failed",
+            "lost",
+            "recovery_required"
+          ]
+        },
+        "publication_state": {
+          "enum": [
+            "unpublished",
+            "complete",
+            "failed",
+            "interrupted"
+          ]
+        },
+        "status": {
+          "enum": [
+            "included",
+            "excluded",
+            "failed"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "complete",
+            "unsubmitted",
+            "not_completed",
+            "unpublished",
+            "perturbed",
+            "source_unavailable",
+            "analysis_failed"
+          ]
+        },
+        "intervention_state": {
+          "enum": [
+            "unperturbed",
+            "perturbed",
+            "unknown"
+          ]
+        },
+        "mapped_atom_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "measurements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Measurement"
+          },
+          "minItems": 0,
+          "maxItems": 5
+        },
+        "error": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 512
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "variant_id",
+        "replica_index",
+        "session_id",
+        "source_result_sha256",
+        "scientific_state",
+        "publication_state",
+        "status",
+        "reason",
+        "intervention_state",
+        "mapped_atom_count",
+        "measurements",
+        "error"
+      ]
+    },
+    "VariantAggregate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "variant_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "observable": {
+          "enum": [
+            "ligand_internal_rmsd",
+            "interligand_distance",
+            "temperature",
+            "volume"
+          ]
+        },
+        "selector": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 80
+        },
+        "unit": {
+          "enum": [
+            "nm",
+            "K",
+            "nm^3"
+          ]
+        },
+        "replica_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "mean": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "sd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "sem": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "confidence_interval": {
+          "const": null
+        },
+        "uncertainty_status": {
+          "enum": [
+            "insufficient_replicas",
+            "descriptive_only"
+          ]
+        }
+      },
+      "required": [
+        "variant_id",
+        "observable",
+        "selector",
+        "unit",
+        "replica_count",
+        "mean",
+        "sd",
+        "sem",
+        "confidence_interval",
+        "uncertainty_status"
+      ]
+    },
+    "AnalysisReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "comparison_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "plan_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "definition_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "request_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MemberResult"
+          },
+          "minItems": 2,
+          "maxItems": 32
+        },
+        "aggregates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/VariantAggregate"
+          },
+          "minItems": 0,
+          "maxItems": 40
+        }
+      },
+      "required": [
+        "schema_version",
+        "comparison_id",
+        "plan_sha256",
+        "definition_sha256",
+        "request_sha256",
+        "members",
+        "aggregates"
+      ]
+    },
+    "OperationError": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 512
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ]
+    },
+    "AnalysisOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "operation_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "request_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "comparison_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "state": {
+          "enum": [
+            "queued",
+            "running",
+            "succeeded",
+            "failed",
+            "interrupted"
+          ]
+        },
+        "receipt": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/AnalysisReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/OperationError"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "operation_id",
+        "request_id",
+        "request_sha256",
+        "comparison_id",
+        "state",
+        "receipt",
+        "error"
+      ]
+    }
+  }
+}

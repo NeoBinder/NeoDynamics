@@ -78,7 +78,33 @@ sequence evidence. The host must preserve available SEQRES/entity-polymer
 metadata during canonical export; this SDK does not add an independent raw-row
 parser.
 
+The resident preparation service derives `canonical_sequences` from an uploaded
+PDBx source when `_entity_poly_seq` is present. It binds each observed polymer
+residue through `_struct_asym` and `_atom_site` entity, chain, label position,
+name, atom order and coordinates to the descriptor's observed UUIDs. A client
+`unknown` or `client_declared` sequence cannot override those deposited rows.
+Nonpolymer HOH rows may coexist with the protein but add no canonical position;
+other nonpolymer chemistry remains outside this source-bound protein path.
+Both source validation and preparation use the same loader, so a deposited
+sequence position without coordinates reports `detected_gap` before a System is
+created.
+
 Inspection reports known missing stretches and unsupported residues as blockers.
+If any residue in a known polymer sequence lacks source coordinates, both repair
+paths raise `repair.sequence` with the zero-based sequence indices before calling
+PDBFixer or building a System. Model the missing residues and supply their
+coordinates through an upstream algorithm, then submit a new coordinate-complete
+canonical source. When trusted canonical sequence metadata is available, the
+source cannot replace it with a client-declared observed subset or `unknown`
+coverage. Without such metadata, this SDK cannot infer missing residues from
+coordinate numbering alone.
+The legacy `prepare_system` CLI path checks embedded PDB `SEQRES` and PDBx
+`_entity_poly_seq`/`_atom_site.label_seq_id` evidence before loading a protein
+for System building. Known unpositioned residues raise a protein input error
+and leave no prepared output. The engine environment includes Gemmi for PDBx
+metadata parsing. A coordinate-only file without sequence metadata cannot
+establish whether residues were omitted; supply a source with authoritative
+sequence evidence when that distinction matters.
 Unknown sequence coverage is reported as unknown and never described as a
 complete sequence. No path rebuilds missing stretches, replaces residues or
 removes heterogens. Automatic repair currently accepts only the twenty standard
@@ -264,9 +290,11 @@ automatic terminal completion and preserves the original data; neither a GROUP
 chain end nor the last observed protein residue is enough. An outgoing carbonyl-C
 bond blocks OXT addition, including cross-chain or cyclic connections. Existing
 OXT is retained, but conflicts with an outgoing carbon bond reject. Water-separated
-internal runs do not gain OXT. Known gaps or reversed sequence correspondences
-reject. Client-declared completeness remains a declaration, not authenticated
-biology; `canonical_file` evidence requires the existing trusted parser metadata.
+internal runs do not gain OXT. Known gaps, including unpositioned terminal
+residues, raise an actionable error before PDBFixer runs; reversed sequence
+correspondences also reject. Client-declared completeness remains a declaration,
+not authenticated biology; `canonical_file` evidence requires the existing
+trusted parser metadata.
 
 The current source contract binds every observed residue in a non-unknown chain
 sequence, including HOH. A water-inclusive list cannot therefore stand in for

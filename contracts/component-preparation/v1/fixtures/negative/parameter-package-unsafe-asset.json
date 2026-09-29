@@ -1,0 +1,84 @@
+{
+  "schema_id": "urn:neodyn:component-preparation:v1:parameter-package",
+  "schema_version": 1,
+  "package_id": "00000000-0000-4000-8000-000000000007",
+  "state_id": "00000000-0000-4000-8000-000000000001",
+  "state_sha256": "b92fc3762cc686550195069896d2ff2b2890bb330e9152b9bcaebd3b04773531",
+  "origin": "generated",
+  "method": {
+    "method_id": "synthetic.contract.fixture",
+    "version": "0",
+    "charge_method_id": "fixture-exact",
+    "tool_versions": [
+      {
+        "tool": "fixture-builder",
+        "version": "1"
+      }
+    ],
+    "resource_hashes": [
+      {
+        "resource_id": "synthetic-water",
+        "sha256": "ee795d6177d6531657a071478806d893eae25953473c223a1cb9e4cf806c8ae3"
+      }
+    ],
+    "options_sha256": "04c682c4470892c3242627553e2b7ae5ae16fcc2faa44c8677836d496e05c253",
+    "conformer_sha256": null,
+    "seed": null
+  },
+  "atom_map": {
+    "schema_id": "urn:neodyn:component-preparation:v1:artifact-reference",
+    "schema_version": 1,
+    "artifact_id": "00000000-0000-4000-8000-000000000008",
+    "kind": "atom_map",
+    "content_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "size_bytes": 2,
+    "decoded_size_bytes": 2,
+    "encoding": "identity",
+    "media_type": "application/json"
+  },
+  "assets": [
+    {
+      "schema_id": "urn:neodyn:component-preparation:v1:artifact-reference",
+      "schema_version": 1,
+      "artifact_id": "00000000-0000-4000-8000-000000000009",
+      "kind": "parameter_asset",
+      "content_sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+      "size_bytes": 3,
+      "decoded_size_bytes": 3,
+      "encoding": "identity",
+      "media_type": "application/octet-stream",
+      "url": "https://invalid.example/asset"
+    }
+  ],
+  "compatibility": {
+    "protein_family": "fixture",
+    "ligand_family": "fixture",
+    "water_family": "fixture",
+    "ion_family": "fixture",
+    "combining_rule": "lorentz-berthelot",
+    "electrostatic_14_scale": 1,
+    "vdw_14_scale": 1,
+    "unit_system": "openmm_nm_kj_mol_e",
+    "nonbonded_method": "pme",
+    "cutoff_nm": 1,
+    "switch_distance_nm": null,
+    "constraints": "HBonds",
+    "hydrogen_mass_amu": 4,
+    "virtual_sites": false
+  },
+  "charge_sum_e": 0,
+  "qc": {
+    "status": "unreviewed",
+    "report": {
+      "schema_id": "urn:neodyn:component-preparation:v1:artifact-reference",
+      "schema_version": 1,
+      "artifact_id": "00000000-0000-4000-8000-00000000000a",
+      "kind": "qc_report",
+      "content_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "size_bytes": 2,
+      "decoded_size_bytes": 2,
+      "encoding": "identity",
+      "media_type": "application/json"
+    }
+  }
+}

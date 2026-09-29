@@ -1,0 +1,24 @@
+{
+  "schema_id": "urn:neodyn:component-preparation:v1:capability-catalog",
+  "schema_version": 1,
+  "catalog_revision_sha256": "35594c902a8ac0a1c004a2eb5ba3c0e47ce105e3ec2c870fe0db92c83498dea6",
+  "methods": [
+    {
+      "method_id": "synthetic.contract.fixture",
+      "version": "0",
+      "chemistry_scope": [
+        "test-water-only"
+      ],
+      "import_mode": "generated",
+      "resource_hashes": [
+        {
+          "resource_id": "synthetic-water",
+          "sha256": "ee795d6177d6531657a071478806d893eae25953473c223a1cb9e4cf806c8ae3"
+        }
+      ],
+      "availability": "qualified",
+      "qualification": null,
+      "reason": "Synthetic contract fixture has no scientific qualification."
+    }
+  ]
+}

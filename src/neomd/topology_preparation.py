@@ -17,24 +17,41 @@ from .topology_intake import load_topology_artifact
 from .topology_records import TopologyRecordError
 
 
+class UnsupportedCovalentAttachmentError(TopologyRecordError):
+    """A stored protein–ligand bond lacks a qualified joint parameter method."""
+
+
 def _ligand_molecules(records):
     from openff.toolkit.topology import Molecule
     from rdkit import Chem
+
+    from .component_inspection import inspect_components
 
     frame = records["frames"][0]
     scale = 10.0 if frame["unit"] == "nm" else 1.0
     positions = {row["atom_id"]: [value * scale for value in row["xyz"]]
                  for row in frame["positions"]}
     molecules = []
-    ligand_residues = [row for row in records["residues"]
-                       if row["properties"].get("parameter_role") == "ligand"]
+    residues = {row["id"]: row for row in records["residues"]}
+    components = inspect_components(records)["components"]
     orders = {"single": Chem.BondType.SINGLE, "double": Chem.BondType.DOUBLE,
               "triple": Chem.BondType.TRIPLE, "aromatic": Chem.BondType.AROMATIC}
-    for residue in ligand_residues:
-        atoms = [row for row in records["atoms"] if row["residue_id"] == residue["id"]]
+    for component in components:
+        if component["role"] == "covalent_group" and any(
+            residues[key]["properties"].get("parameter_role") == "ligand"
+            for key in component["source_residue_ids"]
+        ):
+            raise UnsupportedCovalentAttachmentError(
+                "covalently attached ligand needs a qualified joint template")
+        if component["role"] != "ligand":
+            continue
+        if component["diagnostics"]:
+            raise TopologyRecordError(component["diagnostics"][0]["detail"])
+        member_ids = set(component["source_atom_ids"])
+        atoms = [row for row in records["atoms"] if row["id"] in member_ids]
         if (not atoms or any(not row["name"] for row in atoms)
-                or len({row["name"] for row in atoms}) != len(atoms)):
-            raise TopologyRecordError("ligand atom names must be unique and nonempty")
+                or len({(row["residue_id"], row["name"]) for row in atoms}) != len(atoms)):
+            raise TopologyRecordError("ligand atom names must be unique within each source residue")
         indices = {row["id"]: index for index, row in enumerate(atoms)}
         graph = Chem.RWMol()
         for row in atoms:
@@ -45,8 +62,6 @@ def _ligand_molecules(records):
             graph.AddAtom(atom)
         for bond in records["bonds"]:
             left, right = bond["atom_ids"]
-            if (left in indices) != (right in indices):
-                raise TopologyRecordError("covalently attached ligand needs a qualified joint template")
             if left in indices:
                 order = orders.get(bond["order"]["kind"])
                 if order is None:
@@ -63,9 +78,10 @@ def _ligand_molecules(records):
         molecule.AddConformer(conformer)
         ligand = Molecule.from_rdkit(molecule, allow_undefined_stereo=True,
                                      hydrogens_are_explicit=True)
+        repeated = len({row["name"] for row in atoms}) != len(atoms)
         for atom, row in zip(ligand.atoms, atoms):
-            atom.name = row["name"]
-        ligand.name = residue["name"]
+            atom.name = f"{row['residue_id']}_{row['name']}" if repeated else row["name"]
+        ligand.name = "+".join(residues[key]["name"] for key in component["source_residue_ids"])
         molecules.append(ligand)
     return molecules
 

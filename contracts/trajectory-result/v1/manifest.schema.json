@@ -78,7 +78,8 @@
         "terminal_state": {
           "enum": [
             "completed",
-            "stopped"
+            "stopped",
+            "failed"
           ]
         },
         "step": {
@@ -114,7 +115,7 @@
         "time_ps",
         "control_revision"
       ],
-      "description": "Actual terminal owner-thread observation; stopped does not mean all requested steps completed. This is separate from per-file encoded DCD steps/time. No failed/lost/recovery-required run receives this manifest."
+      "description": "Actual owner-thread terminal observation. Failed identifies a sealed diagnostic result, never completed science or an eligible continuation."
     },
     "prepared": {
       "type": "object",
@@ -193,7 +194,8 @@
     "trajectory_state": {
       "enum": [
         "written",
-        "not_written"
+        "not_written",
+        "unverified"
       ]
     },
     "trajectories": {
@@ -357,6 +359,149 @@
           }
         ]
       }
+    },
+    "final_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "content_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "encoding": {
+          "const": "f64le_positions_box_v1"
+        },
+        "unit": {
+          "const": "nm"
+        },
+        "particle_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "particle_identity_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "content_sha256",
+        "size_bytes",
+        "encoding",
+        "unit",
+        "particle_count",
+        "particle_identity_sha256"
+      ]
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "scientific_step_failed"
+        },
+        "exception_type": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+        }
+      },
+      "required": [
+        "code",
+        "exception_type"
+      ]
+    },
+    "diagnostic_artifacts": {
+      "type": "array",
+      "maxItems": 4095,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "content_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "name",
+          "artifact_id",
+          "content_sha256",
+          "size_bytes",
+          "kind"
+        ]
+      }
+    },
+    "input_continuation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source_session_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "source_finalization_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "source_result_artifact_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "final_state_artifact_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "final_state_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "velocity_policy": {
+          "const": "reinitialize_at_target_temperature"
+        }
+      },
+      "required": [
+        "source_session_id",
+        "source_finalization_id",
+        "source_result_artifact_id",
+        "final_state_artifact_id",
+        "final_state_sha256",
+        "velocity_policy"
+      ]
     }
   },
   "required": [
@@ -377,21 +522,21 @@
       "if": {
         "properties": {
           "trajectory_state": {
-            "const": "not_written"
+            "const": "written"
           }
         }
       },
       "then": {
         "properties": {
           "trajectories": {
-            "maxItems": 0
+            "minItems": 1
           }
         }
       },
       "else": {
         "properties": {
           "trajectories": {
-            "minItems": 1
+            "maxItems": 0
           }
         }
       }
@@ -437,6 +582,83 @@
                     }
                   }
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "execution": {
+            "properties": {
+              "terminal_state": {
+                "const": "failed"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "failure",
+          "diagnostic_artifacts"
+        ],
+        "properties": {
+          "trajectory_state": {
+            "const": "unverified"
+          }
+        },
+        "not": {
+          "required": [
+            "final_state"
+          ]
+        }
+      },
+      "else": {
+        "properties": {
+          "trajectory_state": {
+            "enum": [
+              "written",
+              "not_written"
+            ]
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "failure"
+              ]
+            },
+            {
+              "required": [
+                "diagnostic_artifacts"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "final_state"
+        ]
+      },
+      "then": {
+        "properties": {
+          "execution": {
+            "properties": {
+              "terminal_state": {
+                "const": "completed"
+              },
+              "method": {
+                "enum": [
+                  "min",
+                  "eq"
+                ]
               }
             }
           }
