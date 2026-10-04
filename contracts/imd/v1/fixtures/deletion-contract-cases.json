@@ -1,0 +1,62 @@
+[
+  {
+    "file": "deletion-preview.json",
+    "schema": "ServiceDeletionPreview",
+    "canonical_sha256": "fe34ae35907842570136be5cf2a54d2f8015caab87e25e7a3a9d845616457080"
+  },
+  {
+    "file": "deletion-accept.json",
+    "schema": "AcceptSessionDeletion",
+    "canonical_sha256": "93f4cbaa020fa54bff385f66f66493a92456a137e1353ab60562c68098d02082"
+  },
+  {
+    "file": "deletion-removal.json",
+    "schema": "CommitSessionRemoval",
+    "canonical_sha256": "bc1952c3d2af2c08f45fe6eaf31d4790fae5628a871768018fe92f535a8b0d2c"
+  },
+  {
+    "file": "deletion-operation-rejected.json",
+    "schema": "ServiceDeletionOperation",
+    "canonical_sha256": "55fc6d3fa5bbd3aa2c0c033b6c474f16193adde159206fa3622b71b22c9724f1"
+  },
+  {
+    "file": "deletion-operation-blocked.json",
+    "schema": "ServiceDeletionOperation",
+    "canonical_sha256": "467d3e6133f0f47e21d6849a8f0a544b16df434b6cdd861871e9dcfdb61c9254"
+  },
+  {
+    "file": "deletion-operation-quiesced.json",
+    "schema": "ServiceDeletionOperation",
+    "canonical_sha256": "35d3baf2367b0199ea179b10a42383520bcaa88d31f2ce753d539d51a94c9721"
+  },
+  {
+    "file": "deletion-operation-succeeded.json",
+    "schema": "ServiceDeletionOperation",
+    "canonical_sha256": "3a2b48fe17eba6a7619c43400c99a41e337553da73284f414961c5076b6d5da9"
+  },
+  {
+    "file": "deletion-session-deleted.json",
+    "schema": "DeletedSession",
+    "canonical_sha256": "2db30b62e3f6857dcdc850085b96684c0f598daf605cfde3ec7c5b173f2bca08"
+  },
+  {
+    "file": "deletion-analysis-only-preview.json",
+    "schema": "ServiceDeletionPreview",
+    "canonical_sha256": "388cf0c1d644974be159be16a769147ad0bcf930cf7904f5bbb11cdf8ab6a15b"
+  },
+  {
+    "file": "deletion-analysis-only-accept.json",
+    "schema": "AcceptSessionDeletion",
+    "canonical_sha256": "a5da44c3e60da09a582cb5537c1c02e1571490d340cb647d9a2248f43ec0530d"
+  },
+  {
+    "file": "deletion-absent-preview.json",
+    "schema": "ServiceDeletionPreview",
+    "canonical_sha256": "17213cf17510a8cca30e9da64c58775499be4c6afadca5e3337be7acabb629ef"
+  },
+  {
+    "file": "deletion-absent-accept.json",
+    "schema": "AcceptSessionDeletion",
+    "canonical_sha256": "a2dad4bf6bf3cb8c697043e42287b86447eadbd67fdd2e34fe33ef6830679c72"
+  }
+]

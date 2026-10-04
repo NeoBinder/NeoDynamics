@@ -20,6 +20,14 @@ import tempfile
 from pathlib import Path
 
 METHODS = ("min", "eq", "md", "prod", "metadynamics", "smd", "opes", "gamd", "rbfe")
+DELETION_MODULES = (
+    "neomd_server.session_deletion", "neomd_server.session_lifetimes",
+    "neomd_server.deletion_files",
+)
+DELETION_SCHEMAS = (
+    "DeletionPreviewRequest", "ServiceDeletionPreview", "AcceptSessionDeletion",
+    "ServiceDeletionOperation", "CommitSessionRemoval", "DeletedSession",
+)
 CONTRACTS = (
     "imd/v1/errors.json", "imd/v1/openapi.json", "imd/v1/protocol.schema.json",
     "scientific-protocol/v1/coordinate-reference.schema.json",
@@ -144,7 +152,7 @@ def check_installation(provenance_path: Path) -> dict:
     records = {Path(distribution.locate_file(item)).resolve()
                for item in distribution.files or ()}
     origins = {}
-    for module in ("neomd", "neomd_server"):
+    for module in ("neomd", "neomd_server", *DELETION_MODULES):
         spec = importlib.util.find_spec(module)
         if spec is None or spec.origin is None or Path(spec.origin).resolve() not in records:
             raise SmokeError(f"{module} is not imported from the installed distribution")
@@ -164,10 +172,14 @@ def check_installation(provenance_path: Path) -> dict:
     importlib.import_module("gemmi")
     server = Path(origins["neomd_server"]).parent
     migrations = server / "migrations"
-    if {path.name for path in migrations.glob("*.sql")} != {f"{n:03d}.sql" for n in range(1, 16)}:
-        raise SmokeError("installed migrations must contain exactly 001.sql through 015.sql")
+    if {path.name for path in migrations.glob("*.sql")} != {f"{n:03d}.sql" for n in range(1, 18)}:
+        raise SmokeError("installed migrations must contain exactly 001.sql through 017.sql")
     contracts = Path(sysconfig.get_path("data")) / "share/neodynamics/contracts"
-    assets = [(f"migrations/{n:03d}.sql", migrations / f"{n:03d}.sql") for n in range(1, 16)]
+    protocol = read_json(contracts / "imd/v1/protocol.schema.json")
+    if not set(DELETION_SCHEMAS) <= protocol.get("$defs", {}).keys():
+        raise SmokeError("installed protocol schema is missing deletion definitions")
+    assets = [(f"migrations/{n:03d}.sql", migrations / f"{n:03d}.sql") for n in range(1, 18)]
+    assets += [(f"modules/{module}", Path(origins[module])) for module in DELETION_MODULES]
     assets += [(f"contracts/{name}", contracts / name) for name in CONTRACTS]
     assets += [(f"fixture/{name}", server / "fixtures/qualification" / name) for name in FIXTURE_FILES]
     inventory = {}

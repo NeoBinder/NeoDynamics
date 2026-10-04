@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "sessions": [
+    {
+      "session_id": "00000000-0000-0000-0000-000000000001",
+      "create_request_id": "00000000-0000-0000-0000-00000000000b",
+      "service_revision": 9,
+      "state": "completed",
+      "controller_active": false
+    },
+    {
+      "session_id": "00000000-0000-0000-0000-000000000002",
+      "create_request_id": "00000000-0000-0000-0000-00000000000c",
+      "service_revision": 2,
+      "state": "queued",
+      "controller_active": false
+    }
+  ],
+  "analysis_operation_ids": [
+    "00000000-0000-0000-0000-000000000015"
+  ],
+  "dependencies": [
+    {
+      "kind": "analysis",
+      "source_session_id": "00000000-0000-0000-0000-000000000001",
+      "target_id": "00000000-0000-0000-0000-000000000015",
+      "selected": true
+    },
+    {
+      "kind": "continuation",
+      "source_session_id": "00000000-0000-0000-0000-000000000001",
+      "target_id": "00000000-0000-0000-0000-000000000002",
+      "selected": true
+    }
+  ],
+  "retained_inputs": [
+    {
+      "kind": "prepared",
+      "id": "00000000-0000-0000-0000-000000000028"
+    },
+    {
+      "kind": "protocol",
+      "id": "00000000-0000-0000-0000-000000000029"
+    }
+  ],
+  "blockers": [
+    {
+      "code": "stop_required",
+      "session_id": "00000000-0000-0000-0000-000000000002",
+      "dependency_id": null
+    }
+  ],
+  "known_inventory": {
+    "file_count": 2,
+    "inode_count": 1,
+    "exclusive_bytes": 10,
+    "complete": false
+  },
+  "dependency_sha256": "3c2cf1f48389328505e3b34e67c6880ab020a66f300975e4a85904b5b7be069f",
+  "preview_sha256": "81d2fe1dacad7a28131eccd90fe7d2bbffdba54df48cf069b03d7d455ee7d5ed"
+}

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "sessions": [],
+  "analysis_operation_ids": [
+    "00000000-0000-0000-0000-000000000015"
+  ],
+  "dependencies": [
+    {
+      "kind": "analysis",
+      "source_session_id": "00000000-0000-0000-0000-000000000001",
+      "target_id": "00000000-0000-0000-0000-000000000015",
+      "selected": true
+    }
+  ],
+  "retained_inputs": [
+    {
+      "kind": "prepared",
+      "id": "00000000-0000-0000-0000-000000000028"
+    }
+  ],
+  "blockers": [],
+  "known_inventory": {
+    "file_count": 0,
+    "inode_count": 0,
+    "exclusive_bytes": 0,
+    "complete": true
+  },
+  "dependency_sha256": "2122a91e3210f15311a24307006a552e783b1102cf6e60cc3241bbfce0e5c318",
+  "preview_sha256": "e6665839e880f8fa77fbff5c0050ce33962f2e6be5cf11550f040fc1309e4781"
+}

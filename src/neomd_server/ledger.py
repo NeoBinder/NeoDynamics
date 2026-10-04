@@ -35,6 +35,12 @@ class LedgerError(RuntimeError):
         super().__init__(code)
 
 
+class DeletedSessionError(LedgerError):
+    def __init__(self, tombstone):
+        super().__init__("session_deleted")
+        self.tombstone = tombstone
+
+
 @dataclass(frozen=True)
 class AdmissionLimits:
     max_active: int
@@ -233,9 +239,9 @@ class Ledger:
                 if exists
                 else None
             )
-            if version is not None and version not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}:
+            if version is not None and version not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17}:
                 raise RuntimeError("unsupported service ledger schema version")
-            for number in range((version or 0) + 1, 16):
+            for number in range((version or 0) + 1, 18):
                 script = (Path(__file__).parent / f"migrations/{number:03d}.sql").read_text()
                 await connection.execute(script)
 
@@ -380,7 +386,40 @@ class Ledger:
                 "created_at": _time(row["created_at"]),
             }
 
+    async def session_gate(self, connection, scope_id, session_id, *, create_request_id=None,
+                           allow_deletion=None):
+        """Serialize admission on identities that may have no scientific row yet."""
+        await connection.execute("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
+                                 "neomd/session/" + str(session_id))
+        if await connection.fetchval('SELECT EXISTS(SELECT 1 FROM neomd_service.session_retirements WHERE session_id=$1 AND scope_id<>$2)', _uuid(session_id), _uuid(scope_id)):
+            raise LedgerError('not_found')
+        await self.check_retirement(connection, scope_id, session_id=session_id,
+                                    create_request_id=create_request_id, allow_deletion=allow_deletion)
+
+    async def request_gate(self, connection, scope_id, request_id):
+        await connection.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',str(scope_id)+'/create/'+str(request_id))
+        await self.check_retirement(connection,scope_id,create_request_id=request_id)
+
+    async def check_retirement(self, connection, scope_id, *, session_id=None,
+                               create_request_id=None, allow_deletion=None):
+        row = await connection.fetchrow("""SELECT * FROM neomd_service.session_retirements
+            WHERE scope_id=$1 AND (session_id=$2 OR create_request_id=$3)""",
+            _uuid(scope_id), None if session_id is None else _uuid(session_id),
+            None if create_request_id is None else _uuid(create_request_id))
+        if row is None or (allow_deletion is not None and str(row["operation_id"]) == allow_deletion
+                           and row["state"] == "deleting"):
+            return
+        if row["state"] == "deleted":
+            raise DeletedSessionError({"schema_version": 1, "session_id": str(row["session_id"]),
+                "create_request_id": str(row["create_request_id"]),
+                "deletion_operation_id": str(row["operation_id"]), "state": "deleted"})
+        raise LedgerError("session_deleting")
+
     async def _session(self, connection, scope_id, session_id, *, lock=True):
+        if lock:
+            await self.session_gate(connection, scope_id, session_id)
+        else:
+            await self.check_retirement(connection, scope_id, session_id=session_id)
         row = await connection.fetchrow(
             "SELECT * FROM neomd_service.sessions WHERE scope_id=$1 AND session_id=$2"
             + (" FOR UPDATE" if lock else ""),
@@ -413,7 +452,9 @@ class Ledger:
 
     async def _event(self, connection, row, snapshot, kind, now, command=None, *, initial=False):
         if not initial:
-            snapshot["service_revision"] = _increment(snapshot["service_revision"])
+            current_revision = await connection.fetchval(
+                "SELECT (snapshot->>'service_revision')::bigint FROM neomd_service.sessions WHERE session_id=$1", row['session_id'])
+            snapshot["service_revision"] = _increment(max(snapshot["service_revision"], current_revision))
         snapshot["updated_at"] = _time(now)
         if snapshot["observation"] is not None:
             snapshot["observation"]["freshness"] = (
@@ -450,7 +491,8 @@ class Ledger:
         # a newcomer can reserve newly available capacity.
         expired = await connection.fetch(
             """SELECT * FROM neomd_service.sessions WHERE pool_id=$1
-            AND snapshot->>'state'='queued' AND queue_expires_at<=$2 FOR UPDATE""",
+            AND snapshot->>'state'='queued' AND queue_expires_at<=$2
+            AND NOT EXISTS(SELECT 1 FROM neomd_service.session_retirements r WHERE r.session_id=sessions.session_id) FOR UPDATE""",
             pool_id,
             now,
         )
@@ -473,6 +515,7 @@ class Ledger:
         promote = await connection.fetch(
             """SELECT session_id FROM neomd_service.sessions WHERE pool_id=$1
             AND NOT active_reserved AND snapshot->>'state'='queued'
+            AND NOT EXISTS(SELECT 1 FROM neomd_service.session_retirements r WHERE r.session_id=sessions.session_id)
             ORDER BY created_at,session_id FOR UPDATE LIMIT $2""",
             pool_id,
             max(0, policy["max_active"] - active),
@@ -509,6 +552,13 @@ class Ledger:
             )
             if policy is None:
                 raise LedgerError("service_unavailable")
+            gate_ids = {str(session)}
+            continuation = request["payload"].get("continuation")
+            if continuation is not None:
+                gate_ids.add(continuation["source_session_id"])
+            for identity in sorted(gate_ids):
+                await self.session_gate(connection, scope, identity)
+            await self.request_gate(connection, scope, request_id)
             existing = await connection.fetchrow(
                 "SELECT * FROM neomd_service.sessions WHERE scope_id=$1 AND request_id=$2",
                 scope,
@@ -785,6 +835,7 @@ class Ledger:
 
     async def by_request(self, scope_id, request_id):
         async with self.pool.acquire() as connection:
+            await self.check_retirement(connection, scope_id, create_request_id=request_id)
             row = await connection.fetchrow(
                 "SELECT * FROM neomd_service.sessions WHERE scope_id=$1 AND request_id=$2",
                 _uuid(scope_id),
@@ -963,6 +1014,8 @@ class Ledger:
             row = await connection.fetchrow(
                 """SELECT * FROM neomd_service.sessions WHERE pool_id=$1
                 AND snapshot->>'state'='queued' AND active_reserved
+                AND NOT EXISTS(SELECT 1 FROM neomd_service.session_retirements r
+                    WHERE r.scope_id=sessions.scope_id AND r.session_id=sessions.session_id)
                 ORDER BY created_at,session_id FOR UPDATE SKIP LOCKED LIMIT 1""",
                 pool_id,
             )
@@ -1420,6 +1473,13 @@ class Ledger:
             if proof is not None and command['request']['payload']['type'] not in {'checkpoint', 'stop'}:
                 raise LedgerError('artifact_unverified')
             await self._checkpoint_insert(connection, row, lease, proof, 'command', command_id, applied_step, control_revision)
+            # Artifact binding can advance the ordinary snapshot revision while
+            # this command transaction still owns the session. Its immutable
+            # receipt must identify the eventual command-resolved snapshot.
+            receipt['service_revision'] = _increment(await connection.fetchval(
+                "SELECT (snapshot->>'service_revision')::bigint FROM neomd_service.sessions WHERE session_id=$1",
+                row['session_id']))
+            validate('CommandReceipt', receipt)
             await connection.execute(
                 "UPDATE neomd_service.commands SET receipt=$3,status=$4 WHERE session_id=$1 AND command_id=$2",
                 row["session_id"],

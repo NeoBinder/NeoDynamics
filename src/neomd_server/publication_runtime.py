@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID, uuid4
 
+from .ledger import LedgerError
 from .publication_config import PublicationSettings
 from .publication_contract import ActionIntent, PartIntent, UploadBinding
 from .publication_ipc import decode_grant, decode_result, encode_grant, encode_result
@@ -208,7 +209,7 @@ class PublicationCoordinator:
             for ref in page.entries:
                 try:
                     await self.journal.stage(await self._candidate(ref))
-                except JournalError as error:
+                except LedgerError as error:
                     # Legacy rows without producer evidence stay ineligible.
                     self._note(ref.scope_id, ref.finalization_id, error.code)
             if page.next_after is None:
@@ -257,17 +258,25 @@ class PublicationCoordinator:
                     continue
                 if ref.state != "pending" or len(active) >= self.settings.max_active:
                     continue
+                token = None
+                lifetimes = getattr(getattr(self, 'ledger', None), 'lifetimes', None)
                 try:
+                    if lifetimes is not None:
+                        token = await lifetimes.admit('uploader', ref.scope_id, [ref.session_id])
                     lease = await self.journal.claim(ref.scope_id, ref.finalization_id,
                                                      owner_id=self.owner_id, lease_id=str(uuid4()),
                                                      lease_ms=self.settings.lease_ms)
-                except JournalError as error:
+                except (JournalError, LedgerError) as error:
+                    if token is not None:
+                        await lifetimes.close(token, "joined_process")
                     # An unclosed prior uploader keeps its capacity: restart
                     # safety never fabricates a previous owner's closure proof.
                     if error.code not in {"state_conflict", "capacity_exceeded"}:
                         self._note(ref.scope_id, ref.finalization_id, error.code)
                     continue
-                task = asyncio.create_task(self._drive(lease, ref.finalization_id))
+                task = asyncio.create_task(self._drive(lease, ref.finalization_id, token))
+                if token is not None:
+                    lifetimes.bind(token, task)
                 self.drives[ref.finalization_id] = task
                 self._held[ref.finalization_id] = lease
                 task.add_done_callback(lambda _: self.signal.set())
@@ -288,13 +297,17 @@ class PublicationCoordinator:
         finally:
             self._held.pop(finalization_id, None)
 
-    async def _drive(self, lease, finalization_id):
+    async def _drive(self, lease, finalization_id, lifetime=None):
         heartbeat = asyncio.create_task(self._renew(lease))
         try:
             await self._drive_owned(lease, finalization_id)
         finally:
             heartbeat.cancel()
             await asyncio.gather(heartbeat, return_exceptions=True)
+            if not self._drive_children.get(finalization_id):
+                await self._release(lease, finalization_id)
+                if lifetime is not None:
+                    await self.journal.ledger.lifetimes.close(lifetime, 'joined_process')
 
     async def _renew(self, lease):
         try:
@@ -614,6 +627,17 @@ class PublicationCoordinator:
             after = page.next_after
 
     async def _guarded_cleanup(self, lease, record, *, missing_ok=False):
+        lifetimes = getattr(getattr(self, 'ledger', None), 'lifetimes', None)
+        if lifetimes is None:
+            return await self._guarded_cleanup_owned(lease, record, missing_ok=missing_ok)
+        try:
+            async with lifetimes.own('cleanup_thread', record.scope_id, [record.session_id]):
+                return await self._guarded_cleanup_owned(lease, record, missing_ok=missing_ok)
+        except LedgerError:
+            return {'scope_id': record.scope_id, 'finalization_id': record.finalization_id,
+                    'deleted': [], 'blocked': ['session_retired'], 'retained': True, 'at': time.time()}
+
+    async def _guarded_cleanup_owned(self, lease, record, *, missing_ok=False):
         """Delete only the exact owned sealed output set, or record blocked cleanup."""
         report = {"scope_id": lease.scope_id, "finalization_id": record.finalization_id,
                   "deleted": [], "blocked": [], "retained": True, "at": time.time()}
@@ -677,6 +701,16 @@ class PublicationCoordinator:
         finally:
             os.close(directory)
         return report
+
+    async def retire_sessions(self, scope, sessions):
+        async with self.journal.ledger.pool.acquire() as conn:
+            rows = await conn.fetch('SELECT finalization_id FROM neomd_service.publication_jobs WHERE scope_id=$1 AND session_id=ANY($2::uuid[])', UUID(str(scope)), [UUID(s) for s in sessions])
+        tasks = [self.drives[str(row['finalization_id'])] for row in rows if str(row['finalization_id']) in self.drives]
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.wait_for(asyncio.shield(asyncio.gather(*tasks, return_exceptions=True)), self.shutdown_timeout_seconds + 5)
 
     async def close(self):
         self.closing = True

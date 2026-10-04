@@ -21,7 +21,7 @@ from starlette.websockets import WebSocketDisconnect
 from .comparison import SCHEMA as COMPARISON_SCHEMA
 from .comparison import ComparisonStore
 from .contract import ContractError, validate
-from .ledger import LedgerError
+from .ledger import DeletedSessionError, LedgerError
 from .preview import PreviewCodec
 from .topology import COLLECTIONS, DESCRIPTOR_BYTES, MAX_PAGES, PAGE_BYTES
 
@@ -187,6 +187,7 @@ class _Incoming:
     def __init__(self):
         self.messages = asyncio.Queue(maxsize=1)
         self.expected = True
+        self.disconnected = False
 
     def expect(self):
         self.expected = True
@@ -195,6 +196,7 @@ class _Incoming:
         while True:
             message = await socket.receive()
             if message["type"] == "websocket.disconnect":
+                self.disconnected = True
                 raise WebSocketDisconnect(message.get("code", 1000))
             if not self.expected or self.messages.full():
                 raise LedgerError("invalid_request")
@@ -263,6 +265,9 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
     settings, statuses = transport_settings, _error_statuses()
     capacity = _Capacity(settings.max_connections)
     comparisons = ComparisonStore(ledger, inputs)
+    deletions = getattr(supervisor, 'deletions', None)
+    if deletions is not None:
+        deletions.comparisons = comparisons
 
     def error_value(code):
         if code not in statuses:
@@ -297,6 +302,9 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
 
     @app.exception_handler(LedgerError)
     async def ledger_error(_, error):
+        if isinstance(error, DeletedSessionError):
+            return Response(_encoded('DeletedSession', error.tombstone), status_code=410,
+                            media_type='application/json', headers={'Cache-Control':'no-store'})
         return error_response(error.code)
 
     @app.exception_handler(ContractError)
@@ -311,13 +319,54 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
     async def liveness():
         return {"status": "ok"}
 
+    class OwnedResponse(Response):
+        def __init__(self, *args, lifetime, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.lifetime = lifetime
+
+        async def __call__(self, scope, receive, send):
+            try:
+                await super().__call__(scope, receive, send)
+            finally:
+                await ledger.lifetimes.close(self.lifetime, 'closed_transport')
+
     def route(method, path, schema, result_schema, operation, status=200, limit=CONTROL_LIMIT,
               request_limit=None):
         async def endpoint(request: Request):
             params = {key: value if key == "kind" else _canonical_id(value) for key, value in request.path_params.items()}
             body = await _body(request, schema, settings, request_limit or limit) if schema else None
-            result = await operation(request.state.owner_scope, params, body, request)
-            return Response(_encoded(result_schema, result, limit), status_code=status,
+            token = None
+            if hasattr(ledger, 'lifetimes'):
+                members = [params['session_id']] if 'session_id' in params else []
+                analysis = None
+                if path == '/sessions' and body is not None:
+                    members = [body['session_id']]
+                elif path == '/sessions/by-request/{request_id}':
+                    async with ledger.pool.acquire() as conn:
+                        selected = await conn.fetchval('SELECT session_id FROM neomd_service.sessions WHERE scope_id=$1 AND request_id=$2', UUID(request.state.owner_scope), UUID(params['request_id']))
+                    members = [] if selected is None else [str(selected)]
+                elif path.startswith('/comparisons/analyses/'):
+                    async with ledger.pool.acquire() as conn:
+                        row = await conn.fetchrow('SELECT operation_id,request FROM neomd_service.comparison_analyses WHERE scope_id=$1 AND '
+                            + ('request_id=$2' if 'request_id' in params else 'operation_id=$2'), UUID(request.state.owner_scope), UUID(params.get('request_id') or params.get('operation_id')))
+                    if row is not None:
+                        analysis = str(row['operation_id'])
+                        members = [m['session_id'] for m in row['request']['members'] if m['session_id'] is not None]
+                if members or analysis is not None:
+                    token = await ledger.lifetimes.admit('event_transport', request.state.owner_scope, members, related_operation=analysis)
+            try:
+                result = await operation(request.state.owner_scope, params, body, request)
+                if token is None and path == '/comparisons/analyses' and hasattr(ledger, 'lifetimes'):
+                    token = await ledger.lifetimes.admit('event_transport', request.state.owner_scope,
+                        [m['session_id'] for m in body['members'] if m['session_id'] is not None], related_operation=result['operation_id'])
+                encoded = _encoded(result_schema, result, limit)
+            except BaseException:
+                if token is not None:
+                    await ledger.lifetimes.close(token, 'closed_transport')
+                raise
+            response_type = Response if token is None else OwnedResponse
+            extra = {} if token is None else {'lifetime': token}
+            return response_type(encoded, **extra, status_code=status,
                             media_type="application/json", headers={"Cache-Control": "no-store"})
         app.add_api_route(PREFIX + path, endpoint, methods=[method], name=f"{method} {path}")
 
@@ -386,6 +435,21 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
           f"{COMPARISON_SCHEMA}#/$defs/AnalysisOperation",
           lambda s, p, b, r: comparisons.analysis(s, p["operation_id"]),
           limit=8_388_608)
+    async def deletion_call(name, *args, **kwargs):
+        if deletions is None:
+            raise LedgerError('service_unavailable')
+        return await getattr(deletions,name)(*args,**kwargs)
+
+    route('POST', '/session-deletions/preview', 'DeletionPreviewRequest', 'ServiceDeletionPreview',
+          lambda s,p,b,r: deletion_call('preview',s,b))
+    route('POST', '/session-deletions', 'AcceptSessionDeletion', 'ServiceDeletionOperation',
+          lambda s,p,b,r: deletion_call('accept',s,b), 202)
+    route('GET', '/session-deletions/by-request/{request_id}', None, 'ServiceDeletionOperation',
+          lambda s,p,b,r: deletion_call('get',s,request=p['request_id']))
+    route('GET', '/session-deletions/{operation_id}', None, 'ServiceDeletionOperation',
+          lambda s,p,b,r: deletion_call('get',s,p['operation_id']))
+    route('POST', '/session-deletions/{operation_id}/removal', 'CommitSessionRemoval', 'ServiceDeletionOperation',
+          lambda s,p,b,r: deletion_call('removal',s,p['operation_id'],b), 202)
     route("POST", "/sessions", "CreateRequest", "SessionSnapshot", create, 202)
     route("GET", "/sessions/by-request/{request_id}", None, "SessionSnapshot", lambda s, p, b, r: ledger.by_request(s, p["request_id"]))
     route("GET", "/sessions/{session_id}", None, "SessionSnapshot", lambda s, p, b, r: ledger.get(s, p["session_id"]))
@@ -671,11 +735,21 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
 
     async def socket_boundary(socket, handler):
         entered, accepted, tasks, failure = False, False, [], None
+        lifetime = None
+        incoming = None
+        transport_closed = False
         try:
             capacity.enter()
             entered = True
             owner, token = await _authenticate(socket.headers, settings)
             session_id = _canonical_id(socket.path_params["session_id"])
+            if hasattr(ledger, 'lifetimes'):
+                lifetime = await ledger.lifetimes.admit('preview_transport' if handler is preview_stream else 'event_transport', owner, [session_id])
+                async def close_transport():
+                    nonlocal transport_closed
+                    await asyncio.wait_for(socket.close(code=1008), settings.send_timeout_seconds)
+                    transport_closed = True
+                ledger.lifetimes.bind(lifetime, asyncio.current_task(), close_transport)
             # A stalled database must not retain an unauthenticated upgrade slot.
             await asyncio.wait_for(ledger.get(owner, session_id), settings.handshake_timeout_seconds)
             await socket.accept()
@@ -691,7 +765,7 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
             for task in done:
                 task.result()
         except WebSocketDisconnect:
-            pass
+            transport_closed = True
         except LedgerError as error:
             failure = error_value(error.code)
         except ContractError:
@@ -713,6 +787,16 @@ def create_app(ledger, inputs, supervisor, transport_settings: TransportSettings
                 with suppress(Exception):
                     close_code = 1013 if failure["retryable"] else 1008
                     await asyncio.wait_for(socket.close(code=close_code), settings.send_timeout_seconds)
+                    transport_closed = True
+            if lifetime is not None:
+                if accepted and failure is None:
+                    with suppress(Exception):
+                        await asyncio.wait_for(socket.close(), settings.send_timeout_seconds)
+                        transport_closed = True
+                if transport_closed or (incoming is not None and incoming.disconnected):
+                    await ledger.lifetimes.close(lifetime, 'closed_transport')
+                else:
+                    await ledger.lifetimes.unknown(lifetime)
             if entered:
                 capacity.leave()
 

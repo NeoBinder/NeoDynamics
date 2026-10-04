@@ -150,6 +150,88 @@ def validate(name, value):
                                 binding["resolved_owner_scope"] != receipt["owner_scope"]):
                             problems.append((f"/receipt/input_bindings/{index}",
                                              "resolved input differs from request or owner"))
+    if name in {"DeletionPreviewRequest", "ServiceDeletionPreview", "AcceptSessionDeletion",
+                "ServiceDeletionOperation"} and not problems:
+        sessions = value.get("sessions", [])
+        ids = [item["session_id"] for item in sessions] if sessions else value.get("session_ids", [])
+        requests = [item["create_request_id"] for item in sessions]
+        if ids != sorted(set(ids)) or len(requests) != len(set(requests)):
+            problems.append(("/sessions", "session and original create identities must be unique and ordered"))
+        analyses = value["analysis_operation_ids"]
+        if analyses != sorted(set(analyses)):
+            problems.append(("/analysis_operation_ids", "analysis identities must be unique and ordered"))
+        if not ids and not analyses:
+            problems.append(("/sessions", "at least one session or selected analysis is required"))
+    if name == "ServiceDeletionPreview" and not problems:
+        for index, session in enumerate(value["sessions"]):
+            absent = session["state"] == "absent"
+            if absent != (session["service_revision"] is None) or (absent and session["controller_active"]):
+                problems.append((f"/sessions/{index}", "only a never-admitted identity has no service revision"))
+        dependencies = value["dependencies"]
+        keys = [(item["kind"], item["source_session_id"], item["target_id"]) for item in dependencies]
+        if keys != sorted(set(keys)):
+            problems.append(("/dependencies", "dependency identities must be unique and ordered"))
+        for item in dependencies:
+            selected = value["analysis_operation_ids"] if item["kind"] == "analysis" else ids
+            source_selected = item["source_session_id"] in ids
+            if ((not source_selected and not (item["kind"] == "analysis" and item["selected"]))
+                    or item["selected"] != (item["target_id"] in selected)):
+                problems.append(("/dependencies", "dependency selection differs from the confirmed group"))
+        inputs = [(item["kind"], item["id"]) for item in value["retained_inputs"]]
+        if inputs != sorted(set(inputs)):
+            problems.append(("/retained_inputs", "retained input identities must be unique and ordered"))
+        material = {"sessions": [{key: item[key] for key in ("session_id", "create_request_id")}
+                                 for item in value["sessions"]],
+                    "analysis_operation_ids": value["analysis_operation_ids"], "dependencies": dependencies}
+        if value["dependency_sha256"] != content_hash(material):
+            problems.append(("/dependency_sha256", "dependency hash differs from the exact group"))
+        if value["preview_sha256"] != content_hash({key: item for key, item in value.items()
+                                                   if key != "preview_sha256"}):
+            problems.append(("/preview_sha256", "preview hash differs from the reviewed semantic document"))
+    if name == "CommitSessionRemoval" and not problems:
+        if value["deletion_fence"] != value["public_cleanup_barrier"]["deletion_fence"]:
+            problems.append(("/public_cleanup_barrier/deletion_fence", "public barrier differs from deletion fence"))
+    if name == "ServiceDeletionOperation" and not problems:
+        stage, inventory, progress = value["stage"], value["inventory"], value["progress"]
+        effective_stage = value["resume_stage"] if stage in {"blocked", "failed"} else stage
+        if stage == "rejected":
+            if (value["effects_started"] or value["deletion_fence"] != 0 or inventory is not None
+                    or value["failure"] is None or value["resume_stage"] is not None
+                    or progress != {"removed_files": 0, "removed_bytes": 0, "records_removed": False}):
+                problems.append(("/stage", "rejection must prove zero admission and cleanup effects"))
+        elif not value["effects_started"] or value["deletion_fence"] < 1:
+            problems.append(("/deletion_fence", "admitted operation requires a durable deletion fence"))
+        if stage in {"blocked", "failed"}:
+            if value["failure"] is None or value["resume_stage"] is None:
+                problems.append(("/failure", "blocked or failed operation preserves its recovery stage and reason"))
+        elif stage != "rejected" and (value["failure"] is not None or value["resume_stage"] is not None):
+            problems.append(("/failure", "active or succeeded operation has no failure or recovery stage"))
+        if effective_stage in {"quiesced", "removing_outputs", "removing_records", "succeeded"} and inventory is None:
+            problems.append(("/inventory", "quiescence and removal require an exact frozen inventory"))
+        if effective_stage in {"accepted", "quiescing"} and inventory is not None:
+            problems.append(("/inventory", "inventory freezes only after confirmed quiescence"))
+        if effective_stage in {"accepted", "quiescing", "quiesced"} and (
+                progress["removed_files"] != 0 or progress["removed_bytes"] != 0):
+            problems.append(("/progress", "removal progress is zero before output removal"))
+        if effective_stage not in {"removing_records", "succeeded"} and progress["records_removed"]:
+            problems.append(("/progress", "scientific records cannot be removed before record removal"))
+        if inventory is not None and (progress["removed_files"] > inventory["file_count"]
+                                      or progress["removed_bytes"] > inventory["exclusive_bytes"]):
+            problems.append(("/progress", "removal progress exceeds the frozen inventory"))
+        if effective_stage in {"removing_records", "succeeded"} and (inventory is None
+                or progress["removed_files"] != inventory["file_count"]
+                or progress["removed_bytes"] != inventory["exclusive_bytes"]):
+            problems.append(("/progress", "success requires exact byte, file and scientific record removal"))
+        if effective_stage == "succeeded" and not progress["records_removed"]:
+            problems.append(("/progress", "success requires exact byte, file and scientific record removal"))
+    if name in {"ServiceDeletionPreview", "ServiceDeletionOperation", "DeletionInventoryTotals",
+                "FrozenDeletionInventory"} and not problems:
+        inventory = (value.get("known_inventory") if name == "ServiceDeletionPreview"
+                     else value.get("inventory") if name == "ServiceDeletionOperation" else value)
+        if inventory is not None and (inventory["inode_count"] > inventory["file_count"]
+                or (inventory["inode_count"] == 0) != (inventory["file_count"] == 0)
+                or (inventory["inode_count"] == 0 and inventory["exclusive_bytes"] != 0)):
+            problems.append(("/inventory", "inventory totals must describe the exact file and inode set"))
     if problems:
         raise ContractError(problems)
     return value

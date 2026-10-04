@@ -1,0 +1,11 @@
+{
+  "operation_id": "00000000-0000-0000-0000-000000000023",
+  "request_id": "00000000-0000-0000-0000-000000000024",
+  "preview_sha256": "e6665839e880f8fa77fbff5c0050ce33962f2e6be5cf11550f040fc1309e4781",
+  "dependency_sha256": "2122a91e3210f15311a24307006a552e783b1102cf6e60cc3241bbfce0e5c318",
+  "sessions": [],
+  "analysis_operation_ids": [
+    "00000000-0000-0000-0000-000000000015"
+  ],
+  "stop_active": false
+}

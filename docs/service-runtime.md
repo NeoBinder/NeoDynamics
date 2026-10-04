@@ -445,3 +445,30 @@ HTTP deadlines remained 15 and 5 seconds. The test-only NeoAPI runtime example
 accepts `NEOAPI_MD_FIXTURE_INTAKE_BYTES` in 1..512 MiB; it does not change production
 configuration. This gate establishes asynchronous public intake responsiveness,
 not 100,000-particle simulation throughput or large-output finalization.
+
+## Recoverable permanent cleanup
+
+The host registers a durable owner/boot-bound lifetime before any session engine,
+finalizer, uploader, analysis/continuation verifier, metadata stream or filesystem
+thread opens selected resources. It closes the lifetime only after its actual
+process, handler or thread joins. A fenced-before-spawn path records an empty
+child set under the exact original worker/attempt identity; it never starts a
+replacement engine. Unknown previous owners hold cleanup blocked across restart.
+
+Deletion accepts the exact reviewed private group, fences old session/create and
+analysis/request identities, joins the selected actual processes/readers and
+freezes all exclusively owned attempt/checkpoint/staging/seal/finalized/object
+links. The first final inventory always waits for explicit API review of its exact
+hash and the public cleanup barrier. Equal preliminary totals do not consent to
+file identity. No-follow, inode/link-count and SHA256 checks preserve foreign/shared
+paths. Durable unlink intent, joined filesystem work and recoverable aggregate
+progress precede scientific record removal. Failure preserves scientific evidence
+and capacity until closure and scope are proven. Current independent analysis
+cleanup removes JSON records and preserves member sessions; it has no PVC outputs.
+
+Private ASGI metadata completion proves the service application's producer/handler
+closure. A failed WebSocket close remains unknown. Public downloads/OSS verification
+and cross-replica transport closure belong to the authenticated API barrier; the
+service does not claim them. Local qualification uses disposable PostgreSQL/PVC
+fixtures and actual six-argon CPU engine/finalizer/verifier processes, with synthetic
+failures clearly identified; it is not deployment or CUDA qualification.

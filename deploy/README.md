@@ -66,7 +66,7 @@ no host address or credential value belongs in these manifests.
 | `md-publication-auth` | `token` | Mounted as `/var/run/md-publication/token`; distinct reverse-publication credential shared with NeoAPI worker |
 
 The migrator owns the `neomd_service` schema and runs the packaged migrations
-(currently 001–015) through `neomd-server migrate`. It needs the corresponding
+(currently 001–017) through `neomd-server migrate`. It needs the corresponding
 schema-creation/DDL authority in this database only. The runtime role is not the
 database/schema owner and needs CONNECT, schema USAGE, table SELECT/INSERT/UPDATE/
 DELETE, and sequence USAGE/SELECT in `neomd_service`. The database operator must

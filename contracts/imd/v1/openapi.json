@@ -216,11 +216,11 @@
             }
           },
           "410": {
-            "description": "queue_expired; cursor_expired; upload_expired",
+            "description": "Authoritative session_deleted tombstone; no scientific payload",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "protocol.schema.json#/$defs/Error"
+                  "$ref": "protocol.schema.json#/$defs/DeletedSession"
                 }
               }
             }
@@ -361,11 +361,11 @@
             }
           },
           "410": {
-            "description": "queue_expired; cursor_expired; upload_expired",
+            "description": "Authoritative session_deleted tombstone; no scientific payload",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "protocol.schema.json#/$defs/Error"
+                  "$ref": "protocol.schema.json#/$defs/DeletedSession"
                 }
               }
             }
@@ -506,11 +506,11 @@
             }
           },
           "410": {
-            "description": "queue_expired; cursor_expired; upload_expired",
+            "description": "Authoritative session_deleted tombstone; no scientific payload",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "protocol.schema.json#/$defs/Error"
+                  "$ref": "protocol.schema.json#/$defs/DeletedSession"
                 }
               }
             }
@@ -4913,6 +4913,751 @@
             }
           }
         ]
+      }
+    },
+    "/session-deletions/preview": {
+      "post": {
+        "operationId": "post__session-deletions_preview",
+        "security": [
+          {
+            "ServiceBearer": [],
+            "OwnerScope": []
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "invalid_request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "authentication_required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded; deletion_preview_stale; deletion_dependency_conflict; deletion_requires_stop; session_deleting; deletion_inventory_conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "queue_expired; cursor_expired; upload_expired; session_deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "payload_too_large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "integrity_mismatch; engine_rejected; method_unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "admission_full",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "service_unavailable; worker_lost",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Durable operation; quiescence and remote/local removal are distinct",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/ServiceDeletionPreview"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "description": "Diagnostic trace only; never an idempotency key"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "protocol.schema.json#/$defs/DeletionPreviewRequest"
+              }
+            }
+          }
+        },
+        "description": "Implemented owner-scoped deletion preview. Binds exact session/original-create identities, selected analysis dependencies and observed inventory totals. Totals do not authorize removal; the final frozen inventory requires explicit same-operation review through the public coordinator. Local disposable-data qualification does not establish deployment or public object-store qualification.",
+        "x-implementation-status": "implemented-local-qualification"
+      }
+    },
+    "/session-deletions": {
+      "post": {
+        "operationId": "post__session-deletions",
+        "security": [
+          {
+            "ServiceBearer": [],
+            "OwnerScope": []
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "invalid_request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "authentication_required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded; deletion_preview_stale; deletion_dependency_conflict; deletion_requires_stop; session_deleting; deletion_inventory_conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "queue_expired; cursor_expired; upload_expired; session_deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "payload_too_large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "integrity_mismatch; engine_rejected; method_unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "admission_full",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "service_unavailable; worker_lost",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Durable operation; quiescence and remote/local removal are distinct",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/ServiceDeletionOperation"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "description": "Diagnostic trace only; never an idempotency key"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "protocol.schema.json#/$defs/AcceptSessionDeletion"
+              }
+            }
+          }
+        },
+        "description": "Implemented durable deletion admission and quiescence. Persists the immutable original operation/request before semantic admission and returns HTTP 202 for an admitted operation or definitive rejected receipt. Only rejected with zero fence, effects and progress proves no service admission; unknown lookup does not. Admitted or uncertain work retains its original operation and fences. Local qualification is separate from deployment and public object-store qualification.",
+        "x-implementation-status": "implemented-local-qualification"
+      }
+    },
+    "/session-deletions/by-request/{request_id}": {
+      "get": {
+        "operationId": "get__session-deletions_by-request_request_id",
+        "security": [
+          {
+            "ServiceBearer": [],
+            "OwnerScope": []
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "invalid_request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "authentication_required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded; deletion_preview_stale; deletion_dependency_conflict; deletion_requires_stop; session_deleting; deletion_inventory_conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "queue_expired; cursor_expired; upload_expired; session_deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "payload_too_large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "integrity_mismatch; engine_rejected; method_unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "admission_full",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "service_unavailable; worker_lost",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Durable operation; quiescence and remote/local removal are distinct",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/ServiceDeletionOperation"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "description": "Diagnostic trace only; never an idempotency key"
+          },
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          }
+        ],
+        "description": "Implemented lookup of the exact durable original deletion request. Recovers its admitted operation or definitive rejected/no-effects receipt without creating or replaying scientific work. Unknown lookup proves neither absence nor rejection. Local qualification is separate from deployment and public object-store qualification.",
+        "x-implementation-status": "implemented-local-qualification"
+      }
+    },
+    "/session-deletions/{operation_id}": {
+      "get": {
+        "operationId": "get__session-deletions_operation_id",
+        "security": [
+          {
+            "ServiceBearer": [],
+            "OwnerScope": []
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "invalid_request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "authentication_required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded; deletion_preview_stale; deletion_dependency_conflict; deletion_requires_stop; session_deleting; deletion_inventory_conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "queue_expired; cursor_expired; upload_expired; session_deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "payload_too_large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "integrity_mismatch; engine_rejected; method_unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "admission_full",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "service_unavailable; worker_lost",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Durable operation; quiescence and remote/local removal are distinct",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/ServiceDeletionOperation"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "description": "Diagnostic trace only; never an idempotency key"
+          },
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          }
+        ],
+        "description": "Implemented lookup of the exact durable deletion operation, including blocked/failed recovery state, actual quiescence and frozen inventory progress. Lease expiry or cancellation alone does not prove reader/process closure. Final success requires owned byte removal, record purge and retained independent tombstones. Local qualification is separate from deployment and public object-store qualification.",
+        "x-implementation-status": "implemented-local-qualification"
+      }
+    },
+    "/session-deletions/{operation_id}/removal": {
+      "post": {
+        "operationId": "post__session-deletions_operation_id_removal",
+        "security": [
+          {
+            "ServiceBearer": [],
+            "OwnerScope": []
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "invalid_request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "authentication_required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "idempotency_conflict; version_conflict; controller_conflict; command_pending; generation_fenced; lease_expired; session_terminal; prepared_binding_mismatch; outcome_indeterminate; publication_conflict; artifact_unverified; running_time_limit_exceeded; deletion_preview_stale; deletion_dependency_conflict; deletion_requires_stop; session_deleting; deletion_inventory_conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "queue_expired; cursor_expired; upload_expired; session_deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "payload_too_large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "integrity_mismatch; engine_rejected; method_unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "admission_full",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "service_unavailable; worker_lost",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Durable operation; quiescence and remote/local removal are distinct",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "protocol.schema.json#/$defs/ServiceDeletionOperation"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "description": "Diagnostic trace only; never an idempotency key"
+          },
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "protocol.schema.json#/$defs/CommitSessionRemoval"
+              }
+            }
+          }
+        },
+        "description": "Implemented second-phase removal under the original admitted operation. Persists its separate removal request and requires the exact frozen inventory ID/hash, deletion fence and authenticated public cleanup barrier. It removes only proven exclusive owned files/records after actual local reader/process closure, preserving shared inputs and unselected resources. Local qualification is separate from deployment and public object-store qualification.",
+        "x-implementation-status": "implemented-local-qualification"
       }
     }
   },

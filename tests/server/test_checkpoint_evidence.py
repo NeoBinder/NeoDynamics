@@ -12,7 +12,7 @@ from test_finalization_ledger import seal
 from test_ledger import command_request, create_request, inputs, make_observation, repository, uid
 
 from neomd_server.checkpoint_evidence import CheckpointEvidenceError, CheckpointPublication, encoded
-from neomd_server.contract import content_hash
+from neomd_server.contract import content_hash, validate
 from neomd_server.ledger import Ledger, LedgerError
 
 
@@ -152,7 +152,11 @@ def test_atomic_ack_all_entries_replay_scoped_pages_and_reopen(database_dsn):
             assert counts == [64, 64, 2] and saved == proof
             assert header.cause_kind == 'command' and header.cause_id == command
             assert len((await ledger.artifacts(scope, session))['artifacts']) == 130
-            assert (await ledger.events(scope, session))['events'][-1]['command'] == receipts[0]
+            events = (await ledger.events(scope, session, limit=1000))['events']
+            assert events[-1]['command'] == receipts[0]
+            assert events[-1]['service_revision'] == receipts[0]['service_revision']
+            for event in events:
+                validate('SessionEvent', event)
             for owner, digest, after, limit, error in [(uid(), header.inventory_sha256, -1, 64, 'not_found'),
                 (scope, '0' * 64, -1, 64, 'integrity_mismatch'), (scope, header.inventory_sha256, 130, 64, 'invalid_request'),
                 (scope, header.inventory_sha256, -1, 65, 'invalid_request')]:

@@ -187,6 +187,14 @@ class Supervisor:
         self.capability_revision = str(uuid4())
         self.faulted = False
         self.finalization_db_tasks = set()
+        self.launch_lock = asyncio.Lock()
+        self.deletions = None
+        if hasattr(ledger, 'pool'):
+            from .session_deletion import SessionDeletion
+            from .session_lifetimes import SessionLifetimes
+            ledger.lifetimes = SessionLifetimes(ledger, inputs)
+            self.deletions = SessionDeletion(ledger, inputs, self)
+            ledger.deletions = self.deletions
 
     async def start(self):
         if self.task is not None:
@@ -203,6 +211,8 @@ class Supervisor:
         await self._qualify()
         self.closing = False
         self.task = asyncio.create_task(self._run())
+        if self.deletions is not None:
+            await self.deletions.start()
 
     async def _qualify(self):
         result, child_result = Channel.pair()
@@ -323,6 +333,27 @@ class Supervisor:
         self.signal.set()
 
     async def _launch(self, lease):
+        lifetimes = getattr(self.ledger, 'lifetimes', None)
+        token = None
+        if lifetimes is not None:
+            snapshot = await self.ledger.get(lease.scope_id, lease.session_id)
+            members = [lease.session_id]
+            if snapshot.get('continuation') is not None:
+                members.append(snapshot['continuation']['source_session_id'])
+            token = await lifetimes.admit('engine', lease.scope_id, members, related_operation=lease.attempt_id)
+        try:
+            await self._launch_owned(lease)
+        except BaseException:
+            if token is not None:
+                await lifetimes.close(token, 'joined_process')
+            raise
+        child = self.children[lease.session_id]
+        child.lifetime = token
+        if token is not None:
+            lifetimes.bind(token, child.task)
+            await lifetimes.activate(token, child.process)
+
+    async def _launch_owned(self, lease):
         source = await self.inputs.execution_input(lease.scope_id, lease.session_id)
         output_budget = await self.ledger.output_reservation(lease.scope_id, lease.session_id)
         if output_budget is None:
@@ -584,7 +615,7 @@ class Supervisor:
             deadline=min(child.renewed + self.execution.worker_lease_ms / 1000,
                          time.monotonic() + self.execution.shutdown_timeout_seconds))
         message = child.terminal
-        self._release_channels(child)
+        await self._release_channels(child)
         if message['type'] == 'engine_closed' and message.get('pre_seal_failure') is None:
             await self._launch_finalizer(child, message['seal'])
 
@@ -623,7 +654,7 @@ class Supervisor:
             runtime=message.get("runtime"),
         )
 
-    def _release_channels(self, child):
+    async def _release_channels(self, child):
         self.children.pop(child.lease.session_id, None)
         for subscriber in tuple(self.subscriptions.pop(child.lease.session_id, ())):
             subscriber.fail("generation_fenced")
@@ -631,11 +662,17 @@ class Supervisor:
             channel.cancel_join_thread()
             channel.close()
         child.process.close()
+        if getattr(child, 'lifetime', None) is not None:
+            await self.ledger.lifetimes.close(child.lifetime, 'joined_process')
 
     async def _lose_child(self, child, *, grace=None):
         await self._join(child.process, self.execution.shutdown_timeout_seconds if grace is None else grace)
-        await self.ledger.hold_recovery(child.lease, confirmed_stopped=True)
-        self._release_channels(child)
+        try:
+            await self.ledger.hold_recovery(child.lease, confirmed_stopped=True)
+        except LedgerError as error:
+            if error.code not in {'session_deleting', 'session_deleted'}:
+                raise
+        await self._release_channels(child)
 
     async def _run(self):
         try:
@@ -644,22 +681,29 @@ class Supervisor:
                     self.faulted = True
                     break
                 while len(self.children) + len(self.finalizers) < self.admission.max_active:
-                    lease = await self.ledger.claim_next(
-                        pool_id=self.pool_id,
-                        worker_id=self.worker_id,
-                        lease_ms=self.execution.worker_lease_ms,
-                        available_methods=[
-                            name
-                            for name, value in self.methods.items()
-                            if value["availability"] == "available"
-                        ],
-                    )
-                    if lease is None:
-                        break
-                    try:
-                        await self._launch(lease)
-                    except Exception:
-                        await self.ledger.hold_recovery(lease, confirmed_stopped=True)
+                    async with self.launch_lock:
+                        lease = await self.ledger.claim_next(
+                            pool_id=self.pool_id,
+                            worker_id=self.worker_id,
+                            lease_ms=self.execution.worker_lease_ms,
+                            available_methods=[
+                                name
+                                for name, value in self.methods.items()
+                                if value["availability"] == "available"
+                            ],
+                        )
+                        if lease is None:
+                            break
+                        try:
+                            await self._launch(lease)
+                        except Exception:
+                            try:
+                                await self.ledger.hold_recovery(lease, confirmed_stopped=True)
+                            except LedgerError as error:
+                                if error.code not in {'session_deleting', 'session_deleted'}:
+                                    raise
+                                if lease.session_id not in self.children:
+                                    await self.ledger.lifetimes.close_unlaunched('engine', lease.scope_id, lease.session_id, lease.attempt_id, self.worker_id)
                 self.signal.clear()
                 try:
                     await asyncio.wait_for(self.signal.wait(), timeout=0.025)
@@ -671,7 +715,7 @@ class Supervisor:
     async def _manage_child(self, child):
         """This child's DB waits and termination grace cannot starve its siblings."""
         try:
-            while not self.closing and not self.faulted and not self.inputs.faulted:
+            while not self.closing and not self.faulted and not self.inputs.faulted and not getattr(child, 'retiring', False):
                 await self._poll_child(child)
                 if child.lease.session_id not in self.children:
                     return
@@ -691,9 +735,36 @@ class Supervisor:
                 await self.ledger.hold_recovery(child.lease, confirmed_stopped=True)
             except Exception:
                 pass  # allocation stays held; no fabricated recovery observation
-            self._release_channels(child)
+            await self._release_channels(child)
 
     async def _launch_finalizer(self, child, seal):
+        lifetimes = getattr(self.ledger, 'lifetimes', None)
+        token = None
+        try:
+            if lifetimes is not None:
+                token = await lifetimes.admit('finalizer', child.lease.scope_id, [child.lease.session_id], related_operation=seal['id'])
+        except LedgerError as error:
+            if error.code not in {'session_deleting','session_deleted'}:
+                raise
+            await lifetimes.close_unlaunched('finalizer', child.lease.scope_id, child.lease.session_id, seal['id'], self.worker_id)
+            return
+        try:
+            await self._launch_finalizer_owned(child, seal)
+        except BaseException:
+            if token is not None:
+                await lifetimes.close(token, 'joined_process')
+            raise
+        finalizer = self.finalizers.get(child.lease.session_id)
+        if finalizer is None:
+            if token is not None:
+                await lifetimes.close(token, 'joined_process')
+        else:
+            finalizer.lifetime = token
+            if token is not None:
+                lifetimes.bind(token, finalizer.task)
+                await lifetimes.activate(token, finalizer.process)
+
+    async def _launch_finalizer_owned(self, child, seal):
         began = time.monotonic()
         lease = await self._finalization_db(self.ledger.claim_finalization(
             child.lease.scope_id, child.lease.session_id, owner_id=self.worker_id,
@@ -803,7 +874,7 @@ class Supervisor:
         try:
             while True:
                 now = time.monotonic()
-                if self.closing or self.faulted or self.inputs.faulted:
+                if self.closing or self.faulted or self.inputs.faulted or getattr(task, 'retiring', False):
                     failure = 'worker_lost'
                     break
                 if now >= task.deadline:
@@ -881,6 +952,8 @@ class Supervisor:
                     self.finalizers.pop(task.lease.session_id, None)
                     task.events.close()
                     task.process.close()
+                    if getattr(task, "lifetime", None) is not None:
+                        await self.ledger.lifetimes.close(task.lifetime, "joined_process")
 
     async def subscribe_preview(self, scope_id, session_id, request):
         validate("PreviewSubscribe", request)
@@ -926,7 +999,23 @@ class Supervisor:
         await self.wake()
         return subscription
 
+    async def retire_sessions(self, scope, sessions):
+        # A launch already admitted before the fence must publish its actual
+        # process handle before retirement takes its joined ownership snapshot.
+        async with self.launch_lock:
+            owned = [entry for sid, entry in (*self.children.items(), *self.finalizers.items())
+                     if sid in sessions and entry.lease.scope_id == str(scope)]
+            for entry in owned:
+                entry.retiring = True
+        if owned:
+            await asyncio.wait_for(asyncio.shield(asyncio.gather(*(e.task for e in owned), return_exceptions=True)),
+                                   self.execution.shutdown_timeout_seconds + 5)
+        if any(s in self.children or s in self.finalizers for s in sessions):
+            raise LedgerError('outcome_indeterminate')
+
     async def close(self):
+        if self.deletions is not None:
+            await self.deletions.close()
         self.closing = True
         await self.wake()
         if self.task is not None:

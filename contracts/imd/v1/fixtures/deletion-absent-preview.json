@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "sessions": [
+    {
+      "session_id": "00000000-0000-0000-0000-000000000003",
+      "create_request_id": "00000000-0000-0000-0000-00000000000d",
+      "service_revision": null,
+      "state": "absent",
+      "controller_active": false
+    }
+  ],
+  "analysis_operation_ids": [],
+  "dependencies": [],
+  "retained_inputs": [],
+  "blockers": [],
+  "known_inventory": {
+    "file_count": 0,
+    "inode_count": 0,
+    "exclusive_bytes": 0,
+    "complete": true
+  },
+  "dependency_sha256": "cf1ea9472ce7d6dd64f9ec0a1468f913b1de61850834d0c585a1916c85baa98c",
+  "preview_sha256": "f3246b2a256babce981c3af8269a4c72ea223e90e9e92aff594d76c030a700fb"
+}

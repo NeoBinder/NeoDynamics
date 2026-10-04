@@ -291,6 +291,7 @@ class ComparisonStore:
     def __init__(self, ledger, inputs):
         self.ledger, self.inputs = ledger, inputs
         self._tasks = set()
+        self._operation_tasks = {}
 
     async def validate_plan(self, scope_id, plan):
         validate(f"{SCHEMA}#/$defs/Plan", plan)
@@ -389,8 +390,27 @@ class ComparisonStore:
                 "comparison_id": str(row["comparison_id"]), "state": row["state"],
                 "receipt": row["receipt"], "error": row["error"]}
 
+    async def _retirement(self, conn, scope_id, *, operation=None, request=None):
+        state = await conn.fetchval('SELECT state FROM neomd_service.analysis_retirements WHERE scope_id=$1 AND '
+                                  + ('analysis_operation_id=$2' if operation else 'analysis_request_id=$2'),
+                                  _uuid(scope_id), _uuid(operation or request))
+        if state is not None:
+            raise LedgerError('session_deleted' if state == 'deleted' else 'session_deleting')
+
+    async def retire_analyses(self, operations):
+        tasks = [self._operation_tasks[o] for o in operations if o in self._operation_tasks]
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.wait_for(asyncio.shield(asyncio.gather(*tasks, return_exceptions=True)),
+                                   self.inputs.shutdown_timeout_seconds + 5)
+        for operation in operations:
+            self._operation_tasks.pop(operation,None)
+
     async def analysis_by_request(self, scope_id, request_id):
         async with self.ledger.pool.acquire() as conn:
+            await self._retirement(conn, scope_id, request=request_id)
             row = await conn.fetchrow('''SELECT * FROM neomd_service.comparison_analyses
                 WHERE scope_id=$1 AND request_id=$2''', _uuid(scope_id), _uuid(request_id))
         if row is None:
@@ -399,6 +419,7 @@ class ComparisonStore:
 
     async def analysis(self, scope_id, operation_id):
         async with self.ledger.pool.acquire() as conn:
+            await self._retirement(conn, scope_id, operation=operation_id)
             row = await conn.fetchrow('''SELECT * FROM neomd_service.comparison_analyses
                 WHERE scope_id=$1 AND operation_id=$2''', _uuid(scope_id), _uuid(operation_id))
         if row is None:
@@ -413,6 +434,9 @@ class ComparisonStore:
             raise LedgerError("invalid_request")
         digest = content_hash(request)
         async with self.ledger.pool.acquire() as conn, conn.transaction():
+            await self._retirement(conn, scope_id, request=request['request_id'])
+            for session in sorted({m['session_id'] for m in request['members'] if m['session_id'] is not None}):
+                await self.ledger.session_gate(conn, scope_id, session)
             operation_id = uuid4()
             row = await conn.fetchrow('''INSERT INTO neomd_service.comparison_analyses
                 (operation_id,scope_id,request_id,comparison_id,request_sha256,request,state)
@@ -429,10 +453,23 @@ class ComparisonStore:
                 return self._operation(row)
         task = asyncio.create_task(self._execute(scope_id, str(operation_id), request))
         self._tasks.add(task)
+        self._operation_tasks[str(operation_id)] = task
         task.add_done_callback(self._tasks.discard)
         return self._operation(row)
 
     async def _execute(self, scope_id, operation_id, request):
+        lifetimes = getattr(self.ledger, 'lifetimes', None)
+        if lifetimes is None:
+            return await self._execute_owned(scope_id, operation_id, request)
+        members = [m['session_id'] for m in request['members'] if m['session_id'] is not None]
+        try:
+            async with lifetimes.own('analysis', scope_id, members, related_operation=operation_id):
+                return await self._execute_owned(scope_id, operation_id, request)
+        except LedgerError as failure:
+            if failure.code not in {'session_deleting','session_deleted'}:
+                raise
+
+    async def _execute_owned(self, scope_id, operation_id, request):
         async with self.ledger.pool.acquire() as conn:
             await conn.execute('''UPDATE neomd_service.comparison_analyses SET state='running'
                 WHERE operation_id=$1 AND scope_id=$2 AND state='queued' ''',

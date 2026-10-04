@@ -1,0 +1,13 @@
+{
+  "request_id": "00000000-0000-0000-0000-000000000022",
+  "inventory_id": "00000000-0000-0000-0000-000000000021",
+  "inventory_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "deletion_fence": 1,
+  "public_cleanup_barrier": {
+    "operation_id": "00000000-0000-0000-0000-00000000001f",
+    "group_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "deletion_fence": 1,
+    "receipt_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "state": "complete"
+  }
+}

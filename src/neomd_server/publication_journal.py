@@ -479,7 +479,11 @@ class PublicationJournal:
             await connection.execute('''DELETE FROM neomd_service.output_reservations
                 WHERE session_id=$1''', row['session_id'])
 
-    async def _job(self, connection, scope_id, journal_id, *, lock=True):
+    async def _job(self, connection, scope_id, journal_id, *, lock=True, retiring=False):
+        if not retiring:
+            session = await connection.fetchval('SELECT session_id FROM neomd_service.publication_jobs WHERE scope_id=$1 AND journal_id=$2', _uuid(scope_id), _uuid(journal_id))
+            if session is not None:
+                await self.ledger.session_gate(connection, scope_id, session)
         row = await connection.fetchrow('SELECT * FROM neomd_service.publication_jobs WHERE scope_id=$1 AND journal_id=$2 AND pool_id=$3' +
             (' FOR UPDATE' if lock else ''), _uuid(scope_id), _uuid(journal_id), self.pool_id)
         if row is None:
@@ -494,6 +498,7 @@ class PublicationJournal:
 
     async def _source(self, connection, binding):
         header = binding['header']
+        await self.ledger.session_gate(connection, header['scope_id'], header['session_id'])
         row = await connection.fetchrow('''SELECT s.snapshot,s.pool_id,p.binding AS prepared,
             r.binding AS protocol_prepared,r.protocol_id,r.content_sha256,r.method,
             f.scope_id,f.session_id,f.finalization_id,f.attempt_id,f.generation,f.epoch,f.seal,f.status,
@@ -570,6 +575,7 @@ class PublicationJournal:
 
     async def _live(self, connection, row, lease, *, sending=False):
         self._target(row)
+        await self.ledger.session_gate(connection, row['scope_id'], row['session_id'])
         now = await connection.fetchval('SELECT clock_timestamp()')
         self._owner(row, lease, now=now)
         if sending and (row['state'] != 'pending' or row['query_required']):
@@ -627,7 +633,7 @@ class PublicationJournal:
         async with self.ledger.pool.acquire() as connection, connection.transaction():
             # Closure can free only this local uploader slot even after target change.
             await connection.fetchrow('SELECT * FROM neomd_service.publication_destinations WHERE pool_id=$1 FOR UPDATE', self.pool_id)
-            row = await self._job(connection, lease.scope_id, lease.journal_id)
+            row = await self._job(connection, lease.scope_id, lease.journal_id, retiring=True)
             if row['pool_id'] != self.pool_id:
                 raise JournalError('target_mismatch')
             if (str(row['owner_id']), str(row['lease_id']), row['fence']) != (lease.owner_id, lease.lease_id, lease.fence):

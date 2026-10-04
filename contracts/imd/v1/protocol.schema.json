@@ -134,7 +134,13 @@
             "protonation_conflict",
             "preparation_time_limit_exceeded",
             "preparation_memory_limit_exceeded",
-            "result_too_large"
+            "result_too_large",
+            "deletion_preview_stale",
+            "deletion_dependency_conflict",
+            "deletion_requires_stop",
+            "session_deleting",
+            "session_deleted",
+            "deletion_inventory_conflict"
           ]
         },
         "message": {
@@ -3018,6 +3024,728 @@
           ]
         }
       ]
+    },
+    "DeletionSessionIdentity": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "create_request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        }
+      },
+      "required": [
+        "session_id",
+        "create_request_id"
+      ],
+      "additionalProperties": false
+    },
+    "DeletionSessionVersion": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "create_request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "expected_service_revision": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "session_id",
+        "create_request_id",
+        "expected_service_revision"
+      ],
+      "additionalProperties": false
+    },
+    "DeletionPreviewRequest": {
+      "type": "object",
+      "properties": {
+        "sessions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DeletionSessionIdentity"
+          },
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "analysis_operation_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "sessions",
+        "analysis_operation_ids"
+      ],
+      "additionalProperties": false
+    },
+    "DeletionPreviewSession": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "create_request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "service_revision": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "enum": [
+            "absent",
+            "queued",
+            "starting",
+            "running",
+            "paused",
+            "stopping",
+            "completed",
+            "stopped",
+            "failed",
+            "expired",
+            "recovery_required"
+          ]
+        },
+        "controller_active": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "session_id",
+        "create_request_id",
+        "service_revision",
+        "state",
+        "controller_active"
+      ],
+      "additionalProperties": false
+    },
+    "DeletionDependency": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "continuation",
+            "analysis"
+          ]
+        },
+        "source_session_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "target_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "selected": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "source_session_id",
+        "target_id",
+        "selected"
+      ],
+      "additionalProperties": false
+    },
+    "DeletionRetainedInput": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "prepared",
+            "protocol",
+            "coordinate",
+            "preparation"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "DeletionBlocker": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "enum": [
+            "dependency_not_selected",
+            "stop_required",
+            "closure_unknown",
+            "inventory_unverified",
+            "session_deleting",
+            "session_deleted"
+          ]
+        },
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dependency_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "session_id",
+        "dependency_id"
+      ],
+      "additionalProperties": false
+    },
+    "DeletionInventoryTotals": {
+      "type": "object",
+      "properties": {
+        "file_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "inode_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "exclusive_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "complete": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "file_count",
+        "inode_count",
+        "exclusive_bytes",
+        "complete"
+      ],
+      "additionalProperties": false
+    },
+    "ServiceDeletionPreview": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "sessions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DeletionPreviewSession"
+          },
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "analysis_operation_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DeletionDependency"
+          },
+          "minItems": 0,
+          "maxItems": 4096,
+          "uniqueItems": true
+        },
+        "retained_inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DeletionRetainedInput"
+          },
+          "minItems": 0,
+          "maxItems": 4096,
+          "uniqueItems": true
+        },
+        "blockers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DeletionBlocker"
+          },
+          "minItems": 0,
+          "maxItems": 4096,
+          "uniqueItems": true
+        },
+        "known_inventory": {
+          "$ref": "#/$defs/DeletionInventoryTotals"
+        },
+        "dependency_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "preview_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sessions",
+        "analysis_operation_ids",
+        "dependencies",
+        "retained_inputs",
+        "blockers",
+        "known_inventory",
+        "dependency_sha256",
+        "preview_sha256"
+      ],
+      "additionalProperties": false
+    },
+    "AcceptSessionDeletion": {
+      "type": "object",
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "preview_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "dependency_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "sessions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DeletionSessionVersion"
+          },
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "analysis_operation_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "stop_active": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "operation_id",
+        "request_id",
+        "preview_sha256",
+        "dependency_sha256",
+        "sessions",
+        "analysis_operation_ids",
+        "stop_active"
+      ],
+      "additionalProperties": false
+    },
+    "FrozenDeletionInventory": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "file_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "inode_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "exclusive_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "sha256",
+        "file_count",
+        "inode_count",
+        "exclusive_bytes"
+      ],
+      "additionalProperties": false
+    },
+    "PublicCleanupBarrier": {
+      "type": "object",
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "group_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "deletion_fence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "receipt_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "state": {
+          "const": "complete"
+        }
+      },
+      "required": [
+        "operation_id",
+        "group_sha256",
+        "deletion_fence",
+        "receipt_sha256",
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "CommitSessionRemoval": {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "inventory_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "inventory_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "deletion_fence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "public_cleanup_barrier": {
+          "$ref": "#/$defs/PublicCleanupBarrier"
+        }
+      },
+      "required": [
+        "request_id",
+        "inventory_id",
+        "inventory_sha256",
+        "deletion_fence",
+        "public_cleanup_barrier"
+      ],
+      "additionalProperties": false
+    },
+    "DeletionFailure": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "enum": [
+            "not_found",
+            "deletion_preview_stale",
+            "deletion_dependency_conflict",
+            "deletion_requires_stop",
+            "session_deleting",
+            "session_deleted",
+            "deletion_inventory_conflict",
+            "closure_unknown",
+            "inventory_unverified",
+            "source_changed",
+            "storage_failure",
+            "reader_open",
+            "writer_open",
+            "public_cleanup_pending",
+            "service_unavailable"
+          ]
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "retryable"
+      ],
+      "additionalProperties": false
+    },
+    "DeletionProgress": {
+      "type": "object",
+      "properties": {
+        "removed_files": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "removed_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "records_removed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "removed_files",
+        "removed_bytes",
+        "records_removed"
+      ],
+      "additionalProperties": false
+    },
+    "ServiceDeletionOperation": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "operation_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "request_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "stage": {
+          "enum": [
+            "accepted",
+            "quiescing",
+            "quiesced",
+            "removing_outputs",
+            "removing_records",
+            "succeeded",
+            "blocked",
+            "failed",
+            "rejected"
+          ]
+        },
+        "resume_stage": {
+          "anyOf": [
+            {
+              "enum": [
+                "accepted",
+                "quiescing",
+                "quiesced",
+                "removing_outputs",
+                "removing_records",
+                "succeeded"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "session_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "analysis_operation_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "deletion_fence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "effects_started": {
+          "type": "boolean"
+        },
+        "inventory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FrozenDeletionInventory"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "progress": {
+          "$ref": "#/$defs/DeletionProgress"
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeletionFailure"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "operation_id",
+        "request_id",
+        "request_sha256",
+        "revision",
+        "stage",
+        "resume_stage",
+        "session_ids",
+        "analysis_operation_ids",
+        "deletion_fence",
+        "effects_started",
+        "inventory",
+        "progress",
+        "failure"
+      ],
+      "additionalProperties": false
+    },
+    "DeletedSession": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "session_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "create_request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "deletion_operation_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "state": {
+          "const": "deleted"
+        }
+      },
+      "required": [
+        "schema_version",
+        "session_id",
+        "create_request_id",
+        "deletion_operation_id",
+        "state"
+      ],
+      "additionalProperties": false
     }
   }
 }

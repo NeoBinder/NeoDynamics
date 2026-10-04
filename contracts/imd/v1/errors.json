@@ -46,7 +46,13 @@
     "chemistry_unresolved": 422,
     "incompatible_package": 422,
     "capability_unavailable": 503,
-    "stereochemistry_unresolved": 422
+    "stereochemistry_unresolved": 422,
+    "deletion_preview_stale": 409,
+    "deletion_dependency_conflict": 409,
+    "deletion_requires_stop": 409,
+    "session_deleting": 409,
+    "session_deleted": 410,
+    "deletion_inventory_conflict": 409
   },
   "message_policy": "Public-safe fixed descriptions only; local paths, exception strings, credentials and provider details are not forwarded."
 }

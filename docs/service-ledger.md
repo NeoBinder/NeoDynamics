@@ -270,3 +270,28 @@ scope isolation, controller/worker expiry, generation fencing, accepted versus
 applied outcomes, queue cancellation races and artifact receipt rejection. These
 are local repository gates; they do not establish HTTP, K8s, GPU throughput,
 publication or automatic recovery qualification.
+
+## Permanent session retirement
+
+Migrations 016–017 add independent scoped session/create and analysis/request
+tombstones, immutable deletion operations, saved preview consent, resource
+lifetimes and exact transient inode inventories. Original UUID gates serialize
+absent creates and all controls/readers with deletion; a deleting session cannot
+be claimed by the queue or promoted/expired to release its reservation. Capacity
+is released once, after actual writer/reader closure and byte removal. A deleted
+original create/request GET returns a minimal typed tombstone. Scientific rows,
+commands/events/checkpoint/finalization/publication records and selected analysis
+JSON are removed in foreign-key order; shared scientific input bindings survive.
+
+The private semantic revision excludes observation/time counters but includes
+scientific state, attempt, control, controller, finalization, artifact and
+publication authority. Publication/artifact mutations advance ordinary snapshot
+revisions with durable valid events; heartbeat timestamp renewal alone does not.
+Checkpoint artifact binding can advance that revision during command resolution;
+the immutable receipt and command-resolved event bind the same resulting snapshot
+revision.
+Controls still bind attempt/generation/epoch/control revision, so incidental
+service revision ticks do not manufacture a control fence. Exact original preview
+selectors never substitute a newer scientific revision. See
+[the deletion contract](../contracts/imd/v1/deletion.md) for phase and recovery
+semantics.

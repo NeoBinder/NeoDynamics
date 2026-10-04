@@ -1,10 +1,17 @@
 # Private MD service contract v1
 
+The [deletion contract](deletion.md) describes the implemented private coordinator
+and disposable Linux CPU qualification. Public transport/OSS closure and deployment
+qualification remain separate gates.
+
 This directory owns the language-neutral transport contract. `openapi.json`
 defines HTTP at `/internal/md/v1`; `protocol.schema.json` defines JSON and
 `fixtures/` pins interoperable JSON hashing and binary preview bytes. The Python
-contract validator and preview codec implement these boundaries. HTTP serving,
-process supervision and object publication are separate integration work.
+contract validator and preview codec implement these boundaries. The service
+runtime implements the HTTP host, process supervision and publication journal.
+Runtime configuration and qualification remain owned by `<NeoDynamics>`; the
+[deletion contract](deletion.md) records its local closure boundary. Contract
+documents alone establish no deployment or scientific capability.
 
 Every HTTP request and WebSocket upgrade requires both the independent configured
 service Bearer credential and `X-Neomd-Scope` (canonical opaque UUID supplied by
@@ -192,9 +199,11 @@ shared directories or manually seeded references are not substitutes.
 Artifact metadata preserves a safe original filename and media type, exact bytes
 hash and size, and opaque download/publication receipt references. Object-store
 routing and publication-receipt verification are separate policy integration;
-this contract fixes no endpoint for those pending decisions. Local data is never
-eligible for deletion before completed execution and verified publication of all
-required artifacts. The database ledger contains publication states, not proof
+this contract fixes no endpoint for those pending decisions. Routine retention
+cleanup waits for completed execution and verified publication of all required
+artifacts. Explicit permanent session deletion instead requires joined owners,
+review of the exact frozen inventory and the public cleanup barrier described in
+the deletion contract. The database ledger contains publication states, not proof
 that an upload occurred. No receipt is fabricated from a successful HTTP send.
 
 `errors.json` is the closed safe error code/status map. Error messages must not

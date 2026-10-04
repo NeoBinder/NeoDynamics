@@ -527,6 +527,7 @@ class InputStore:
         self.operations = InputOperations(self)
         self._verification_slots = asyncio.Semaphore(1)
         self._verifications = set()
+        self._verification_lifetimes = {}
         self._initialized = False
 
     async def initialize(self):
@@ -613,6 +614,8 @@ class InputStore:
         if child_raw is not None:
             child_raw.close()
         self._verifications.add(process)
+        from .session_lifetimes import CURRENT_LIFETIME
+        self._verification_lifetimes[process] = CURRENT_LIFETIME.get()
         received = None
         header = document = None
         try:
@@ -678,6 +681,7 @@ class InputStore:
                 self._initialized = False
                 raise LedgerError("service_unavailable")
             self._verifications.discard(process)
+            self._verification_lifetimes.pop(process, None)
             process.close()
 
     def _verified_receipt(self, job, verified):
@@ -1338,6 +1342,13 @@ class InputStore:
         return result
 
     async def continuation_eligibility(self, scope_id, session_id):
+        lifetimes = getattr(self.ledger, 'lifetimes', None)
+        if lifetimes is None:
+            return await self._continuation_eligibility(scope_id, session_id)
+        async with lifetimes.own('continuation_reader', scope_id, [session_id]):
+            return await self._continuation_eligibility(scope_id, session_id)
+
+    async def _continuation_eligibility(self, scope_id, session_id):
         """Owner-scoped discovery proves sealed source bytes in a killable child."""
         eligibility = await self.ledger.continuation_eligibility(
             scope_id, session_id,
