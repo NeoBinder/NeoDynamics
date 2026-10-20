@@ -9,17 +9,15 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import sysconfig
 import zlib
-from pathlib import Path
 
 import rfc8785
 from jsonschema import Draft202012Validator
 
+from .contracts import schema_dir
+
 BASE = "urn:neodyn:component-preparation:v1"
-_SCHEMA_DIR = Path(__file__).resolve().parents[2] / "contracts/component-preparation/v1"
-if not _SCHEMA_DIR.exists():
-    _SCHEMA_DIR = Path(sysconfig.get_path("data")) / "share/neodynamics/contracts/component-preparation/v1"
+_SCHEMA_DIR = schema_dir("component-preparation/v1")
 _KINDS = ("artifact-reference", "chemical-state", "component-instance",
           "parameter-package", "preparation-recipe", "capability-catalog", "diagnostic")
 _VALIDATORS = {

@@ -46,6 +46,7 @@ nav:
       - Architecture: architecture.md
       - Algorithm integration: algorithm-integration.md
       - Extending NeoDynamics: extending.md
+      - Service and integration surface: integration-surface.md
   - Interactive service driver: interactive-driver.md
   - Prepared bundles: prepared-bundle.md
   - Declarative component import: component-import.md
@@ -83,3 +84,4 @@ nav:
       - ADR 0001 — same-repo strangler migration: adr/0001-neomd2-strangler-migration.md
       - ADR 0008 — interactive service driver: adr/0008-interactive-service-driver.md
       - ADR 0009 — ordered potential boosts: adr/0009-ordered-potential-boosts.md
+      - ADR 0010 — server repository extraction: adr/0010-server-repository-extraction.md

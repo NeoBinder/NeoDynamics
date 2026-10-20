@@ -10,13 +10,13 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import sysconfig
 import zlib
-from pathlib import Path
 from uuid import UUID
 
 import rfc8785
 from jsonschema import Draft202012Validator, FormatChecker
+
+from .contracts import schema_dir
 
 SCHEMA_ID = "urn:neodyn:molecular-topology:v1"
 MAX_ATOMS = 100_000
@@ -25,12 +25,7 @@ MAX_RESIDUES = 100_000
 MAX_BONDS = 800_000
 MAX_DECODED_BYTES = 256 * 1024 * 1024
 MAX_COMPRESSED_BYTES = 64 * 1024 * 1024
-_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "contracts/molecular-topology/v1/topology.schema.json"
-if not _SCHEMA_PATH.exists():
-    _SCHEMA_PATH = (
-        Path(sysconfig.get_path("data"))
-        / "share/neodynamics/contracts/molecular-topology/v1/topology.schema.json"
-    )
+_SCHEMA_PATH = schema_dir("molecular-topology/v1") / "topology.schema.json"
 _SCHEMA = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
 _VALIDATOR = Draft202012Validator(_SCHEMA, format_checker=FormatChecker())
 

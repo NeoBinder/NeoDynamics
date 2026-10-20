@@ -5,7 +5,6 @@ import hashlib
 import json
 import math
 from pathlib import Path
-from uuid import uuid4
 
 import openmm
 import pytest
@@ -18,7 +17,6 @@ from neomd.topology_adapter import (
 )
 from neomd.topology_intake import load_topology_artifact
 from neomd.topology_records import TopologyRecordError
-from neomd_server.preparation_execution import load_explicit_topology_source
 
 FIXTURE = (Path(__file__).resolve().parents[2] /
            "contracts/molecular-topology/v1/fixtures/cross-boundary.json")
@@ -121,34 +119,6 @@ def test_bounded_immutable_artifact_intake(tmp_path):
     changed = {**reference, "schema_id": "urn:neodyn:molecular-topology:v0"}
     with pytest.raises(TopologyRecordError, match="unsupported"):
         load_topology_artifact(path, changed)
-
-
-def test_isolated_executor_source_path_uses_upload_uuid(tmp_path):
-    upload_id = str(uuid4())
-    encoded = FIXTURE.with_suffix(".json.gz").read_bytes()
-    directory = tmp_path / "preparation-uploads" / upload_id
-    directory.mkdir(parents=True)
-    (directory / "source.molecular-topology-v1+gzip").write_bytes(encoded)
-    document = records()
-    job = {
-        "root": str(tmp_path), "upload_id": upload_id,
-        "reference": {
-            "format": "molecular-topology-v1+gzip",
-            "schema_id": document["schema_id"],
-            "content_sha256": hashlib.sha256(encoded).hexdigest(),
-            "size_bytes": len(encoded),
-            "decoded_size_bytes": len(__import__("gzip").decompress(encoded)),
-            "topology_revision_id": document["revision_id"],
-        },
-    }
-    assert edges(load_explicit_topology_source(job, require_complete=True)) == {
-        tuple(row["atom_ids"]) for row in document["bonds"]
-    }
-    document["coverage"]["state"] = "partial"
-    # A partial upload remains viewable; operation admission rejects it before
-    # any old PDB/PDBx loader or force-field pipeline runs.
-    with pytest.raises(ConnectivityPrerequisiteError, match="partial coverage"):
-        openmm_view(document).require_complete("scientific preparation")
 
 
 def test_user_authorized_ala2_reference_qualifies_explicit_ff14sb_intake(tmp_path):

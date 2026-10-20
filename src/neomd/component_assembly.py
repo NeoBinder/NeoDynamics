@@ -14,10 +14,8 @@ import io
 import json
 import math
 import struct
-import sysconfig
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from pathlib import Path
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import rfc8785
@@ -31,6 +29,7 @@ from .component_contract import (
 )
 from .component_inspection import inspect_components
 from .component_package import validate_package_assets
+from .contracts import schema_dir
 from .errors import PlanValidationErrors
 from .openmm_privates import add_ions_preserving_water, assert_pinned_openmm
 from .preparation_stages import seeded_random
@@ -1166,11 +1165,9 @@ def build_component_prepared_bundle_v2(assembly, source_artifact_bytes, recipe, 
     artifacts["mapping.json"] = rfc8785.dumps(_mapping_document(prepared))
     prepared["artifacts"] = {name: {"sha256": _digest(data), "size_bytes": len(data)}
                              for name, data in artifacts.items()}
-    schema_path = Path(__file__).resolve().parents[2] / "contracts/prepared-bundle/v2/manifest.schema.json"
-    if not schema_path.exists():
-        schema_path = (Path(sysconfig.get_path("data"))
-                       / "share/neodynamics/contracts/prepared-bundle/v2/manifest.schema.json")
-    schema = json.loads(schema_path.read_bytes())
+    schema = json.loads(
+        (schema_dir("prepared-bundle/v2") / "manifest.schema.json").read_bytes()
+    )
     error = next(Draft202012Validator(schema, format_checker=FormatChecker()).iter_errors(prepared), None)
     if error is not None:
         _fail("/prepared_bundle", "v2 manifest schema rejected assembled handoff",

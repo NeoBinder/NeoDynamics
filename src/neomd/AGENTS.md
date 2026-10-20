@@ -17,6 +17,10 @@
   never process-wide `os.chdir`.
 - Schema, force expression and observables have one definition per registered
   restraint/CV/method; preserve numpy/kernel parity and registry validation.
+- The service-facing seam is `neomd.integration` and contract lookup is
+  `neomd.contracts`; keep both re-export-only, covered by
+  `tests/v2/test_integration_surface.py`, and never re-expose a private symbol
+  to an integrator.
 
 ## Easy-to-miss state and model seams
 

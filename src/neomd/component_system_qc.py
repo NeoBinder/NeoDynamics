@@ -10,10 +10,8 @@ import hashlib
 import io
 import json
 import math
-import sysconfig
 import xml.etree.ElementTree as etree
 from decimal import Decimal, InvalidOperation
-from pathlib import Path
 
 import numpy as np
 import rfc8785
@@ -21,6 +19,7 @@ from jsonschema import Draft202012Validator
 
 from .component_contract import ComponentContractError, canonical_sha256, validate_document
 from .component_package import validate_package_assets
+from .contracts import schema_dir
 
 _MAX_CONTROL = 1_048_576
 _MAX_ASSEMBLY_JSON = 268_435_456
@@ -42,9 +41,7 @@ _RESOURCE_KEYS = ("protein", "water_ions", "gaff", "ligand_template")
 _RESOURCE_PROTEIN_KEYS = _RESOURCE_KEYS[:2]
 _RESOURCE_OPENFF_KEYS = ("protein", "water_ions", "ligand_template")
 _RESOURCE_SEP_KEYS = ("protein", "phosaa", "water_ions")
-_QC_SCHEMA_DIR = Path(__file__).resolve().parents[2] / "contracts/component-system-qc/v1"
-if not _QC_SCHEMA_DIR.exists():
-    _QC_SCHEMA_DIR = Path(sysconfig.get_path("data")) / "share/neodynamics/contracts/component-system-qc/v1"
+_QC_SCHEMA_DIR = schema_dir("component-system-qc/v1")
 _QC_VALIDATOR = Draft202012Validator(json.loads((_QC_SCHEMA_DIR / "report.schema.json").read_text()))
 
 
@@ -456,7 +453,7 @@ def _bound_assembly_bytes(assembly, expected_manifest_sha256):
     return manifest, topology, report, positions, payloads["system_xml"]
 
 
-def _topology_from_document(document, manifest):
+def topology_from_document(document, manifest):
     """Recreate the exact graph and chain context through the public app API."""
     from openmm import Vec3, app, unit
 
@@ -542,6 +539,11 @@ def _topology_from_document(document, manifest):
     summary = {"max_term_abs_delta": 0.0}
     _compare(box, manifest["box_vectors_nm"], "/manifest/box_vectors_nm", summary, box=True)
     return topology
+
+
+
+# Backward-compatible private spelling; the public name is topology_from_document.
+_topology_from_document = topology_from_document
 
 
 def _deserialize_bounded_system(system_xml):
@@ -773,7 +775,7 @@ def verify_component_system_qc(assembly, recipe, states, instances, packages,
         _bound_assembly_bytes(assembly, expected_manifest_sha256))
     by_state, by_package, assigned, validated, maps = _bind_scientific_inputs(
         manifest, assembly_report, recipe, states, instances, packages, assets_by_package)
-    topology = _topology_from_document(topology_document, manifest)
+    topology = topology_from_document(topology_document, manifest)
     subject = _deserialize_bounded_system(system_xml)
     inventory = snapshot_system_terms(subject)
     if inventory["particle_count"] != len(manifest["particles"]):

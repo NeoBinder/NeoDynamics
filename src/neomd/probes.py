@@ -44,6 +44,7 @@ __all__ = [
     "DuProbe",
     "ProbeScheduler",
     "ProbePreset",
+    "STATE_HEADER",
 ]
 
 _STATE_FILENAME = "output.state"
@@ -69,7 +70,9 @@ _STATE_COLUMNS = [
     "Speed (ns/day)",
     "Time Remaining",
 ]
-_STATE_HEADER = '#"%s"' % '"\t"'.join(_STATE_COLUMNS)
+STATE_HEADER = '#"%s"' % '"\t"'.join(_STATE_COLUMNS)
+# Backward-compatible private spelling; the public name is STATE_HEADER.
+_STATE_HEADER = STATE_HEADER
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +272,7 @@ class StateProbe:
         ])
         with self.sink.text_writer(_STATE_FILENAME) as fh:
             if not self._wrote_header and not self.append:
-                fh.write(_STATE_HEADER + "\n")
+                fh.write(STATE_HEADER + "\n")
                 self._wrote_header = True
             fh.write(row + "\n")
         self._last_step = int(view.step)

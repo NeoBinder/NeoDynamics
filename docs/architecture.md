@@ -14,6 +14,10 @@ policy and its alternative driver/probes. Engine/CLI code never imports the
 service package. For that boundary, read the [interactive driver](interactive-driver.md)
 and [ADR 0008](adr/0008-interactive-service-driver.md); persistent service state
 and publication ownership are specified in the [service ledger](service-ledger.md).
+The service moves to its own repository and distribution
+([ADR 0010](adr/0010-server-repository-extraction.md)); the import surface it
+may rely on and the contract locator are documented in
+[Service and integration surface](integration-surface.md).
 
 For external algorithm packaging, workflow ownership and Agent boundaries, see
 [algorithm integration](algorithm-integration.md). Its accepted direction does

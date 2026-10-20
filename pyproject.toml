@@ -18,9 +18,42 @@ classifiers = [
 ]
 dependencies = [
   "python-box >= 7.3.2",
+  "numpy >= 2.0",
+  "openmm >= 8.6,<8.7",
+  "rfc8785 >= 0.1.4,<1",
+  "jsonschema >= 4.26,<5",
+  "PyYAML >= 6.0",
 ]
 
 [project.optional-dependencies]
+# Component chemistry (ligand/SEP/assembly providers). Declared separately so
+# applications that only run prepared systems do not install the toolkit stack.
+component = [
+  "openff-toolkit >= 0.19,<0.20",
+  "rdkit >= 2024.9",
+  "networkx >= 3.0",
+  "lxml >= 5.0",
+  "parmed >= 4.0",
+]
+# Protein/system preparation: PDBFixer repairs, Gemmi structure IO and the
+# OpenFF/OpenMM force-field generators used by preparation and assembly.
+preparation = [
+  "openmmforcefields >= 0.16,<0.17",
+  "pdbfixer >= 1.12",
+  "gemmi >= 0.7.5,<0.8",
+]
+# Alchemical free-energy tooling (ADR-0003/ADR-0007).
+rbfe = [
+  "openmmtools == 0.26.*",
+]
+# Torch-backed ML/MM and ML-CV kernels. openmm-torch is only distributed on
+# conda-forge, so the pixi environment owns that pin; the PyPI extra carries
+# torch itself for tests that import it.
+ml = [
+  "torch >= 2.0",
+]
+# The resident service moved to the NeomdServer repository; kept on this
+# branch until the extraction lands.
 server = [
   "asyncpg >= 0.31,<0.32",
   "jsonschema >= 4.26,<5",

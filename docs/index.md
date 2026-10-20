@@ -65,4 +65,6 @@ been tested, including scale limits and outstanding gates.
 - [Setup and checks](development.md): environments, tests, golden modes and docs builds.
 - [Architecture](architecture.md): plans, kernels, reporting and ownership boundaries.
 - [Extensions](extending.md): method plugins, entry points and custom reporting.
+- [Service and integration surface](integration-surface.md): allowed engine imports,
+  the integration module and the contract locator.
 - [Architecture decisions](adr/0001-neomd2-strangler-migration.md): rationale and retained scope decisions.

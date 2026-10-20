@@ -1,6 +1,8 @@
 """Independent explicit-record fixture tests for the transfer boundary."""
 
 import copy
+import gzip
+import hashlib
 import json
 from pathlib import Path
 
@@ -92,17 +94,19 @@ def test_duplicate_json_field_and_unsupported_schema_rejected():
 
 
 def test_bounded_immutable_compressed_fixture_roundtrip():
-    request = json.loads((FIXTURE.parents[3] / "protein-preparation/v2/request.fixture.json").read_text())
-    source = request["source"]
+    # The molecular-topology fixture is the engine-owned source of truth; the
+    # service contract that carried these hashes was extracted, so recompute
+    # them here instead of importing a service request document.
     qualified = FIXTURE.with_name("ala2-qualified.json")
     compressed = qualified.with_suffix(".json.gz").read_bytes()
+    decoded_size = len(gzip.decompress(compressed))
     decoded = decode_compressed_topology(
-        compressed, content_sha256=source["content_sha256"],
-        decoded_size_bytes=source["decoded_size_bytes"])
+        compressed, content_sha256=hashlib.sha256(compressed).hexdigest(),
+        decoded_size_bytes=decoded_size)
     assert decoded == json.loads(qualified.read_text())
     with pytest.raises(TopologyRecordError):
         decode_compressed_topology(compressed, content_sha256="0" * 64,
-                                   decoded_size_bytes=source["decoded_size_bytes"])
+                                   decoded_size_bytes=decoded_size)
     with pytest.raises(TopologyRecordError):
-        decode_compressed_topology(compressed + b"tail", content_sha256=__import__("hashlib").sha256(
-            compressed + b"tail").hexdigest(), decoded_size_bytes=source["decoded_size_bytes"])
+        decode_compressed_topology(compressed + b"tail", content_sha256=hashlib.sha256(
+            compressed + b"tail").hexdigest(), decoded_size_bytes=decoded_size)

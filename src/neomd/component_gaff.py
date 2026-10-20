@@ -33,7 +33,9 @@ from .tools.antechamber import AntechamberBackend
 from .tools.port import SubprocessToolRunner, ToolError, ToolRunner
 
 _BASE = "urn:neodyn:component-preparation:v1"
-_GAFF = "gaff-2.2.20"
+GAFF_VERSION = "gaff-2.2.20"
+# Backward-compatible private spelling; the public name is GAFF_VERSION.
+_GAFF = GAFF_VERSION
 _ASSETS = ("atom_map", "force", "template", "gaff_xml", "gaff_dat",
            "protein_xml", "water_xml", "conformer", "provenance", "qc")
 _TIMEOUT_SECONDS = 180
@@ -58,7 +60,7 @@ class GaffPackage:
         return dict(self.artifacts)
 
 
-class _BoundedRunner(SubprocessToolRunner):
+class BoundedRunner(SubprocessToolRunner):
     """Preserve ToolRunner's per-call directory isolation with a time limit."""
 
     def __init__(self, timeout_seconds=_TIMEOUT_SECONDS):
@@ -83,6 +85,10 @@ class _BoundedRunner(SubprocessToolRunner):
             process.communicate()
             raise ToolError("external parameterization timed out", command=command) from error
         return process.returncode, stdout or "", stderr or ""
+
+
+# Backward-compatible private spelling; the public name is BoundedRunner.
+_BoundedRunner = BoundedRunner
 
 
 class _TracingRunner(ToolRunner):
@@ -142,7 +148,7 @@ def _ref(identity, kind, data, media_type):
             "encoding": "identity", "media_type": media_type}
 
 
-def _ambertools_receipt(runner):
+def ambertools_receipt(runner):
     """Verify both wrappers and real executables against their installed manifest."""
     paths = {name: runner.which(name) for name in ("antechamber", "parmchk2")}
     if any(path is None or not Path(path).is_file() for path in paths.values()):
@@ -187,6 +193,10 @@ def _ambertools_receipt(runner):
         raise GaffUnavailable("capability_unavailable", "/method",
                               f"AmberTools installation is unverifiable: {type(error).__name__}") from None
     return manifest["version"], resources
+
+
+# Backward-compatible private spelling; the public name is ambertools_receipt.
+_ambertools_receipt = ambertools_receipt
 
 
 def _scales(xml_bytes):
@@ -296,9 +306,9 @@ def build_gaff_package(state, *, package_id, artifact_ids, seed=20260926,
         _fail("invalid_reference", "/artifact_ids", "package and asset UUIDs must be distinct")
 
     has_stereo = any(row["stereo"] in ("R", "S") for row in state["atoms"])
-    active = _TracingRunner(runner or _BoundedRunner(
+    active = _TracingRunner(runner or BoundedRunner(
         _STEREO_TIMEOUT_SECONDS if has_stereo else _TIMEOUT_SECONDS))
-    amber_version, binary_hashes = _ambertools_receipt(active)
+    amber_version, binary_hashes = ambertools_receipt(active)
     if _GAFF not in LibraryGenerator.INSTALLED_FORCEFIELDS:
         raise GaffUnavailable("capability_unavailable", "/method",
                               "pinned GAFF 2.2.20 resource is unavailable")
