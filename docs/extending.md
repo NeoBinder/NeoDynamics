@@ -13,10 +13,10 @@ checkpoints and finalization remain independent, so `probes=[]` does not mean
 file-free execution. This engine interface does not change CLI options or output
 defaults.
 
-The resident service supplies its own explicit reporting assembly in
-`neomd_server.probes` while preserving configured archive files. Its live sampler
-reads positions on the session owner thread and uses the existing bounded preview
-channel; file reports and live observations have separate responsibilities.
+An out-of-tree host may supply its own explicit reporting assembly this way
+while still writing the configured archive files. File reports and any live
+observation channel remain separate responsibilities of that host; the engine
+guarantees the reporting seam described above.
 
 ## Method plugins
 

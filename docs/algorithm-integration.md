@@ -21,10 +21,11 @@ scientific question, not required for every candidate workflow.
 | Algorithm package | Independently released executor image plus declared input/output, resource, provenance and qualification contracts |
 
 Keep the existing SDK plugin surface. It is not an untrusted remote plugin
-loader, and registration does not qualify a method for the resident service.
+loader, and registration does not qualify a method for any resident service.
 Public requests cannot load arbitrary Python, model code, probes or Plans.
 See [architecture](architecture.md) for registry/driver responsibilities and
-[scientific protocols](scientific-protocol.md) for the typed service boundary.
+[Service and integration surface](integration-surface.md) for the boundary an
+external distribution may rely on.
 
 An external package may contain trusted SDK plugins. The qualified image fixes
 which code is installed; changing that code requires a new executor release.
@@ -65,9 +66,9 @@ similarly named scores are not automatically comparable. A candidate can have
 multiple structures and experiments; its identity is not the trajectory ID or
 experimental sample ID.
 
-[Prepared bundles](prepared-bundle.md), [protein preparation](protein-preparation.md)
-and [trajectory results](trajectory-results.md) retain current contracts and
-qualification limits. In particular, bounded SDK preparation does not imply
+[Prepared bundles](prepared-bundle.md) and [protein preparation](protein-preparation.md)
+retain current contracts and qualification limits. In particular, bounded SDK
+preparation does not imply
 remote full preparation, and local result evidence does not imply OSS publication.
 Golden and synthetic scale gates do not prove physical validity or scientific
 throughput.

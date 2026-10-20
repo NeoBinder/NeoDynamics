@@ -28,10 +28,10 @@ every sample, including step 0; retain nonempty energy/frame samples and
 matching sample counts in both tiers.
 
 CI (`.github/workflows/ci.yml`) runs the nongolden and golden selectors in
-the locked `server` environment via `python -m pytest` (preserving repository
-root imports for shared test fixtures), and the 3HTB smoke on every PR,
-with `PYTEST_ADDOPTS=--skip-cuda` on
-CPU-only hosted runners. Mark tests that execute CUDA (including implicit
+the locked `test` environment via `python -m pytest`, and the 3HTB smoke on
+every PR, with `PYTEST_ADDOPTS=--skip-cuda` on CPU-only hosted runners. The
+resident service and its database tests live in the NeomdServer repository;
+this tree has no service test tier. Mark tests that execute CUDA (including implicit
 default-platform execution) with `@pytest.mark.cuda`; explicit CPU and fake
 tests remain enabled. Local runs include CUDA tests unless `--skip-cuda` is
 provided. `.github/workflows/docs.yml` strictly rebuilds the mkdocs site on

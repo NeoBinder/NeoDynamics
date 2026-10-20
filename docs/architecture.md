@@ -9,14 +9,11 @@ This page condenses the as-built picture; the design rationale is recorded
 in the ADRs under [adr/](adr/0001-neomd2-strangler-migration.md), starting
 with ADR 0001 (why a same-repo strangler migration).
 
-The independent `src/neomd_server/` package owns interactive sessions, service
-policy and its alternative driver/probes. Engine/CLI code never imports the
-service package. For that boundary, read the [interactive driver](interactive-driver.md)
-and [ADR 0008](adr/0008-interactive-service-driver.md); persistent service state
-and publication ownership are specified in the [service ledger](service-ledger.md).
-The service moves to its own repository and distribution
-([ADR 0010](adr/0010-server-repository-extraction.md)); the import surface it
-may rely on and the contract locator are documented in
+The resident interactive service has moved to its own repository and
+distribution ([ADR 0010](adr/0010-server-repository-extraction.md)); the engine
+repository no longer contains session, ledger or publication code and never
+imports the service package. The import surface an integrator may rely on and
+the contract locator are documented in
 [Service and integration surface](integration-surface.md).
 
 For external algorithm packaging, workflow ownership and Agent boundaries, see

@@ -25,10 +25,10 @@ proposed interface is not a shipped capability.
 - Public usage: `docs/quickstart.md`; method questions use the relevant page
   via `docs/methods/index.md`; current limits: `docs/tutorials/coming-soon.md`.
 - Architecture rationale: `docs/architecture.md`, then only the relevant ADR.
-- Service contracts, scientific intake, runtime or result publication:
-  `src/neomd_server/AGENTS.md` routes to the owner document. Preserve
-  feature-tree qualification limits; a main-based documentation change cannot
-  replace newer service behavior or mark pending integration as complete.
+- Integrator boundaries: `docs/integration-surface.md` lists what an external
+  distribution may import and how it locates contracts. Session, ledger,
+  publication and runtime-qualification documents belong to the service
+  repository; do not describe service internals or service source paths here.
 
 Promote development drafts by rewriting for external readers; tracked docs
 never symlink or copy ignored drafts. Method pages keep a one-paragraph purpose,

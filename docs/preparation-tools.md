@@ -39,5 +39,6 @@ choosing one.
 
 For a complete protein–ligand walkthrough, use the
 [3HTB example](https://github.com/NeoBinder/NeoDynamics/tree/main/examples/3HTB_complex).
-Service intake and remote operation limits are in the
-[resident service guide](service-runtime.md).
+Remote-service intake and operation limits are owned by the separate service
+repository; the engine-side boundary is in
+[Service and integration surface](integration-surface.md).

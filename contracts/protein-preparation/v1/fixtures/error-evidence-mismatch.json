@@ -1,6 +1,0 @@
-{
-  "code": "evidence_mismatch",
-  "message": "Declared sequence/termini evidence does not match the canonical source bytes.",
-  "request_id": "10000000-0000-4000-8000-000000000020",
-  "retryable": false
-}

@@ -2,10 +2,11 @@
 
 NeoDynamics is the OpenMM molecular-dynamics SDK. New features belong in
 `src/neomd/`; `src/neomd_legacy/` is frozen to bug fixes for its deprecation
-release, including the `neomd2` alias. The interactive service is
-`src/neomd_server/`: engine/CLI code never imports it; the service owns
-session policy, while reusable stepping, scientific preparation and qualified
-physical/method controls remain engine interfaces.
+release, including the `neomd2` alias. The resident interactive service lives
+in its own repository and distribution (`NeomdServer`, ADR 0010); this
+repository never imports it. Reusable stepping, scientific preparation and
+qualified physical/method controls remain engine interfaces;
+`neomd.integration` and `neomd.contracts` are the documented seams.
 
 ## Scientific boundaries
 

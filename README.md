@@ -13,7 +13,7 @@ Python 3.12+ · OpenMM 8.6.x (default environment) · Linux · [MIT](LICENSE)
 - Run minimization, equilibration, MD, metadynamics, steered MD, GaMD/LiGaMD,
   OPES and RBFE windows; analyse trajectories and free-energy estimates.
 - Combine MM with TorchScript neural potentials through optional ML/MM support.
-- Embed simulations in applications through the separate interactive service.
+- Integrate the SDK into another application through the published contracts.
 
 Method-specific requirements and limits are documented in the
 [method guides](docs/methods/index.md). Ligand exchange is experimental;
@@ -22,10 +22,24 @@ its trajectories do not establish equilibrium PMFs. See the
 
 ## Installation
 
-<a id="preferred-pixi--custom-runtime-environment"></a><a id="pixi"></a>
+<a id="preferred-pixi--custom-runtime-environment"></a><a id="pixi"></a><a id="pip"></a>
 
-Install [Pixi](https://pixi.sh), then clone the repository and use its locked
-Linux environment:
+Install the SDK from PyPI (Python 3.12+):
+
+```bash
+pip install NeoDynamics
+neomd version
+```
+
+Component chemistry and protein/system preparation are optional tiers:
+
+```bash
+pip install "NeoDynamics[component,preparation]"
+```
+
+RBFE windows (`rbfe`) and Torch-backed ML/MM (`mlmm`) are separate extras;
+ML/MM also needs the conda-only `openmm-torch` build. For the repository's
+locked Linux environment, use [Pixi](https://pixi.sh) instead:
 
 ```bash
 git clone https://github.com/NeoBinder/NeoDynamics.git
@@ -34,8 +48,7 @@ pixi install
 pixi run neomd version
 ```
 
-Optional ML/MM and service dependencies use separate environments; see
-[setup and development](docs/development.md).
+See [setup and development](docs/development.md) for environments and extras.
 
 ## Quick start
 
@@ -75,12 +88,12 @@ For your own system, follow the [plan walkthrough](docs/quickstart.md) or the
 | Prepare a system or inspect parameters | [Preparation and tools](docs/preparation-tools.md) |
 | Choose a method and interpret its results | [Methods and analysis](docs/methods/index.md) |
 | Find output files or resume a run | [Run outputs and continuation](docs/running.md) |
-| Integrate an interactive service | [Resident service](docs/service-runtime.md) · [Container setup](docker/README.md) |
+| Integrate the SDK into an application | [Service and integration surface](docs/integration-surface.md) |
 | Understand or extend the SDK | [Architecture](docs/architecture.md) · [Plugins](docs/extending.md) |
 | Integrate an algorithm package or Agent | [Algorithm integration](docs/algorithm-integration.md) |
 
 The [documentation home](docs/index.md) links to tutorials, scientific contracts
-and service qualification limits.
+and scope limits.
 
 ## Development
 

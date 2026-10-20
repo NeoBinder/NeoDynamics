@@ -3,8 +3,8 @@
 The SDK can validate a canonical protein source, group protein/source water and
 perform bounded standard heavy-atom repair while retaining scientific identities.
 The explicit full SDK path below connects repair, retained-H completion, retained-water
-solvation and an independently verified System bundle. The interactive service
-exposes this exact path as a durable preparation operation; it still selects no
+solvation and an independently verified System bundle. The separate resident
+service exposes this same path as a durable operation; the SDK still selects no
 simulation protocols.
 
 ```python
@@ -78,7 +78,7 @@ sequence evidence. The host must preserve available SEQRES/entity-polymer
 metadata during canonical export; this SDK does not add an independent raw-row
 parser.
 
-The resident preparation service derives `canonical_sequences` from an uploaded
+A durable service-side intake may derive `canonical_sequences` from an uploaded
 PDBx source when `_entity_poly_seq` is present. It binds each observed polymer
 residue through `_struct_asym` and `_atom_site` entity, chain, label position,
 name, atom order and coordinates to the descriptor's observed UUIDs. A client
@@ -159,9 +159,10 @@ sequence bindings, so its exact hash binds those scientific correspondences.
 Version 1 producers/readers and fixtures retain their existing behavior. The
 version 2 schemas are separate; consuming services/native applications must
 explicitly adopt them before accepting v2 assets. No public transport advertises
-v2 support merely because an SDK exporter can produce it. The current service
-accepts only the independently verified load-only profile below. Repair and GROUP exports
-remain outside service intake; matching schemas/hashes cannot prove their history.
+v2 support merely because an SDK exporter can produce it. The independently
+verified load-only profile below is the only profile the resident service
+accepts; repair and GROUP exports have no equivalent verified profile, and
+matching schemas/hashes cannot prove their history.
 
 ## Load-only verification profile
 
@@ -177,7 +178,7 @@ verified = verify_prepared_system(
 The explicit profile requires v2, one `protein/canonical_structure` source and
 exactly one `load` step. Unknown profile names reject. Default `profile=None`
 retains generic verification, including its lack of independent source/history
-validation; it is never the service's v2 acceptance path. Untrusted callers still
+validation; it is never an accepted v2 intake profile. Untrusted callers still
 require XML vocabulary checks and process/resource isolation before this SDK call.
 
 The verifier independently decodes hash-checked PDB/PDBx source bytes and checks
@@ -263,7 +264,7 @@ H/solvation handoff uses the bounded full path below. An input already chemicall
 can use the separate System builder below, preserving GROUP lineage. GROUP verification
 does not consume assembly-report semantics: invoke both public verifiers when both
 guarantees are required. Schema support and this opt-in SDK profile do **not** expand
-service intake, which continues to reject grouped v2 bundles and LOAD relabelling.
+service-side acceptance: grouped v2 bundles and LOAD relabelling remain rejected.
 
 ## Evidence-gated grouped heavy repair
 
@@ -282,7 +283,7 @@ not accept an externally mutable `ProteinGrouping` or re-import grouped coordina
 as a new source. LOAD/GROUP UUIDs and original bytes/sequence evidence survive the
 observed `repair_standard_residue` step. Platform and positive signed-32-bit seed
 are explicit; caller-owned process isolation and deadlines remain required for
-untrusted service use. No service preparation endpoint is added.
+untrusted service use. This SDK entrypoint adds no remote endpoint.
 
 Missing OXT requires complete, explicitly supplied pure-protein sequence evidence
 whose residue UUIDs align with the original source chain. Unknown coverage blocks
@@ -342,7 +343,7 @@ geometry and the exact reported changes. It does not rerun the producer to certi
 itself. Client declarations and recorded backend versions remain provenance, not
 authenticated biological evidence or proof that the backend historically ran.
 LOAD and GROUP profiles still reject repair; generic verification and the separate
-System report do not replace this repair profile. Service v2 remains LOAD-only.
+System report do not replace this repair profile. Service-side v2 stays LOAD-only.
 
 ## Complete bounded SDK preparation
 
@@ -497,23 +498,23 @@ Untrusted intake still needs a caller-trusted manifest digest, immutable staged
 inputs and host-owned bounded process/resource isolation. A self-recomputed digest
 does not authenticate a producer. The report proves System construction consistency,
 not chemical suitability, source-history truth, salt/pH correctness, stability or
-simulation readiness. The service's load-only profile and unavailable full-preparation
-catalog remain unchanged. Generic verification and the LOAD-only profile check
-extra report artifact bytes, not assembly-report semantics; callers relying on
-assembly evidence must use `verify_protein_system_assembly`. The current service
-does not advertise or consume an assembly-verification guarantee.
+simulation readiness. The service repository owns its load-only profile and
+preparation catalog; this report changes neither. Generic verification and the
+LOAD-only profile check extra report artifact bytes, not assembly-report
+semantics; callers relying on assembly evidence must use
+`verify_protein_system_assembly`.
 
 ## Accepted preset provenance
 
-`neomd_server.preparation.preparation_catalog()` returns the accepted ff14SB and
-TIP3P resources from the installed openmmforcefields package, with exact byte
-sizes, SHA256 hashes and package version. The preset revision is SHA256 of
-sorted compact UTF-8 JSON for that preset without its revision field or a trailing
-newline; this digest is separate from any protocol-registration hash.
+The accepted ff14SB and TIP3P resources come from the installed
+openmmforcefields package, pinned by exact byte size, SHA256 hash and package
+version. The resident service publishes that preset catalog; the SDK path below
+consumes the same resources. The preset revision is SHA256 of sorted compact
+UTF-8 JSON for that preset without its revision field or a trailing newline;
+this digest is separate from any protocol-registration hash.
 
-The catalog also publishes the exact source `loader` identity
-(`openmm.PDBxFile`, the service OpenMM version and the
-`preparation_input` atom order) that source descriptors must pin; capture-side
+Source descriptors must pin the exact source `loader` identity
+(`openmm.PDBxFile`, the OpenMM version and the `preparation_input` atom order);
 producers read it from the catalog rather than hardcoding a version. Sources
 carrying `chem_comp_bond` records load with typed bonds that the qualified
 export round-trip cannot preserve, so accepted capture profiles emit
@@ -545,67 +546,26 @@ PME (`nonbonded_method=pme` in the existing SDK vocabulary), with a 1.0 nm cutof
 and Ewald error tolerance 0.0005. Dispersion correction is enabled, switching is
 disabled (`switch_distance_nm=null`), and exceptions do not use periodic boundary
 conditions. Constrained degrees of freedom do not retain their harmonic force
-parameters (`flexible_constraints=false`). The separately registered
-[scientific protocol](scientific-protocol.md) records the confirmed 2 fs initial
-editor timestep; it is not a System preparation parameter. These assembly
+parameters (`flexible_constraints=false`). The service repository's registered
+scientific protocol records the confirmed 2 fs initial editor timestep; it is
+not a System preparation parameter. These assembly
 choices are now complete; later integrator, thermostat and protocol settings
 remain separate decisions.
 The HMR parameter does not assert that every hydrogen in
 the final System has that mass.
-The catalog's unresolved-parameter list is empty, and the service preparation
-operation is qualified (`system_assembly_available=true`). The heavy-only SDK
-function still adds no H; the explicit full pipeline handles hydrogen completion
-separately. Existing SDK constraint or nonbonded defaults are not silently
-inherited by a new service request; the executor passes the full explicit
-parameter set.
+The catalog's unresolved-parameter list is empty: the assembly parameter set is
+complete. The heavy-only SDK function still adds no H; the explicit full
+pipeline handles hydrogen completion separately. SDK constraint or nonbonded
+defaults are not silently inherited by an explicit assembly request; the caller
+passes the full explicit parameter set.
 
-## Service preparation operation
+## Remote-service boundary
 
-`/internal/md/v1/preparations` is a durable, single-executor operation family
-(`src/neomd_server/preparation_operations.py`, migration `010`). Canonical
-source bytes travel through a staged upload lane (`source-uploads` begin,
-binary `content` PUT, exact SHA256/size verification, idempotent replay);
-operations reference the stored `source_upload_id`. Submit re-checks the preset
-revision, descriptor-evidence consistency and per-owner admission, then runs a
-killable isolated validation child before the operation becomes visible;
-rejected submissions return 422 without leaving an operation. Source validation has
-one admission slot, separate from the single preparation executor; overlapping
-submissions receive `admission_full`. No intent is visible or claimable until the
-validator has exited cleanly and upload, identity and capacity have been rechecked.
-Migration `011` reserves `max_result_bytes` at admission under the same storage
-pool lock used by uploads and session output admission. Every shared-capacity
-reader counts this reservation. Success converts it to exact published artifact
-bytes atomically; controlled failure/cancellation releases it only after confirmed
-child exit and owned staging cleanup. Never-claimed queued cancellation releases
-immediately. Restart interrupts running work but retains its reservation and files:
-a lease fence cannot prove writer closure or authorize storage reclamation.
-
-Execution runs the real SDK pipeline in a spawned, parent-death-armed child
-with the catalog's wall-clock/memory/result limits, then independently verifies
-the staged bundle with `verify_protein_preparation` in a second child before
-publishing immutable artifacts and the receipt/inventory/QC DTOs. Publication
-rechecks cancellation and deadline under the operation row lock before committing
-success; cancellation before that commit publishes no result. Cancellation
-is idempotent through the state machine (queued operations close immediately;
-a running operation's child is killed). Restart reconciliation fences every
-non-terminal operation as `interrupted` (`worker_lost`) and never restarts
-scientific work. Failed/cancelled operations retain only their bounded
-`preparation.log` artifact. Private artifact reads do not re-verify.
-
-A desktop-accepted result enters the existing prepared upload/commit lane using
-its unchanged manifest and all manifest artifacts. The only additional accepted
-artifact paths are `assembly-report.json`, `forcefield/protein.ff14SB.xml` and
-`forcefield/tip3p_standard.xml`; the preparation log is not a manifest artifact.
-The service admits the full profile only when a succeeded preparation in the
-same owner scope and provider pool binds the exact manifest SHA256 and every
-artifact path, size and SHA256. Its receipt and complete inventory are pinned in
-the durable input-operation snapshot and checked again before registration.
-The isolated child still performs independent full preparation verification;
-the receipt alone cannot replace scientific verification. Successful commit
-publishes the existing prepared binding and topology projection for protocol and
-session use. Ordinary uploaded full histories, another owner's result and changed
-bytes remain rejected by the existing LOAD-only or integrity gates. No new public
-route or automatic mutation replay is introduced.
+Durable preparation operations — staged upload, admission, isolated executor,
+cancellation, receipts and published artifacts — are owned by the separate
+service repository, together with its HTTP routes and database migrations.
+This page qualifies the synchronous SDK pipeline only; it makes no claim about a
+deployed remote endpoint, its capacity limits or its availability.
 
 The canonical source format is `pdbx` (loader `openmm.PDBxFile`). `.pdb` intake
 is out of contract scope: blank insertion codes decode as `' '` through

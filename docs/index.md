@@ -24,8 +24,9 @@ validation and migration from v1.
 
 Preparation details branch into [component chemistry review](component-inspection.md),
 [protein identity and repair](protein-preparation.md) and
-[verified prepared bundles](prepared-bundle.md). These pages distinguish
-supported SDK workflows from service intake and remote operation limits.
+[verified prepared bundles](prepared-bundle.md). These pages cover the supported
+SDK workflows; remote-service intake limits belong to the separate service
+repository.
 Ligand package methods include [generated GAFF](component-gaff.md) and
 [OpenFF Sage 2.2.1](component-openff.md), each with separate resource and
 assembly qualification.
@@ -45,20 +46,6 @@ For GaMD, read both the [method guide](methods/gamd.md) and
 [CE2 analysis requirements](methods/gamd-analysis.md). Deterministic ligand
 exchange is experimental and does not establish an equilibrium PMF.
 See [scope limits](tutorials/coming-soon.md) for unsupported capabilities.
-
-## Interactive service
-
-Start with the [resident service guide](service-runtime.md) for configuration,
-process isolation, admission, checkpoints and configured publication. Its
-linked contracts cover [scientific protocols](scientific-protocol.md),
-[durable command outcomes](service-ledger.md),
-[HTTP/WebSocket transport](private-transport.md) and
-[trajectory result evidence](trajectory-results.md) and
-[bounded comparisons](trajectory-comparisons.md).
-
-For embedded control, see the [interactive driver](interactive-driver.md).
-Check [runtime qualification](runtime-qualification.md) for what has actually
-been tested, including scale limits and outstanding gates.
 
 ## Development
 

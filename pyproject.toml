@@ -48,26 +48,15 @@ rbfe = [
 ]
 # Torch-backed ML/MM and ML-CV kernels. openmm-torch is only distributed on
 # conda-forge, so the pixi environment owns that pin; the PyPI extra carries
-# torch itself for tests that import it.
-ml = [
+# torch itself for tests that import it. The extra is named apart from the
+# pixi `ml` feature so pixi never injects torch into that environment.
+mlmm = [
   "torch >= 2.0",
-]
-# The resident service moved to the NeomdServer repository; kept on this
-# branch until the extraction lands.
-server = [
-  "asyncpg >= 0.31,<0.32",
-  "jsonschema >= 4.26,<5",
-  "rfc8785 >= 0.1.4,<1",
-  "fastapi >= 0.116,<1",
-  "uvicorn >= 0.35,<1",
-  "websockets >= 15,<17",
-  "httpx >= 0.28,<1",
 ]
 
 [project.scripts]
 neomd = "neomd.cli:main"
 neomd2 = "neomd.cli:main"  # strangler-period alias, removed with neomd_legacy
-neomd-server = "neomd_server.runtime:main"
 
 [tool.versioningit]
 
@@ -75,30 +64,12 @@ neomd-server = "neomd_server.runtime:main"
 where = ["src"]
 
 [tool.setuptools.data-files]
-"share/neodynamics/contracts/imd/v1" = ["contracts/imd/v1/*.json"]
-"share/neodynamics/contracts/scientific-protocol/v1" = ["contracts/scientific-protocol/v1/*.json"]
-"share/neodynamics/contracts/scientific-protocol-template/v1" = ["contracts/scientific-protocol-template/v1/*.schema.json"]
 "share/neodynamics/contracts/prepared-bundle/v1" = ["contracts/prepared-bundle/v1/*.json"]
 "share/neodynamics/contracts/prepared-bundle/v2" = ["contracts/prepared-bundle/v2/*.json"]
 "share/neodynamics/contracts/assembly-report/v1" = ["contracts/assembly-report/v1/*.json"]
-"share/neodynamics/contracts/topology-view/v1" = ["contracts/topology-view/v1/*.json"]
-"share/neodynamics/contracts/protein-preparation/v1" = ["contracts/protein-preparation/v1/*.json"]
-"share/neodynamics/contracts/protein-preparation/v2" = ["contracts/protein-preparation/v2/*.json"]
 "share/neodynamics/contracts/molecular-topology/v1" = ["contracts/molecular-topology/v1/*.json"]
-"share/neodynamics/contracts/component-operations/v1" = ["contracts/component-operations/v1/*.schema.json"]
 "share/neodynamics/contracts/component-preparation/v1" = ["contracts/component-preparation/v1/*.schema.json"]
 "share/neodynamics/contracts/component-system-qc/v1" = ["contracts/component-system-qc/v1/*.schema.json"]
-"share/neodynamics/contracts/trajectory-result/v1" = ["contracts/trajectory-result/v1/*.json"]
-"share/neodynamics/contracts/trajectory-comparison/v1" = ["contracts/trajectory-comparison/v1/*.schema.json"]
-"share/neodynamics/contracts/neoapi-md-publication/v1" = [
-  "contracts/neoapi-md-publication/v1/openapi.yaml",
-  "contracts/neoapi-md-publication/v1/schema.json",
-  "contracts/neoapi-md-publication/v1/snapshot.json",
-  "contracts/neoapi-md-publication/v1/README.md",
-]
-
-[tool.setuptools.package-data]
-neomd_server = ["migrations/*.sql", "fixtures/qualification/*", "fixtures/qualification/sources/*"]
 
 [project.urls]
 Homepage = "https://github.com/NeoBinder/NeoDynamics"
@@ -108,7 +79,6 @@ Issues = "https://github.com/NeoBinder/NeoDynamics/issues"
 markers = [
   "cuda: requires CUDA execution (including the default OpenMM platform); skipped by --skip-cuda",
   "golden: golden-sample parity tests against v1 tapes (run via `pixi run test-golden`)",
-  "server_db: requires an explicitly configured disposable PostgreSQL fixture database",
   "legacy: tests exercising frozen v1 (neomd_legacy) live; excluded from CI after the flip (run via `pixi run test-legacy`)",
 ]
 
@@ -127,7 +97,7 @@ line-length = 100
 select = ["E4", "E7", "E9", "F", "I"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["neomd", "neomd_legacy", "neomd_server"]
+known-first-party = ["neomd", "neomd_legacy"]
 
 # --- pixi workspace (merged from pixi.toml) ---
 
@@ -136,7 +106,6 @@ channels = ["conda-forge"]
 platforms = ["linux-64"]
 
 [tool.pixi.pypi-dependencies]
-NeoDynamics = { path = ".", editable = true }
 python-box = ">=7.3.2"
 numpy = "*"
 
@@ -148,6 +117,12 @@ python = "3.12.*"
 
 # The engine stack lives in a FEATURE so the ml environment can carry its own
 # openmm pin (ADR-0004) without intersecting a workspace-level 8.6.*.
+# The editable engine install belongs to this feature, not the workspace: the
+# `ml` environment pins openmm 8.5.* (ADR-0004) and cannot satisfy the
+# engine's own `openmm>=8.6` requirement, so it runs from PYTHONPATH instead.
+[tool.pixi.feature.engine.pypi-dependencies]
+NeoDynamics = { path = ".", editable = true }
+
 [tool.pixi.feature.engine.dependencies]
 openmm = "8.6.*"
 openmmforcefields = ">=0.16,<0.17"
@@ -159,26 +134,6 @@ pytest = "*"
 pytest = "*"
 jsonschema = ">=4.26,<5"
 pdbfixer = "*"
-
-[tool.pixi.feature.server.pypi-dependencies]
-asyncpg = ">=0.31,<0.32"
-rfc8785 = ">=0.1.4,<1"
-fastapi = ">=0.116,<1"
-uvicorn = ">=0.35,<1"
-websockets = ">=15,<17"
-
-[tool.pixi.feature.server.dependencies]
-# Explicit runtime requirement for the qualified preparation SDK boundary;
-# do not depend on the test feature incidentally installing it.
-pdbfixer = "==1.12.0"
-httpx = ">=0.28,<1"
-
-[tool.pixi.feature.server.activation.env]
-PYTHONNOUSERSITE = "1"
-
-[tool.pixi.feature.server.tasks]
-serve = "neomd-server serve"
-test-server = "pytest tests/server"
 
 [tool.pixi.feature.docs.dependencies]
 mkdocs-material = "*"
@@ -212,24 +167,32 @@ openff-toolkit = ">=0.19,<0.20"
 openmmforcefields = ">=0.16,<0.17" # the tools.ligand workflow (demo prepare)
 ambertools = "*"                   # the demo's GAFF ligand parameterization stage
 pytest = "*"
+# The engine is not pip-installed here (openmm pin mismatch above), so the
+# ml environment needs the engine's core runtime requirements explicitly,
+# including the workspace defaults it does not inherit.
+python = "3.12.*"
+python-box = "*"
+jsonschema = ">=4.26,<5"
+pyyaml = "*"
+
+[tool.pixi.feature.ml.pypi-dependencies]
+rfc8785 = ">=0.1.4,<1"
 
 [tool.pixi.feature.ml.tasks]
-test-ml = "pytest tests/v2/test_mlmm.py -v"
+test-ml = { cmd = "pytest tests/v2/test_mlmm.py -v", env = { PYTHONPATH = "src" } }
 
 [tool.pixi.environments]
 default = { features = ["engine"], solve-group = "default" }
 test = { features = ["engine", "test"], solve-group = "default" }
-server = { features = ["engine", "test", "server"], solve-group = "default" }
 dev = { features = ["engine", "dev"], solve-group = "dev" }
 docs = { features = ["engine", "docs"], solve-group = "default" }
-ml = { features = ["ml"], solve-group = "ml" }
+ml = { features = ["ml"], solve-group = "ml", no-default-feature = true }
 # the rbfe env's gate: the default tier (import-gated tests skip there) plus
 # the openmmtools-gated alchemy smoke (tests/v2/test_rbfe_alchemy.py)
 rbfe = { features = ["engine", "rbfe", "test"], solve-group = "rbfe" }
 
 [tool.pixi.tasks]
-# tests/server needs the server env (asyncpg/fastapi); run `pixi run -e server test-server` for it
-test = "pytest tests/ -m 'not golden and not legacy' --ignore=tests/server"
-test-golden = "pytest tests/ -m 'golden and not legacy' --ignore=tests/server"
-test-legacy = "pytest tests/ -m legacy -q --ignore=tests/server"
-test-rbfe = "pytest tests/ -m 'not golden and not legacy' --ignore=tests/server"
+test = "pytest tests/ -m 'not golden and not legacy'"
+test-golden = "pytest tests/ -m 'golden and not legacy'"
+test-legacy = "pytest tests/ -m legacy -q"
+test-rbfe = "pytest tests/ -m 'not golden and not legacy'"

@@ -53,11 +53,9 @@ An [SEP peptide package](component-sep.md) uses the distinct full
 complete peptide as one package; mixed SEP and ligand packages are rejected.
 Inspection and assembly reject a covalently connected protein–ligand source
 unit until a qualified joint template and its complete attachment terms exist.
-The durable molecular-topology preparation service also rejects that source
-before publishing a prepared bundle. Its failed operation has code
-`unsupported_relation`, message "Covalently attached ligand needs a qualified
-joint template.", and no prepared receipt or artifacts. Inspection
-uses `capability_unavailable` for the same connected unit.
+A durable service-side intake rejects that source as well, before publishing a
+prepared bundle. Inspection uses `capability_unavailable` for the same connected
+unit.
 
 ## Reopening and QC
 
@@ -95,42 +93,17 @@ remain supported by the assembly core for review but cannot be exported as
 a v2 handoff. Numerical QC is a system check, not a public availability or
 method-wide scientific qualification grant.
 
-## Private durable service operations
+## Remote-service boundary
 
-`/internal/md/v1/component-preparations` exposes four fixed operations on the
-existing single preparation executor: state/instance review, GAFF2, Sage
-2.2.1 or bounded SEP-peptide package generation, declarative package import
-and assembly from stored packages.
-The private `contracts/component-operations/v1` contract defines owner-scoped
-byte uploads, prior-result references, request identity,
-receipts and the availability catalog. The host authorizes the scientific
-review decision; the review child verifies its exact decision bytes, source
-graph, evidence and pose binding. Package generation and import require the
-exact state artifact from a successful same-owner review operation.
-The durable Assemble route accepts only source-complete state/instance poses.
-It rejects caller-supplied pose receipts because no host-produced verified-stage
-pose artifact exists to authenticate their trust digest. Each package and all
-its assets must be prior artifacts of the same successful same-owner Generate
-or Import operation; byte-identical caller uploads do not establish that
-provenance. Its catalog currently advertises two-JZ4 GAFF/Sage and the
-one-internal-SEP 2MZ2 profiles. Full 3HTB protein assembly with generated
-hydrogens is withheld from the durable catalog pending a verified pose-stage
-producer.
+Durable component operations — owner-scoped uploads, review decisions, package
+generation, import and assembly with published receipts — belong to the separate
+service repository, together with their routes, contracts and availability
+catalog. The SDK exposes the synchronous builder and QC functions above; it
+makes no claim about a deployed catalog.
+
 The deposited 3QQA/TCH complex has known polymer sequence gaps. Protein
 repair and `prepare_system` reject this source before publishing a System;
 a coordinate-complete revised source is required.
-
-An operation validates its inputs in an isolated child before durable admission.
-The executing child checks their hashes again, and a second child reopens the
-staged outputs. Assembly's second child compares all System terms plus CPU
-energy and forces against a direct ForceField reference, then writes and reads
-the QC-gated prepared-bundle/v2. Reusing a prior package artifact with a new
-recipe never invokes parameterization. All output artifact bytes and upstream
-receipt hashes are recorded before the succeeded snapshot is published.
-Cancellation, deadline and owner/lease checks guard that final transaction;
-reconnect queries the original request ID. Restart interrupts unfinished work
-without scientific replay. The protein ff14SB package builder is not yet a
-service operation and remains unavailable in this catalog.
 
 The retained SDK 3HTB/JZ4 preparation case is an **unrelaxed** numerical snapshot.
 Its close generated-water pair requires minimization before dynamics; a later
