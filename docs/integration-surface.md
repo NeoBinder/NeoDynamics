@@ -2,11 +2,15 @@
 
 The resident interactive MD service ships as a separate distribution
 (`NeomdServer`, import package `neomd_server`) and depends on one pinned
-NeoDynamics release. This page records what that service — and any other
-integration — may import, and how it locates versioned contracts.
+NeoDynamics release. Scientific preparation is an **in-repo package** of that
+same distribution (`neomd_preparation`, [ADR 0011](adr/0011-preparation-package-split.md));
+there is no second distribution or version pin. This page records what the
+service — and any other integration — may import, and how it locates versioned
+contracts.
 
-See [ADR 0010](adr/0010-server-repository-extraction.md) for the extraction
-decision and the unchanged runtime contract.
+See [ADR 0010](adr/0010-server-repository-extraction.md) for the service
+extraction and [ADR 0011](adr/0011-preparation-package-split.md) for the
+preparation package boundary.
 
 ## Allowed imports
 
@@ -14,23 +18,26 @@ Integrators may import:
 
 - `neomd`: `__version__`, `methods`, `registry`;
 - `neomd.integration`: the full module;
-- the documented modules: `plan`, `run`, `driver`, `manifest`, `sinks`,
-  `resume`, `probes`, `prepared`, `preparation`, `prepare`,
-  `prepared_pipeline`, `protein_*`, `topology_*`, `component_*`, `system`,
-  `rbfe`, `analysis.*`, `errors`, `kernel.port`, `restraints`, `colvars`,
-  `tools.antechamber` and `contracts`.
+- the documented runtime modules: `plan`, `run`, `driver`, `manifest`,
+  `sinks`, `resume`, `probes`, `system`, `rbfe`, `analysis.*`, `errors`,
+  `kernel.port`, `restraints`, `colvars`, the two contract-pinned facades
+  `prepared_pipeline` and `topology_preparation`, and `contracts`;
+- the in-repo preparation package: `neomd_preparation.integration`, `errors`,
+  `bundle`, `source`, `workflow`, `protein.*`, `verify.*`, `topology.*`,
+  `components.*` and `tools.*`.
 
-Underscore-prefixed symbols, `neomd.kernel._bootstrap` and any engine test
-module are not part of the surface. The four seams that were previously
-private are exported by `neomd.integration`:
+Underscore-prefixed symbols, `neomd.kernel._bootstrap` and any test module are
+not part of the surface. The seams that were previously private are exported by
+`neomd.integration`; preparation-backed names resolve lazily from
+`neomd_preparation.integration`:
 
 | Export | Backing implementation |
 | --- | --- |
 | `ensure_adapters()` | `neomd.kernel._bootstrap.ensure_adapters` |
-| `BoundedRunner` | `neomd.component_gaff.BoundedRunner` (bounded external-tool subprocess) |
-| `GAFF_VERSION` | pinned GAFF version string (`gaff-2.2.20`) |
-| `ambertools_receipt(runner)` | `neomd.component_gaff.ambertools_receipt` |
-| `topology_from_document(document, manifest)` | `neomd.component_system_qc.topology_from_document` |
+| `BoundedRunner` | `neomd_preparation.components.providers.gaff.BoundedRunner` |
+| `GAFF_VERSION` | `neomd_preparation.components.providers.gaff.GAFF_VERSION` |
+| `ambertools_receipt(runner)` | `neomd_preparation.components.providers.gaff.ambertools_receipt` |
+| `topology_from_document(document, manifest)` | `neomd_preparation.components.qc.topology_from_document` |
 | `STATE_HEADER` | `neomd.probes.STATE_HEADER` |
 | `engine_version()` | installed distribution version |
 
@@ -64,6 +71,19 @@ not appear in the engine distribution.
 ## Repository boundary
 
 - The engine never imports `neomd_server`; a source-scan test enforces this.
+- Engine core never imports `neomd_preparation` at module level; the documented
+  lazy facades are the only exceptions (`neomd.system`, `neomd.integration`,
+  `neomd.__init__`, `prepared_pipeline`, `topology_preparation`). A source-scan
+  test enforces this.
+- `neomd_preparation` is part of the same wheel and depends on `neomd` core
+  only; it locates schemas through `neomd.contracts` and does not copy them.
+- The service gets preparation from the pinned NeoDynamics release (or the
+  split-time Git submodule); it adds no second distribution pin.
 - The service may not import private engine symbols or engine test fixtures.
 - Cross-repository integration uses versioned wheels, HTTP contracts and
   schemas only — never sibling source checkouts or path dependencies.
+
+## Preparation service interface
+
+The concrete import mapping and behaviour guarantees for the service are in
+[Preparation service interface](preparation-server-interface.md).

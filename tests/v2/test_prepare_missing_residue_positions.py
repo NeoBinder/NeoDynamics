@@ -6,7 +6,7 @@ import pytest
 
 from neomd.cli import main
 from neomd.errors import ConfigValueError
-from neomd.system import PlainForceFieldBuilder, prepare_system
+from neomd_preparation import PlainForceFieldBuilder, prepare_system
 
 
 def test_prepare_system_rejects_pdb_seqres_residue_without_coordinates(tmp_path):

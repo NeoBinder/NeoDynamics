@@ -6,10 +6,10 @@ import copy
 import json
 from pathlib import Path
 
-from neomd import component_protein
-from neomd.component_contract import canonical_sha256
-from neomd.component_protein import inspect_protein_variants
-from neomd.protein_hydrogens import _trusted_inventory
+import neomd_preparation.components.protein_review as component_protein
+from neomd_preparation.components.contract import canonical_sha256
+from neomd_preparation.components.protein_review import inspect_protein_variants
+from neomd_preparation.protein.hydrogens import _trusted_inventory
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "contracts/molecular-topology/v1/fixtures/cross-boundary.json"

@@ -34,16 +34,18 @@ from openff.units import unit as openff_unit
 from openmm import NonbondedForce, Vec3, unit
 from openmm.app import PME, ForceField, HBonds, PDBFile
 
-import neomd.tools.antechamber as _antechamber_module
 import neomd.tools.port as _port_module
-from neomd.tools import (
-    AntechamberBackend,
+import neomd_preparation.tools.antechamber as _antechamber_module
+from neomd.tools.port import (
     ChargeBackend,
     FakeToolRunner,
     ParamBackend,
     SubprocessToolRunner,
     ToolError,
     ToolResult,
+)
+from neomd_preparation.tools.antechamber import (
+    AntechamberBackend,
     build,
     register_gaff_generator,
     rename_atoms_by_template,

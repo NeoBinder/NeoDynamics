@@ -18,13 +18,13 @@ from openmm import app, unit
 from referencing import Registry, Resource
 
 from neomd.errors import PlanValidationErrors
-from neomd.preparation import (
+from neomd_preparation.bundle import file_digest, read_prepared_bundle
+from neomd_preparation.source import (
     inspect_protein,
     load_protein_source,
     repair_standard_residues,
     validate_protein_source,
 )
-from neomd.prepared import file_digest, read_prepared_bundle
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -179,7 +179,7 @@ def test_moved_source_atoms_are_not_guessed_during_repair(tmp_path):
     path, desc = source_fixture(tmp_path)
     source = load_protein_source(path, desc)
     # Public lineage observation must not infer a moved atom from its name.
-    from neomd.prepared import PreparationLineage
+    from neomd_preparation.bundle import PreparationLineage
 
     lineage = PreparationLineage({"schema_version": 2, "sources": [desc]})
     lineage.append_source(source.topology, source.positions_nm, input_key="protein", kind="structure",
@@ -191,7 +191,7 @@ def test_moved_source_atoms_are_not_guessed_during_repair(tmp_path):
 
 
 def test_duplicate_positions_reject_ambiguous_source_correspondence(tmp_path):
-    from neomd.prepared import PreparationLineage
+    from neomd_preparation.bundle import PreparationLineage
 
     path, desc = source_fixture(tmp_path)
     source = load_protein_source(path, desc)

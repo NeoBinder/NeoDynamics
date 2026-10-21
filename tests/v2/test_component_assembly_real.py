@@ -16,10 +16,10 @@ import openmm as mm
 import pytest
 from openmm import XmlSerializer
 
-from neomd.component_assembly import assemble_component_system
-from neomd.component_contract import ComponentContractError, canonical_sha256
-from neomd.component_package import validate_package_assets
-from neomd.tools.antechamber import AntechamberBackend
+from neomd_preparation.components.assembly import assemble_component_system
+from neomd_preparation.components.assets import validate_package_assets
+from neomd_preparation.components.contract import ComponentContractError, canonical_sha256
+from neomd_preparation.tools.antechamber import AntechamberBackend
 
 ROOT = Path(__file__).resolve().parents[2]
 TASK = next((parent / ".agents/task/component-md-preparation"

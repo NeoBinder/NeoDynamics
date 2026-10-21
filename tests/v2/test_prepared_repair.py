@@ -7,11 +7,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from neomd.assembly_report import assemble_protein_system
 from neomd.errors import PlanValidationErrors
-from neomd.grouped_repair import group_and_repair_protein
-from neomd.prepare import verify_prepared_system
-from neomd.prepared import file_digest
+from neomd_preparation.assembly.report import assemble_protein_system
+from neomd_preparation.bundle import file_digest
+from neomd_preparation.protein.repair import group_and_repair_protein
+from neomd_preparation.workflow import verify_prepared_system
 from tests.v2.test_grouped_repair import complete_source
 from tests.v2.test_system_assembly_report import PARAMETERS
 
@@ -27,7 +27,7 @@ def repaired_bundle(tmp_path):
 
 
 def rehash(path, manifest):
-    from neomd.prepared import _mapping_document
+    from neomd_preparation.bundle import _mapping_document
 
     (path.parent / manifest["mapping_artifact"]).write_text(json.dumps(_mapping_document(manifest)))
     for name, row in manifest["artifacts"].items():
@@ -45,12 +45,12 @@ def test_actual_repaired_bundle_has_independent_exact_history_profile(tmp_path):
 
 
 def test_public_repair_state_gate_does_not_call_producer_or_backend(tmp_path, monkeypatch):
-    from neomd.prepared_repair import verify_repair_state
+    from neomd_preparation.verify.repair import verify_repair_state
 
     _, repaired = repaired_bundle(tmp_path)
     from pdbfixer import PDBFixer
 
-    import neomd.grouped_repair as producer
+    import neomd_preparation.protein.repair as producer
 
     def forbidden(*args, **kwargs):
         raise AssertionError("independent verification cannot execute the repair producer")
@@ -129,7 +129,7 @@ def test_coherently_rehashed_repair_claims_fail_independently(tmp_path, fault):
 
 
 def test_repair_state_rejects_mutually_edited_retained_coordinates(tmp_path):
-    from neomd.prepared_repair import verify_repair_state
+    from neomd_preparation.verify.repair import verify_repair_state
 
     _, repaired = repaired_bundle(tmp_path)
     lineage, topology = copy.deepcopy((repaired.lineage, repaired.topology))
@@ -142,7 +142,7 @@ def test_repair_state_rejects_mutually_edited_retained_coordinates(tmp_path):
 
 @pytest.mark.parametrize("reverse,coincident", [(False, False), (True, False), (False, True)])
 def test_no_addition_stage_preserves_nonstandard_order_and_coincident_retained_atoms(tmp_path, reverse, coincident):
-    from neomd.prepared_repair import verify_repair_state
+    from neomd_preparation.verify.repair import verify_repair_state
 
     repaired = group_and_repair_protein(complete_source(tmp_path, missing_cb=False, reverse=reverse,
                                                        coincident=coincident), platform="CPU", seed=123)
@@ -153,7 +153,7 @@ def test_no_addition_stage_preserves_nonstandard_order_and_coincident_retained_a
 @pytest.mark.parametrize("fault", ["formal_charge", "live_bond_bool", "removed_retained_bond",
                                    "source_bytes", "source_position", "extra_atom_field"])
 def test_no_addition_stage_rejects_mutually_consistent_nonphysical_edits(tmp_path, fault):
-    from neomd.prepared_repair import verify_repair_state
+    from neomd_preparation.verify.repair import verify_repair_state
 
     repaired = group_and_repair_protein(complete_source(tmp_path, missing_cb=False), platform="CPU", seed=123)
     lineage, top = copy.deepcopy((repaired.lineage, repaired.topology))
@@ -195,7 +195,7 @@ def test_no_addition_stage_rejects_mutually_consistent_nonphysical_edits(tmp_pat
 
 @pytest.mark.parametrize("fault", ["nil_revision", "atom_residue_identity_collision"])
 def test_repair_state_rejects_nonnil_and_cross_kind_identity_defects(tmp_path, fault):
-    from neomd.prepared_repair import verify_repair_state
+    from neomd_preparation.verify.repair import verify_repair_state
 
     repaired = group_and_repair_protein(complete_source(tmp_path, missing_cb=False), platform="CPU", seed=123)
     lineage, topology = copy.deepcopy((repaired.lineage, repaired.topology))
@@ -219,7 +219,7 @@ def test_repair_state_rejects_nonnil_and_cross_kind_identity_defects(tmp_path, f
 def test_actual_generated_heavy_edits_cannot_certify_themselves(tmp_path, fault):
     from openmm import app
 
-    from neomd.prepared_repair import verify_repair_state
+    from neomd_preparation.verify.repair import verify_repair_state
 
     repaired = group_and_repair_protein(complete_source(tmp_path), platform="CPU", seed=123)
     lineage, topology = copy.deepcopy((repaired.lineage, repaired.topology))
@@ -245,8 +245,8 @@ def test_actual_generated_heavy_edits_cannot_certify_themselves(tmp_path, fault)
 
 @pytest.mark.parametrize("fault", ["source_serial", "foreign_topology_atoms"])
 def test_repair_state_and_handoff_reject_mutated_live_source_binding(tmp_path, fault):
-    from neomd.prepared_repair import verify_repair_state
-    from neomd.protein_hydrogens import add_protein_hydrogens
+    from neomd_preparation.protein.hydrogens import add_protein_hydrogens
+    from neomd_preparation.verify.repair import verify_repair_state
 
     repaired = group_and_repair_protein(complete_source(tmp_path, missing_cb=False), platform="CPU", seed=123)
     if fault == "source_serial":
@@ -260,7 +260,7 @@ def test_repair_state_and_handoff_reject_mutated_live_source_binding(tmp_path, f
 
 
 def test_reordered_source_rows_cannot_coherently_transfer_original_identity(tmp_path):
-    from neomd.prepared_repair import verify_repair_state
+    from neomd_preparation.verify.repair import verify_repair_state
 
     repaired = group_and_repair_protein(complete_source(tmp_path, missing_cb=False), platform="CPU", seed=123)
     lineage = repaired.lineage

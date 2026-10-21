@@ -9,7 +9,7 @@ import pytest
 from openmm import app, unit
 
 from neomd.errors import PlanValidationErrors
-from neomd.preparation import load_protein_source
+from neomd_preparation.source import load_protein_source
 from tests.v2.test_protein_preparation import ROOT, descriptor
 
 
@@ -44,7 +44,7 @@ def mixed_source(tmp_path, *, reverse=False, coincident=False):
 
 
 def test_groups_protein_runs_before_source_water_without_losing_identity(tmp_path):
-    from neomd.protein_grouping import group_protein_source
+    from neomd_preparation.protein.grouping import group_protein_source
 
     source = mixed_source(tmp_path, reverse=True, coincident=True)
     before = copy.deepcopy(source.descriptor)
@@ -65,8 +65,8 @@ def test_groups_protein_runs_before_source_water_without_losing_identity(tmp_pat
 
 
 def export_grouped(tmp_path, *, source=None, grouped=None):
-    from neomd.prepare import verify_prepared_system
-    from neomd.protein_grouping import group_protein_source
+    from neomd_preparation.protein.grouping import group_protein_source
+    from neomd_preparation.workflow import verify_prepared_system
 
     source = mixed_source(tmp_path) if source is None else source
     grouped = group_protein_source(source) if grouped is None else grouped
@@ -101,8 +101,8 @@ def export_grouped(tmp_path, *, source=None, grouped=None):
 def test_grouped_export_reloads_without_inventing_peptide_bonds(tmp_path):
     import json
 
-    from neomd.prepare import verify_prepared_system
-    from neomd.prepared import file_digest
+    from neomd_preparation.bundle import file_digest
+    from neomd_preparation.workflow import verify_prepared_system
     from tests.v2.test_protein_preparation import validate_schema
 
     path, grouped, source = export_grouped(tmp_path)
@@ -132,7 +132,7 @@ def canonicalize(tmp_path, top, positions, *, name="edited.pdbx"):
 
 @pytest.mark.parametrize("fault", ["ligand", "fake_water", "no_oxygen", "extra_hydrogens", "water_only"])
 def test_unknown_or_disguised_water_chemistry_is_not_automatically_grouped(tmp_path, fault):
-    from neomd.protein_grouping import group_protein_source
+    from neomd_preparation.protein.grouping import group_protein_source
 
     source = mixed_source(tmp_path)
     topology = copy.deepcopy(source.topology)
@@ -166,7 +166,7 @@ def test_unknown_or_disguised_water_chemistry_is_not_automatically_grouped(tmp_p
 
 @pytest.mark.parametrize("fault", ["coordinate", "signed_zero", "atom_name", "chain_label", "box", "source_bytes"])
 def test_mutating_loaded_source_cannot_be_hidden_behind_original_descriptor(tmp_path, fault):
-    from neomd.protein_grouping import group_protein_source
+    from neomd_preparation.protein.grouping import group_protein_source
 
     source = mixed_source(tmp_path)
     if fault in ("coordinate", "signed_zero"):
@@ -195,7 +195,7 @@ def test_mutating_loaded_source_cannot_be_hidden_behind_original_descriptor(tmp_
 def rehash(path, manifest):
     import json
 
-    from neomd.prepared import file_digest
+    from neomd_preparation.bundle import file_digest
 
     # Update the real mapping too, without inventing different identity data.
     mapping_path = path.parent / manifest["mapping_artifact"]
@@ -218,8 +218,8 @@ def rehash(path, manifest):
 def test_coherently_rehashed_grouping_lies_are_rejected(tmp_path, fault):
     import json
 
-    from neomd.prepare import verify_prepared_system
-    from neomd.prepared import file_digest
+    from neomd_preparation.bundle import file_digest
+    from neomd_preparation.workflow import verify_prepared_system
 
     path, _, _ = export_grouped(tmp_path)
     manifest = json.loads(path.read_text())
@@ -267,14 +267,14 @@ def test_coherently_rehashed_grouping_lies_are_rejected(tmp_path, fault):
 
 
 def test_captured_source_bytes_survive_original_path_changes(tmp_path):
-    from neomd.protein_grouping import group_protein_source
+    from neomd_preparation.protein.grouping import group_protein_source
 
     source = mixed_source(tmp_path)
     grouped = group_protein_source(source)
     original = source.source_path.read_bytes()
     source.source_path.write_text("replaced later")
     path, _, _ = export_grouped(tmp_path, source=source, grouped=grouped)
-    from neomd.prepared import read_prepared_bundle
+    from neomd_preparation.bundle import read_prepared_bundle
 
     manifest = read_prepared_bundle(path)
     artifact = manifest["sources"][0]["artifact"]
@@ -298,8 +298,8 @@ def ordered_bond_source(tmp_path):
 def test_grouped_evidence_rejects_boolean_impostors_after_coherent_rehash(tmp_path, fault):
     import json
 
-    from neomd.prepare import verify_prepared_system
-    from neomd.prepared import file_digest
+    from neomd_preparation.bundle import file_digest
+    from neomd_preparation.workflow import verify_prepared_system
 
     source = ordered_bond_source(tmp_path) if fault == "boolean_bond" else mixed_source(tmp_path)
     path, _, _ = export_grouped(tmp_path, source=source)
@@ -322,7 +322,7 @@ def test_grouped_evidence_rejects_boolean_impostors_after_coherent_rehash(tmp_pa
 
 
 def test_mutable_source_bond_boolean_cannot_impersonate_decoded_integer(tmp_path):
-    from neomd.protein_grouping import group_protein_source
+    from neomd_preparation.protein.grouping import group_protein_source
 
     source = ordered_bond_source(tmp_path)
     group_protein_source(source)  # Actual typed-order positive control.

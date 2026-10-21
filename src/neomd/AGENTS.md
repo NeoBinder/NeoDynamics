@@ -37,27 +37,20 @@
 
 ## Scientific preparation boundary
 
-- `prepared.py` owns openmm-free lineage/export
-  (`contracts/prepared-bundle/v1`/`v2`, immutable artifacts; no service
-  imports); OpenMM particle/virtual-site evaluation stays in `prepare.py`.
-- `preparation.py` validates explicit source atom/residue/bond/polymer
-  evidence and records observed PDBFixer heavy-atom repair; a v2 lineage or
-  mass-only fixture never qualifies a simulation-ready System —
-  `verify_prepared_system` checks the real System against lineage first.
-- `assembly_report.py`/`system_assembly.py` build only already-prepared v2
-  topology; reports bind all non-report artifacts; trusted-resource replay
-  precedes XML deserialization; this does not qualify preparation history or
-  expand service LOAD-only intake. Before changes read
-  `docs/protein-preparation.md` (**Accepted preset provenance**);
-  service-catalog choices never inherit hidden SDK defaults.
-- Preserve the accepted assembly choices: HMR 4 amu, HBonds, rigid water, no
-  center-of-mass removal; PME cutoff 1.0 nm, tolerance 0.0005; dispersion
-  correction on, switching null, periodic exceptions and flexible-constraint
-  forces off; editable salt/padding/pH, retained vs generated water,
-  protonation-conflict diagnostics, permanent protein/water grouping and
-  source-chain correspondence. `add_ions_preserving_water` replaces generated
-  waters only. The 2 fs initial timestep is a future protocol-editor
-  annotation, not a preparation setting; keep `timestep_ps` required.
+- Scientific preparation lives in the in-repo `neomd_preparation` package
+  (`src/neomd_preparation/`, ADR-0011), a sibling of `neomd` in the same
+  distribution. It depends on `neomd` core one way; the engine keeps
+  `SystemBundle`, geometry QC, `openmm_privates` and the two contract-pinned
+  lazy facades (`prepared_pipeline`, `topology_preparation`).
+- Engine core must not import `neomd_preparation` at module level.
+  `neomd.system` and `neomd.__init__` expose the historical preparation names
+  as deprecation-warned lazy facades; they are removed at 1.0 final.
+- Scientific artifact contracts remain engine-owned and are read through
+  `neomd.contracts`; preparation must not copy or re-interpret schemas.
+  Service-facing seams are `neomd.integration` and `neomd.contracts`.
+- Accepted assembly choices (HMR, PME, rigid water, retention policy, grouping)
+  are recorded and tested in `neomd_preparation`; engine changes must not
+  silently alter prepared artifacts.
 
 ## Read for the change
 
@@ -65,9 +58,9 @@
   then the relevant accepted ADR.
 - ML/MM: `docs/adr/0004-mlmm-in-tree-coupling.md` + `docs/methods/mlmm.md`;
   ML-CV: ADR-0006 is proposed, not implemented.
-- Verification gates: `docs/development.md`. Prepared export/identity:
-  `docs/prepared-bundle.md` + `tests/v2/test_prepared_bundle.py`; service
-  intake uses its own guide.
+- Verification gates: `docs/development.md`. Prepared export/identity and
+  preparation tests live under `tests/v2/` and `src/neomd_preparation/`; service
+  intake uses the service repository's own guide.
 
 For scientific architecture changes, consult the relevant ADR under `docs/adr/`.
 For documentation/docstring changes use `docs/AGENTS.md`. These paths are

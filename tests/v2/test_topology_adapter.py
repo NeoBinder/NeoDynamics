@@ -10,13 +10,13 @@ import openmm
 import pytest
 from openmm import app, unit
 
-from neomd.topology_adapter import (
+from neomd_preparation.topology.adapter import (
     ConnectivityPrerequisiteError,
     openmm_view,
     parameterized_system,
 )
-from neomd.topology_intake import load_topology_artifact
-from neomd.topology_records import TopologyRecordError
+from neomd_preparation.topology.intake import load_topology_artifact
+from neomd_preparation.topology.records import TopologyRecordError
 
 FIXTURE = (Path(__file__).resolve().parents[2] /
            "contracts/molecular-topology/v1/fixtures/cross-boundary.json")

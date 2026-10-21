@@ -110,7 +110,7 @@ def prepared_files(workdir):
 
 
 def prepare_stage(workdir):
-    from neomd.system import prepare_system
+    from neomd_preparation import prepare_system
 
     files = prepared_files(workdir)
     if all(os.path.isfile(files[key]) for key in ("complex", "system", "ligands")):

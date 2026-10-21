@@ -11,7 +11,7 @@ from pathlib import Path
 
 from openmm import app
 
-from neomd.preparation import load_protein_source
+from neomd_preparation.source import load_protein_source
 from tests.v2.test_protein_preparation import descriptor
 
 DATA = Path(__file__).resolve().parents[1] / "data" / "1crn.pdbx"

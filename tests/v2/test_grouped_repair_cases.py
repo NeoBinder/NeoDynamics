@@ -8,11 +8,14 @@ import openmm
 import pytest
 from openmm import app, unit
 
-from neomd.assembly_report import assemble_protein_system, verify_protein_system_assembly
 from neomd.errors import PlanValidationErrors
-from neomd.preparation import load_protein_source
-from neomd.prepare import verify_prepared_system
-from neomd.prepared import file_digest
+from neomd_preparation.assembly.report import (
+    assemble_protein_system,
+    verify_protein_system_assembly,
+)
+from neomd_preparation.bundle import file_digest
+from neomd_preparation.source import load_protein_source
+from neomd_preparation.workflow import verify_prepared_system
 from tests.v2.test_grouped_repair import complete_source
 from tests.v2.test_protein_grouping import canonicalize
 from tests.v2.test_protein_preparation import descriptor
@@ -64,7 +67,7 @@ def assert_original_source_retained(source, repaired, before):
 
 @pytest.mark.parametrize("reverse,coincident", [(True, False), (False, True), (True, True)])
 def test_actual_grouped_repair_preserves_reversed_and_coincident_source_atoms(tmp_path, reverse, coincident):
-    from neomd.grouped_repair import group_and_repair_protein
+    from neomd_preparation.protein.repair import group_and_repair_protein
 
     source = complete_source(tmp_path, reverse=reverse, coincident=coincident)
     before = source_snapshot(source)
@@ -80,7 +83,7 @@ def test_actual_grouped_repair_preserves_reversed_and_coincident_source_atoms(tm
 
 
 def test_actual_grouped_repair_with_no_additions_keeps_every_original_identity(tmp_path):
-    from neomd.grouped_repair import group_and_repair_protein
+    from neomd_preparation.protein.repair import group_and_repair_protein
 
     source = complete_source(tmp_path, missing_cb=False, reverse=True)
     before = source_snapshot(source)
@@ -95,7 +98,7 @@ def test_actual_grouped_repair_with_no_additions_keeps_every_original_identity(t
 
 
 def test_actual_grouped_repair_preserves_canonical_triclinic_box_and_source_metadata(tmp_path):
-    from neomd.grouped_repair import group_and_repair_protein
+    from neomd_preparation.protein.repair import group_and_repair_protein
 
     original = complete_source(tmp_path, reverse=True)
     topology = copy.deepcopy(original.topology)
@@ -138,7 +141,7 @@ def test_actual_grouped_repair_preserves_canonical_triclinic_box_and_source_meta
 
 
 def test_actual_repair_assembly_and_report_keep_history_without_expanding_profiles(tmp_path):
-    from neomd.grouped_repair import group_and_repair_protein
+    from neomd_preparation.protein.repair import group_and_repair_protein
 
     source = complete_source(tmp_path)
     before = source_snapshot(source)

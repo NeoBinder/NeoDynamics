@@ -5,20 +5,12 @@ neomd.tools — the external-tool seam.
   diagnostics), ``ToolResult`` / ``ToolError``, the in-process
   ``FakeToolRunner``, and the minimal ``ChargeBackend`` / ``ParamBackend``
   protocols.
-* :mod:`neomd.tools.antechamber` — GAFF/antechamber knowledge:
-  ``AntechamberBackend``, the thin ``GAFFTemplateGenerator``,
-  ``rename_atoms_by_template``, and ``build`` (the ``ForceFieldBuilder``
-  seam entry).
+
+GAFF/antechamber knowledge, ligand processing and the template-XML helpers
+moved to the ``neomd_preparation`` package with the preparation
+subsystem.
 """
 
-from neomd.tools.antechamber import (
-    AntechamberBackend,
-    GAFFTemplateGenerator,
-    build,
-    register_gaff_generator,
-    rename_atoms_by_template,
-    sys_params_from_config,
-)
 from neomd.tools.port import (
     ChargeBackend,
     FakeCall,
@@ -31,18 +23,12 @@ from neomd.tools.port import (
 )
 
 __all__ = [
-    "AntechamberBackend",
     "ChargeBackend",
     "FakeCall",
     "FakeToolRunner",
-    "GAFFTemplateGenerator",
     "ParamBackend",
     "SubprocessToolRunner",
     "ToolError",
     "ToolResult",
     "ToolRunner",
-    "build",
-    "register_gaff_generator",
-    "rename_atoms_by_template",
-    "sys_params_from_config",
 ]

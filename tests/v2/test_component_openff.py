@@ -10,11 +10,15 @@ from pathlib import Path
 
 import pytest
 
-import neomd.component_openff as openff
-from neomd.component_contract import canonical_sha256, generated_package_cache_key
-from neomd.component_openff import OpenffUnavailable, build_openff_package, openff_cache_key
-from neomd.component_package import validate_package_assets
+import neomd_preparation.components.providers.openff as openff
 from neomd.tools.port import FakeToolRunner
+from neomd_preparation.components.assets import validate_package_assets
+from neomd_preparation.components.contract import canonical_sha256, generated_package_cache_key
+from neomd_preparation.components.providers.openff import (
+    OpenffUnavailable,
+    build_openff_package,
+    openff_cache_key,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "3htb_jz4_reviewed.json"
 KEYS = (

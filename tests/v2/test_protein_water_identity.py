@@ -7,11 +7,11 @@ import pytest
 from openmm import app, unit
 
 from neomd.errors import PlanValidationErrors
-from neomd.preparation import load_protein_source
-from neomd.prepared import file_digest
-from neomd.prepared_pipeline import verify_protein_preparation
-from neomd.protein_grouping import group_protein_source
-from neomd.protein_pipeline import prepare_protein_system
+from neomd_preparation.bundle import file_digest
+from neomd_preparation.protein.grouping import group_protein_source
+from neomd_preparation.protein.pipeline import prepare_protein_system
+from neomd_preparation.source import load_protein_source
+from neomd_preparation.verify.pipeline import verify_protein_preparation
 from tests.v2.test_protein_preparation import descriptor
 from tests.v2.test_protein_solvent import partial_h_source
 from tests.v2.test_system_assembly_report import PARAMETERS

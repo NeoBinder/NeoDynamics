@@ -30,7 +30,7 @@ import yaml
 from openff.toolkit import Molecule
 
 from neomd.tools.port import FakeToolRunner, ToolError
-from neomd.tools.template_xml import (
+from neomd_preparation.tools.template_xml import (
     generate_template,
     main,
     modify_template,

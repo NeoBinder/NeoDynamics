@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from neomd.topology_records import (
+from neomd_preparation.topology.records import (
     TopologyRecordError,
     decode_compressed_topology,
     decode_topology,

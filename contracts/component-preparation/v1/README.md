@@ -27,7 +27,7 @@ one complete member with no trailing bytes. Source topology uses its existing
 decoded limits. Control JSON is limited to 1 MiB. Parameter assets are at most
 512 MiB encoded and decoded; the package manifest stays small.
 
-JSON Schema validates fields and bounds. `neomd.component_contract` additionally
+JSON Schema validates fields and bounds. `neomd_preparation.components.contract` additionally
 validates canonical u64 atom IDs, sorted unique atoms/bonds, formal charge sums,
 accepted stereo/protonation decisions, one-to-one instance bindings, package
 charge sums, recipe links and RFC 6901 escapes. A complete source map check

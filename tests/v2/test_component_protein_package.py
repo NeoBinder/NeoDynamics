@@ -12,20 +12,20 @@ import pytest
 import rfc8785
 from openmm import app, unit
 
-from neomd.component_contract import (
+from neomd_preparation.components.assets import validate_package_assets
+from neomd_preparation.components.contract import (
     ComponentContractError,
     canonical_sha256,
     generated_package_cache_key,
 )
-from neomd.component_package import validate_package_assets
-from neomd.component_protein import inspect_protein_variants
-from neomd.component_protein_package import (
+from neomd_preparation.components.protein_review import inspect_protein_variants
+from neomd_preparation.components.providers.protein import (
     _stage_document,
     build_protein_package,
     verify_protein_package,
 )
-from neomd.grouped_repair import group_and_repair_protein
-from neomd.protein_hydrogens import add_protein_hydrogens
+from neomd_preparation.protein.hydrogens import add_protein_hydrogens
+from neomd_preparation.protein.repair import group_and_repair_protein
 from tests.v2.test_grouped_repair import complete_source
 from tests.v2.test_protein_grouping import canonicalize
 
@@ -181,7 +181,7 @@ def test_real_verified_protein_stages_emit_reusable_force_and_exact_provenance(p
 def test_reuse_verifies_assets_without_repair_hydrogenation_or_system_replay(protein_case, monkeypatch):
     from pdbfixer import PDBFixer
 
-    from neomd import component_protein_package
+    import neomd_preparation.components.providers.protein as component_protein_package
 
     state, inspection, repaired, stage, kwargs = protein_case
     result = build_protein_package(state, inspection, repaired, stage, **kwargs)

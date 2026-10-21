@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 
 from neomd.errors import PlanValidationErrors
-from neomd.prepare import verify_prepared_system
-from neomd.prepared import file_digest
+from neomd_preparation.bundle import file_digest
+from neomd_preparation.workflow import verify_prepared_system
 
 FIXTURE = Path(__file__).resolve().parents[2] / "contracts/prepared-bundle/v2/fixtures/standard-heavy-repair"
 

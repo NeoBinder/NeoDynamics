@@ -7,8 +7,8 @@ import pytest
 from openmm import app, unit
 
 from neomd.errors import PlanValidationErrors
-from neomd.grouped_repair import group_and_repair_protein
-from neomd.preparation import load_protein_source
+from neomd_preparation.protein.repair import group_and_repair_protein
+from neomd_preparation.source import load_protein_source
 from tests.v2.test_grouped_repair import complete_source
 from tests.v2.test_protein_grouping import canonicalize
 

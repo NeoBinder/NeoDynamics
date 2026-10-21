@@ -9,8 +9,8 @@ import openmm
 import pytest
 import rfc8785
 
-from neomd.topology_adapter import ConnectivityPrerequisiteError
-from neomd.topology_preparation import (
+from neomd_preparation.topology.adapter import ConnectivityPrerequisiteError
+from neomd_preparation.topology.explicit import (
     prepare_explicit_topology,
     verify_explicit_topology_preparation,
 )

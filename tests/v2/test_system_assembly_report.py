@@ -11,10 +11,13 @@ import openmm
 import pytest
 from openmm import app, unit
 
-from neomd.assembly_report import assemble_protein_system, verify_protein_system_assembly
 from neomd.errors import PlanValidationErrors
-from neomd.preparation import load_protein_source
-from neomd.prepared import PreparationLineage, file_digest, read_prepared_bundle
+from neomd_preparation.assembly.report import (
+    assemble_protein_system,
+    verify_protein_system_assembly,
+)
+from neomd_preparation.bundle import PreparationLineage, file_digest, read_prepared_bundle
+from neomd_preparation.source import load_protein_source
 from tests.v2.test_protein_preparation import ROOT, descriptor
 
 PARAMETERS = {"hydrogen_mass_amu": 4.0, "constraints": "HBonds", "rigid_water": True,
@@ -349,7 +352,7 @@ def test_report_contract_and_replay_survive_fresh_processes(tmp_path):
     assert not validator.is_valid(invalid)
     for seed in ("1", "876"):
         subprocess.run([sys.executable, "-c",
-                        "from neomd.assembly_report import verify_protein_system_assembly; "
+                        "from neomd_preparation.assembly.report import verify_protein_system_assembly; "
                         "import sys; verify_protein_system_assembly(sys.argv[1], expected_sha256=sys.argv[2])",
                         bundle.prepared_manifest, file_digest(bundle.prepared_manifest)],
                        env={**os.environ, "PYTHONHASHSEED": seed}, check=True,
@@ -405,7 +408,7 @@ def test_trusted_manifest_digest_rejects_replacement_and_truncation(tmp_path):
 
 
 def test_actual_system_assembly_does_not_make_nonload_history_acceptable(tmp_path):
-    from neomd.prepare import verify_prepared_system
+    from neomd_preparation.workflow import verify_prepared_system
 
     source, lineage = assembly_input(tmp_path)
     # A caller's extra historical claim is neither authenticated nor executed by
@@ -429,7 +432,7 @@ def test_periodic_cell_smaller_than_twice_cutoff_is_not_publishable(tmp_path):
 
 
 def test_load_only_profile_is_not_an_assembly_report_consumer(tmp_path):
-    from neomd.prepare import verify_prepared_system
+    from neomd_preparation.workflow import verify_prepared_system
 
     bundle = assembled(tmp_path)
     path = Path(bundle.prepared_manifest)

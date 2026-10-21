@@ -14,7 +14,7 @@ from pathlib import Path
 
 import rfc8785
 
-from neomd.topology_records import validate_topology
+from neomd_preparation.topology.records import validate_topology
 
 HERE = Path(__file__).resolve().parent
 TARGET = HERE.parents[2] / "contracts/molecular-topology/v1/fixtures"

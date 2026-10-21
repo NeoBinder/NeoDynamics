@@ -8,10 +8,13 @@ import openmm
 import pytest
 from openmm import app, unit
 
-from neomd.assembly_report import assemble_protein_system, verify_protein_system_assembly
-from neomd.prepare import verify_prepared_system
-from neomd.prepared import file_digest
-from neomd.protein_grouping import group_protein_source
+from neomd_preparation.assembly.report import (
+    assemble_protein_system,
+    verify_protein_system_assembly,
+)
+from neomd_preparation.bundle import file_digest
+from neomd_preparation.protein.grouping import group_protein_source
+from neomd_preparation.workflow import verify_prepared_system
 from tests.v2.test_protein_grouping import canonicalize, export_grouped, mixed_source
 from tests.v2.test_system_assembly_report import PARAMETERS
 

@@ -13,9 +13,9 @@ import pytest
 from openmm import app, unit
 
 from neomd.errors import PlanValidationErrors
-from neomd.preparation import load_protein_source
-from neomd.prepare import verify_prepared_system
-from neomd.prepared import PreparationLineage, file_digest
+from neomd_preparation.bundle import PreparationLineage, file_digest
+from neomd_preparation.source import load_protein_source
+from neomd_preparation.workflow import verify_prepared_system
 from tests.v2.test_protein_preparation import ROOT, descriptor, source_fixture, validate_schema
 
 PROFILE = "canonical_protein_load_v1"

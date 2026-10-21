@@ -257,7 +257,7 @@ def test_parity_against_v1_convert_script(tmp_path):
 
 def _require_pdbfixer():
     pytest.importorskip("pdbfixer", reason=PDBFIXER_GAP)
-    from neomd.tools import fix_protein as module
+    from neomd_preparation.tools import fix_protein as module
     return module
 
 

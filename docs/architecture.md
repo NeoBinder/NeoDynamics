@@ -12,8 +12,10 @@ with ADR 0001 (why a same-repo strangler migration).
 The resident interactive service has moved to its own repository and
 distribution ([ADR 0010](adr/0010-server-repository-extraction.md)); the engine
 repository no longer contains session, ledger or publication code and never
-imports the service package. The import surface an integrator may rely on and
-the contract locator are documented in
+imports the service package. Scientific preparation is the in-repo
+`neomd_preparation` package ([ADR 0011](adr/0011-preparation-package-split.md)),
+a sibling of `neomd` in the same distribution. The import surface an integrator
+may rely on and the contract locator are documented in
 [Service and integration surface](integration-surface.md).
 
 For external algorithm packaging, workflow ownership and Agent boundaries, see
@@ -30,10 +32,11 @@ not replace the current implementation described here.
 | Knowledge triples | `restraints.py`, `colvars.py`, `methods/` | One module per restraint / CV / method holding schema + force expression + observables, injected via `registry.register()`. |
 | Driver / resume | `driver.py`, `resume.py` | `driver.py` runs the stepping loop and owns reporting; `resume.py` is THE resume owner: restore + trim every tape to the checkpoint step. |
 | Artifacts | `manifest.py`, `probes.py`, `sinks.py` | Fingerprint + epoch-chain provenance; all artifact writing. |
-| System | `system.py`, `prepare.py` | The openmm-free `SystemBundle` and the preparation workflow. |
-| Explicit assembly report | `assembly_report.py`, `system_assembly.py` | Already-prepared v2 topology → fixed explicit ff14SB/TIP3P System and independently versioned artifact-bound report; exact qualified-environment replay, not full protein preparation or service admission. |
+| System | `system.py` | The openmm-free `SystemBundle` — the artifact interface between preparation and the runtime. |
+| Preparation | `neomd_preparation/` | In-repo package ([ADR 0011](adr/0011-preparation-package-split.md)): source identity/repair, topology records, component review/generation/import, assembly, independent QC and prepared bundles. It depends on `neomd` one way. |
+| Explicit assembly report | `neomd_preparation/assembly/` | Already-prepared v2 topology → fixed explicit ff14SB/TIP3P System and independently versioned artifact-bound report; exact qualified-environment replay, not full protein preparation or service admission. |
 | Private-API gate | `openmm_privates.py` | Every OpenMM private-API touch lives here behind a pinned-version gate (openmm 8.6.x). |
-| Tools | `tools/` | External-process adapters (antechamber, orca, ligand, convert, fix_protein, template_xml); subprocess-isolated, `os.chdir` forbidden. |
+| Tools | `tools/`, `neomd_preparation/tools/` | External-process adapters; subprocess-isolated, `os.chdir` forbidden. The generic seam (port/convert/orca) is engine-owned; preparation adapters (antechamber, ligand, fix-protein, template) live in `neomd_preparation`. |
 | v1 translator | `migrate_v1.py` | One-shot v1 YAML → Plan translation. A tool, never on the runtime import path. |
 
 ## Plan identity
@@ -82,7 +85,10 @@ The registry is the public plugin surface: `neomd.register()` or the
 
 [ADR 0001](adr/0001-neomd2-strangler-migration.md) records the v1 freeze,
 verbatim physics port, dual-track restraint reporting and intentionally
-breaking artifact formats. The adapters above each have a distinct role;
+breaking artifact formats. [ADR 0010](adr/0010-server-repository-extraction.md)
+and [ADR 0011](adr/0011-preparation-package-split.md) record the service
+extraction and the in-repo preparation package split; artifact contracts stay
+engine-owned. The adapters above each have a distinct role;
 a CPU OpenMM platform does not replace fake or replay.
 
 QM/MM requires a separately chartered plugin with production and mock

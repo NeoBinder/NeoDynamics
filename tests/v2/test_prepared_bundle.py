@@ -18,11 +18,16 @@ from openmm import app, unit
 from referencing import Registry, Resource
 
 from neomd.errors import PlanValidationErrors
-from neomd.prepared import PreparationLineage, file_digest, read_prepared_bundle
-from neomd.system import PlainForceFieldBuilder, SystemBundle, export_system_bundle, prepare_system
+from neomd_preparation import (
+    PlainForceFieldBuilder,
+    SystemBundle,
+    export_system_bundle,
+    prepare_system,
+)
+from neomd_preparation.bundle import PreparationLineage, file_digest, read_prepared_bundle
 
 ALA = Path(__file__).resolve().parents[1] / "data" / "ala2" / "ala2.pdb"
-CONTRACT = Path(__file__).resolve().parents[2] / "contracts" / "prepared-bundle" / "v1"
+CONTRACT = Path(__file__).resolve().parents[2] / "tests/contracts" / "prepared-bundle" / "v1"
 
 
 def peptide(tmp_path, *, hydrogens=True, reverse=False):

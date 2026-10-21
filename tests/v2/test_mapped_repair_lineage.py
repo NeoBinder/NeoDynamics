@@ -7,8 +7,8 @@ import pytest
 from openmm import app, unit
 
 from neomd.errors import PlanValidationErrors
-from neomd.preparation import load_protein_source
-from neomd.protein_grouping import group_protein_source
+from neomd_preparation.protein.grouping import group_protein_source
+from neomd_preparation.source import load_protein_source
 from tests.v2.test_protein_grouping import canonicalize, mixed_source, ordered_bond_source
 from tests.v2.test_protein_preparation import descriptor
 

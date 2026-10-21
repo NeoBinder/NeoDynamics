@@ -15,8 +15,8 @@ import pytest
 from openmm import app, unit
 
 from neomd.errors import PlanValidationErrors
-from neomd.prepared import file_digest, read_prepared_bundle
-from neomd.system import PlainForceFieldBuilder, prepare_system, verify_prepared_system
+from neomd_preparation import PlainForceFieldBuilder, prepare_system, verify_prepared_system
+from neomd_preparation.bundle import file_digest, read_prepared_bundle
 
 FIXTURE = Path(__file__).resolve().parents[2] / "contracts/prepared-bundle/v1/fixtures/water-extra-site"
 

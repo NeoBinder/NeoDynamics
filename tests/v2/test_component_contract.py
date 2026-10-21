@@ -10,7 +10,7 @@ import pytest
 import rfc8785
 from jsonschema import Draft202012Validator
 
-from neomd.component_contract import (
+from neomd_preparation.components.contract import (
     ComponentContractError,
     canonical_sha256,
     decode_document_artifact,

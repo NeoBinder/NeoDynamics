@@ -8,7 +8,7 @@ from openmm import app
 
 from neomd.cli import main
 from neomd.errors import ConfigValueError
-from neomd.system import PlainForceFieldBuilder, prepare_system
+from neomd_preparation import PlainForceFieldBuilder, prepare_system
 
 _POSE = Path(__file__).parent / "fixtures" / "1cgh_ser195_1zg.pdb"
 

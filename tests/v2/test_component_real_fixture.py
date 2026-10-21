@@ -8,8 +8,12 @@ from pathlib import Path
 import pytest
 import rfc8785
 
-from neomd.component_contract import ComponentContractError, canonical_sha256, validate_document
-from neomd.component_inspection import inspect_components, review_component
+from neomd_preparation.components.contract import (
+    ComponentContractError,
+    canonical_sha256,
+    validate_document,
+)
+from neomd_preparation.components.review import inspect_components, review_component
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "contracts/molecular-topology/v1/fixtures/3htb-qualified.json"

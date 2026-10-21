@@ -15,7 +15,7 @@ from pathlib import Path
 import rfc8785
 from rdkit import Chem
 
-from neomd.topology_records import validate_topology
+from neomd_preparation.topology.records import validate_topology
 
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE = ROOT / "examples/3HTB_complex/sys_prep"

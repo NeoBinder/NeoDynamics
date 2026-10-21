@@ -32,7 +32,7 @@ from rdkit.Chem import AllChem
 openff_toolkit = pytest.importorskip("openff.toolkit.topology")
 openff_molecule = openff_toolkit.Molecule
 
-from neomd.tools.ligand import (  # noqa: E402  (after importorskip)
+from neomd_preparation.tools.ligand import (  # noqa: E402  (after importorskip)
     Ligand,
     ligands_from_config,
     load_rdmol,

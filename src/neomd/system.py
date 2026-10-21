@@ -4,9 +4,10 @@ system — the kernel-agnostic system description.
 :class:`SystemBundle` is pure data + loading + validation and NEVER imports
 openmm (the openmm kernel deserializes ``system.xml`` itself); ``run.compile``
 turns its modification IR into a :class:`~neomd.kernel.port.KernelSpec`.
-The preparation workflow lives in :mod:`neomd.prepare` (the names below are
-re-exports, not copies); every openmm PRIVATE attribute it needs lives in
-:mod:`neomd.openmm_privates`.  Restraints never touch a SystemBundle — plan
+The historical preparation workflow names in ``__all__`` resolve lazily from
+the ``neomd_preparation`` package (see ``__getattr__``); every openmm
+PRIVATE attribute the engine still needs lives in :mod:`neomd.openmm_privates`.
+Restraints never touch a SystemBundle — plan
 restraint entries flow through the registry knowledge triples to
 ``kernel.install_bias``, and assigned force-group ids come back as
 ``RunOutcome.fgroups``, never a config mutation.
@@ -22,23 +23,6 @@ from typing import Mapping
 from .errors import ConfigValueError
 from .plan import Plan
 
-# the preparation workflow lives in prepare.py; re-exported here because
-# callers historically imported it from neomd.system (the split kept the
-# public import paths stable)
-from .prepare import (  # noqa: F401  (re-exports)
-    ForceFieldBuilder,
-    PlainForceFieldBuilder,
-    custom_addH,
-    custom_bonds,
-    export_system_bundle,
-    load_complex,
-    prepare_system,
-    sys_params_from_config,
-    system_from_amber,
-    system_from_gromacs,
-    verify_prepared_system,
-)
-
 __all__ = [
     "SystemBundle",
     "ForceFieldBuilder",
@@ -53,6 +37,41 @@ __all__ = [
     "custom_addH",
     "sys_params_from_config",
 ]
+
+# The preparation workflow moved to the `neomd_preparation` package. These
+# historical ``neomd.system`` spellings stay importable for callers that have
+# not migrated yet; they resolve lazily so importing the engine never requires
+# the preparation package.
+_HISTORICAL_PREPARATION_NAMES = frozenset({
+    "ForceFieldBuilder",
+    "PlainForceFieldBuilder",
+    "custom_addH",
+    "custom_bonds",
+    "export_system_bundle",
+    "load_complex",
+    "prepare_system",
+    "sys_params_from_config",
+    "system_from_amber",
+    "system_from_gromacs",
+    "verify_prepared_system",
+})
+
+
+def __getattr__(name):
+    """Resolve the historical preparation names lazily (PEP 562)."""
+    if name in _HISTORICAL_PREPARATION_NAMES:
+        import warnings
+
+        warnings.warn(
+            f"neomd.system.{name} moved to neomd_preparation.workflow; "
+            "import it from neomd_preparation.workflow",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        from neomd_preparation import workflow
+
+        return getattr(workflow, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # ---------------------------------------------------------------------------

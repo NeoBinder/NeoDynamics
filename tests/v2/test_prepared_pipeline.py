@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from neomd.assembly_report import verify_protein_system_assembly
 from neomd.errors import PlanValidationErrors
-from neomd.prepared import file_digest, read_prepared_bundle
-from neomd.prepared_pipeline import verify_protein_preparation
+from neomd_preparation.assembly.report import verify_protein_system_assembly
+from neomd_preparation.bundle import file_digest, read_prepared_bundle
+from neomd_preparation.verify.pipeline import verify_protein_preparation
 from tests.v2.test_prepared_protein_load import save_manifest
 from tests.v2.test_protein_pipeline import prepared
 from tests.v2.test_system_assembly_report import rewrite
@@ -70,7 +70,7 @@ def test_bound_system_report_does_not_self_certify_changed_history(original_bund
 
 
 def test_full_consumer_handles_writer_renumbered_source_serials_without_file_edits(original_bundle):
-    from neomd.prepare import load_complex
+    from neomd_preparation.workflow import load_complex
 
     manifest = read_prepared_bundle(original_bundle)
     source = manifest["sources"][0]

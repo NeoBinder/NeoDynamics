@@ -8,8 +8,8 @@ import pytest
 from openmm import app, unit
 
 from neomd.errors import PlanValidationErrors
-from neomd.grouped_repair import group_and_repair_protein
-from neomd.protein_hydrogens import add_protein_hydrogens, verify_hydrogenation_state
+from neomd_preparation.protein.hydrogens import add_protein_hydrogens, verify_hydrogenation_state
+from neomd_preparation.protein.repair import group_and_repair_protein
 from tests.v2.test_grouped_repair import complete_source
 from tests.v2.test_protein_grouping import canonicalize
 
@@ -174,7 +174,7 @@ def test_actual_editable_ph_selects_trusted_charged_or_neutral_templates(tmp_pat
 
     import openmm
 
-    from neomd.system_assembly import _resource_snapshot
+    from neomd_preparation.assembly.system import _resource_snapshot
 
     source = charged_source(tmp_path, residue_name=residue_name)
     repaired = group_and_repair_protein(source, platform="CPU", seed=123)
@@ -334,9 +334,12 @@ def test_actual_h_completion_exports_hash_bound_system_and_finite_cpu_state(tmp_
 
     import openmm
 
-    from neomd.assembly_report import assemble_protein_system, verify_protein_system_assembly
-    from neomd.prepare import verify_prepared_system
-    from neomd.prepared import file_digest
+    from neomd_preparation.assembly.report import (
+        assemble_protein_system,
+        verify_protein_system_assembly,
+    )
+    from neomd_preparation.bundle import file_digest
+    from neomd_preparation.workflow import verify_prepared_system
     from tests.v2.test_system_assembly_report import PARAMETERS
 
     _, repaired = repaired_source(tmp_path, remove=remove)

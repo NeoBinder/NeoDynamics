@@ -11,13 +11,17 @@ from pathlib import Path
 
 import pytest
 
-from neomd.component_contract import (
+from neomd.tools.port import FakeToolRunner, ToolError, ToolRunner
+from neomd_preparation.components.assets import validate_package_assets
+from neomd_preparation.components.contract import (
     canonical_sha256,
     generated_package_cache_key,
 )
-from neomd.component_gaff import GaffUnavailable, build_gaff_package, gaff_cache_key
-from neomd.component_package import validate_package_assets
-from neomd.tools.port import FakeToolRunner, ToolError, ToolRunner
+from neomd_preparation.components.providers.gaff import (
+    GaffUnavailable,
+    build_gaff_package,
+    gaff_cache_key,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "3htb_jz4_reviewed.json"
 KEYS = ("atom_map", "force", "template", "gaff_xml", "gaff_dat",

@@ -11,8 +11,8 @@ from pathlib import Path
 import pytest
 import rfc8785
 
-from neomd.component_assembly import assemble_component_system
-from neomd.component_contract import ComponentContractError
+from neomd_preparation.components.assembly import assemble_component_system
+from neomd_preparation.components.contract import ComponentContractError
 
 ROOT = Path(__file__).resolve().parents[2]
 TASK = next((parent / ".agents/task/component-md-preparation"

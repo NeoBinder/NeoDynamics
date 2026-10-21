@@ -9,9 +9,9 @@ import pytest
 from openmm import app, unit
 
 from neomd.errors import PlanValidationErrors
-from neomd.grouped_repair import group_and_repair_protein
-from neomd.protein_hydrogens import add_protein_hydrogens
-from neomd.protein_solvent import solvate_protein
+from neomd_preparation.protein.hydrogens import add_protein_hydrogens
+from neomd_preparation.protein.repair import group_and_repair_protein
+from neomd_preparation.protein.solvent import solvate_protein
 from tests.v2.test_grouped_repair import complete_source
 from tests.v2.test_protein_grouping import canonicalize
 
@@ -119,7 +119,7 @@ def test_excessive_salt_fails_without_replacing_original_water(tmp_path):
 
 @pytest.mark.parametrize("field", ["coordinates", "topology_atoms"])
 def test_public_solvent_verifier_rejects_a_mutated_final_lineage_binding(tmp_path, field):
-    from neomd.protein_solvent import verify_solvation_state
+    from neomd_preparation.protein.solvent import verify_solvation_state
 
     stage = solvate_protein(hydrogenated(tmp_path), padding_nm=1.0,
                             ionic_strength_mol_per_l=0.15, seed=123)
@@ -135,7 +135,7 @@ def test_public_solvent_verifier_rejects_a_mutated_final_lineage_binding(tmp_pat
 @pytest.mark.parametrize("residue,charge", [("LYS", 1), ("ASP", -1)])
 @pytest.mark.parametrize("salt", [0.0, 0.15])
 def test_real_charged_protein_neutralization_is_outside_all_water_salt_count(tmp_path, residue, charge, salt):
-    from neomd.protein_solvent import verify_solvation_state
+    from neomd_preparation.protein.solvent import verify_solvation_state
     from tests.v2.test_protein_hydrogens import charged_source
 
     source = charged_source(tmp_path, residue_name=residue)

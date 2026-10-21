@@ -7,7 +7,7 @@ import pytest
 from openmm import app, unit
 
 from neomd.errors import PlanValidationErrors
-from neomd.preparation import load_protein_source
+from neomd_preparation.source import load_protein_source
 from tests.v2.test_protein_grouping import BOND_METADATA, canonicalize, mixed_source
 from tests.v2.test_protein_grouping_cases import _complete_standard_peptide_source
 from tests.v2.test_protein_preparation import descriptor, source_fixture
@@ -65,7 +65,7 @@ def complete_source(tmp_path, *, missing_cb=True, reverse=False, coincident=Fals
 
 
 def test_real_grouped_heavy_repair_preserves_source_water_hydrogens_and_stage_uuids(tmp_path):
-    from neomd.grouped_repair import group_and_repair_protein
+    from neomd_preparation.protein.repair import group_and_repair_protein
 
     source = complete_source(tmp_path)
     before_bytes = source.source_path.read_bytes()
@@ -115,7 +115,7 @@ def known_terminal_source(tmp_path, *, evidence="client_declared", gap=False):
 
 @pytest.mark.parametrize("evidence", ["client_declared", "canonical_file"])
 def test_complete_explicit_terminal_evidence_allows_missing_oxt(tmp_path, evidence):
-    from neomd.grouped_repair import group_and_repair_protein
+    from neomd_preparation.protein.repair import group_and_repair_protein
 
     source = known_terminal_source(tmp_path, evidence=evidence)
     repaired = group_and_repair_protein(source, platform="CPU", seed=123)
@@ -126,7 +126,7 @@ def test_complete_explicit_terminal_evidence_allows_missing_oxt(tmp_path, eviden
 
 
 def test_unknown_terminal_evidence_blocks_automatic_oxt_without_source_changes(tmp_path):
-    from neomd.grouped_repair import group_and_repair_protein
+    from neomd_preparation.protein.repair import group_and_repair_protein
 
     path, desc = source_fixture(tmp_path)
     source = load_protein_source(path, desc)
@@ -137,7 +137,7 @@ def test_unknown_terminal_evidence_blocks_automatic_oxt_without_source_changes(t
 
 
 def test_known_missing_sequence_stretch_blocks_even_with_explicit_terminal_claim(tmp_path):
-    from neomd.grouped_repair import group_and_repair_protein
+    from neomd_preparation.protein.repair import group_and_repair_protein
 
     source = known_terminal_source(tmp_path, gap=True)
     before = source.source_path.read_bytes()
@@ -152,8 +152,8 @@ def test_known_missing_sequence_stretch_blocks_even_with_explicit_terminal_claim
 def test_unpositioned_known_residue_fails_before_fixer(tmp_path, monkeypatch, evidence, gap, missing, repair):
     from pdbfixer import PDBFixer
 
-    from neomd.grouped_repair import group_and_repair_protein
-    from neomd.preparation import inspect_protein, repair_standard_residues
+    from neomd_preparation.protein.repair import group_and_repair_protein
+    from neomd_preparation.source import inspect_protein, repair_standard_residues
 
     source = known_terminal_source(tmp_path, evidence=evidence, gap=gap)
     before = (source.source_path.read_bytes(), copy.deepcopy(source.descriptor),
@@ -195,7 +195,7 @@ def test_trusted_missing_residue_sequence_cannot_be_downgraded_to_observed_fragm
 
 @pytest.mark.parametrize("fault", ["missing_N", "missing_C", "unknown_heavy", "heavy_name_hydrogen"])
 def test_unsupported_backbone_or_heavy_chemistry_blocks_without_deletion(tmp_path, fault):
-    from neomd.grouped_repair import group_and_repair_protein
+    from neomd_preparation.protein.repair import group_and_repair_protein
 
     original = complete_source(tmp_path, missing_cb=False)
     topology = copy.deepcopy(original.topology)
@@ -222,7 +222,7 @@ def test_unsupported_backbone_or_heavy_chemistry_blocks_without_deletion(tmp_pat
 
 @pytest.mark.parametrize("seed", [True, 0, -1, 2147483648, 1.0, "1"])
 def test_grouped_repair_requires_explicit_valid_seed(tmp_path, seed):
-    from neomd.grouped_repair import group_and_repair_protein
+    from neomd_preparation.protein.repair import group_and_repair_protein
 
     source = complete_source(tmp_path)
     with pytest.raises(PlanValidationErrors, match="seed"):
@@ -253,7 +253,7 @@ def separated_runs(tmp_path, *, existing_last_oxt):
 
 
 def test_internal_protein_run_does_not_gain_oxt_from_group_chain_end(tmp_path):
-    from neomd.grouped_repair import group_and_repair_protein
+    from neomd_preparation.protein.repair import group_and_repair_protein
 
     source = separated_runs(tmp_path, existing_last_oxt=True)
     repaired = group_and_repair_protein(source, platform="CPU", seed=123)
@@ -267,7 +267,7 @@ def test_internal_protein_run_does_not_gain_oxt_from_group_chain_end(tmp_path):
 
 
 def test_water_inclusive_sequence_cannot_impersonate_biological_terminal_evidence(tmp_path):
-    from neomd.grouped_repair import group_and_repair_protein
+    from neomd_preparation.protein.repair import group_and_repair_protein
 
     source = separated_runs(tmp_path, existing_last_oxt=False)
     desc = copy.deepcopy(source.descriptor)
@@ -282,7 +282,7 @@ def test_water_inclusive_sequence_cannot_impersonate_biological_terminal_evidenc
 
 
 def test_known_sequence_cannot_reverse_original_residue_order_even_with_existing_oxt(tmp_path):
-    from neomd.grouped_repair import group_and_repair_protein
+    from neomd_preparation.protein.repair import group_and_repair_protein
 
     original = complete_source(tmp_path)
     modeller = app.Modeller(original.topology, original.positions_nm * unit.nanometer)
@@ -302,7 +302,7 @@ def test_known_sequence_cannot_reverse_original_residue_order_even_with_existing
 
 
 def test_actual_retained_bond_order_loss_is_not_hidden_by_restoring_source_graph(tmp_path):
-    from neomd.grouped_repair import group_and_repair_protein
+    from neomd_preparation.protein.repair import group_and_repair_protein
 
     original = complete_source(tmp_path)
     path = original.source_path
@@ -345,7 +345,7 @@ def cysteine_pair(tmp_path, *, missing_sg=False):
 def test_actual_pdbfixer_inferred_disulfide_is_not_an_approved_repair(tmp_path, monkeypatch, missing_sg):
     from pdbfixer import PDBFixer
 
-    from neomd.grouped_repair import group_and_repair_protein
+    from neomd_preparation.protein.repair import group_and_repair_protein
 
     source = cysteine_pair(tmp_path, missing_sg=missing_sg)
     before = source.source_path.read_bytes()

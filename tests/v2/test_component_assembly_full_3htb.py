@@ -14,11 +14,11 @@ import pytest
 import rfc8785
 from openmm import XmlSerializer
 
-from neomd.component_assembly import assemble_component_system
-from neomd.component_contract import canonical_sha256, validate_document
-from neomd.component_inspection import inspect_components
-from neomd.component_package import validate_package_assets
-from neomd.topology_records import decode_compressed_topology
+from neomd_preparation.components.assembly import assemble_component_system
+from neomd_preparation.components.assets import validate_package_assets
+from neomd_preparation.components.contract import canonical_sha256, validate_document
+from neomd_preparation.components.review import inspect_components
+from neomd_preparation.topology.records import decode_compressed_topology
 from tests.v2.test_component_assembly_real import TASK
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -252,7 +252,9 @@ def test_full_complex_assembles_only_from_accepted_retained_packages(monkeypatch
     def forbidden(*_args, **_kwargs):
         raise AssertionError("assembly must reuse retained package/pose assets")
 
-    from neomd import component_gaff, grouped_repair, protein_hydrogens
+    import neomd_preparation.components.providers.gaff as component_gaff
+    import neomd_preparation.protein.hydrogens as protein_hydrogens
+    import neomd_preparation.protein.repair as grouped_repair
     monkeypatch.setattr(component_gaff, "build_gaff_package", forbidden)
     monkeypatch.setattr(grouped_repair, "group_and_repair_protein", forbidden)
     monkeypatch.setattr(protein_hydrogens, "add_protein_hydrogens", forbidden)

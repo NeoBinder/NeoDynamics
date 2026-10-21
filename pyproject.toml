@@ -26,8 +26,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Component chemistry (ligand/SEP/assembly providers). Declared separately so
-# applications that only run prepared systems do not install the toolkit stack.
+# Component chemistry (ligand/SEP/assembly providers). The in-repo
+# `neomd_preparation` package imports these lazily; runtime-only installs do
+# not need the toolkit stack.
 component = [
   "openff-toolkit >= 0.19,<0.20",
   "rdkit >= 2024.9",
@@ -97,7 +98,13 @@ line-length = 100
 select = ["E4", "E7", "E9", "F", "I"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["neomd", "neomd_legacy"]
+known-first-party = ["neomd", "neomd_legacy", "neomd_preparation"]
+
+[tool.ruff.lint.per-file-ignores]
+# Stable lazy facades: the historical names are exported through module
+# __getattr__ and imported from the preparation distribution on first access.
+"src/neomd/integration.py" = ["F822"]
+"src/neomd/system.py" = ["F822"]
 
 # --- pixi workspace (merged from pixi.toml) ---
 

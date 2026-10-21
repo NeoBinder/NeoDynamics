@@ -9,13 +9,13 @@ from uuid import NAMESPACE_URL, uuid5
 import pytest
 import rfc8785
 
-from neomd.component_contract import (
+from neomd_preparation.components.contract import (
     ComponentContractError,
     canonical_sha256,
     generated_package_cache_key,
 )
-from neomd.component_inspection import inspect_components, review_component
-from neomd.topology_preparation import _ligand_molecules
+from neomd_preparation.components.review import inspect_components, review_component
+from neomd_preparation.topology.explicit import _ligand_molecules
 
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = json.loads((ROOT / "contracts/molecular-topology/v1/fixtures/cross-boundary.json").read_text())

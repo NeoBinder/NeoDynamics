@@ -8,9 +8,12 @@ from pathlib import Path
 import pytest
 import rfc8785
 
-from neomd.component_contract import ComponentContractError, canonical_sha256
-from neomd.component_import import import_declarative_ligand, normalize_imported_ligand
-from neomd.component_package import validate_package_assets
+from neomd_preparation.components.assets import validate_package_assets
+from neomd_preparation.components.contract import ComponentContractError, canonical_sha256
+from neomd_preparation.components.importers.declarative import (
+    import_declarative_ligand,
+    normalize_imported_ligand,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests/v2/fixtures/component_import"

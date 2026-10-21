@@ -42,6 +42,7 @@ def __getattr__(name):  # lazy facade (PEP 562)
         from .resume import plan_resume
         return plan_resume
     if name == "prepare_system":
-        from .prepare import prepare_system
+        # the preparation workflow moved to the neomd_preparation package
+        from neomd_preparation.workflow import prepare_system
         return prepare_system
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

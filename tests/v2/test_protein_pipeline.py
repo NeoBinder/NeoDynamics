@@ -11,11 +11,11 @@ import pytest
 from jsonschema.exceptions import ValidationError
 from openmm import unit
 
-from neomd.assembly_report import verify_protein_system_assembly
 from neomd.errors import PlanValidationErrors
-from neomd.prepared import file_digest, read_prepared_bundle
-from neomd.prepared_pipeline import verify_protein_preparation
-from neomd.protein_pipeline import prepare_protein_system
+from neomd_preparation.assembly.report import verify_protein_system_assembly
+from neomd_preparation.bundle import file_digest, read_prepared_bundle
+from neomd_preparation.protein.pipeline import prepare_protein_system
+from neomd_preparation.verify.pipeline import verify_protein_preparation
 from tests.v2.test_prepared_protein_load import save_manifest
 from tests.v2.test_protein_preparation import validate_schema
 from tests.v2.test_protein_solvent import partial_h_source
@@ -108,9 +108,9 @@ def test_consistently_rehashed_history_tampering_fails(full_bundle, tmp_path, fa
 
 
 def test_full_verifier_does_not_call_producer_entries(full_bundle, monkeypatch):
-    import neomd.grouped_repair as repair
-    import neomd.protein_hydrogens as hydrogen
-    import neomd.protein_solvent as solvent
+    import neomd_preparation.protein.hydrogens as hydrogen
+    import neomd_preparation.protein.repair as repair
+    import neomd_preparation.protein.solvent as solvent
 
     def forbidden(*args, **kwargs):
         pytest.fail("independent verification must not invoke a producer")
@@ -140,7 +140,7 @@ def test_new_v2_reports_are_closed_operation_specific_contracts(full_bundle, fau
 
 
 def test_late_verification_failure_publishes_nothing_and_preserves_source(tmp_path, monkeypatch):
-    import neomd.prepared_pipeline as verifier
+    import neomd_preparation.verify.pipeline as verifier
 
     source = partial_h_source(tmp_path)
     before = source.positions_nm.tobytes(), copy.deepcopy(source.descriptor), source.source_path.read_bytes()

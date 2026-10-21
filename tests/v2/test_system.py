@@ -424,7 +424,7 @@ class TestPrepareSystemBranches:
 
         # the loaders live in neomd.prepare since the item-6 split; patch
         # there (the re-export on neomd.system is not the lookup site)
-        import neomd.prepare as nprep
+        import neomd_preparation.workflow as nprep
         monkeypatch.setattr(nprep, "system_from_gromacs", fake_gromacs)
         bundle = prepare_system({
             "from_gromacs": {"gro": "sys.gro", "top": "sys.top",
@@ -447,7 +447,7 @@ class TestPrepareSystemBranches:
             calls["amber"] = dict(config)
             return _fake_payload()
 
-        import neomd.prepare as nprep
+        import neomd_preparation.workflow as nprep
         monkeypatch.setattr(nprep, "system_from_amber", fake_amber)
         bundle = prepare_system({
             "from_amber": {"inpcrd": "sys.inpcrd", "prmtop": "sys.prmtop"},

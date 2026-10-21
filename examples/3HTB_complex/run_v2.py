@@ -148,7 +148,7 @@ def prepare_stage(workdir, force=False):
     tools-layer generator instance, registered with the openmm ForceField
     through its bound ``.generator`` callback — real antechamber).
     """
-    from neomd.system import prepare_system
+    from neomd_preparation import prepare_system
 
     files = prepared_files(workdir)
     if (not force and os.path.isfile(files["complex"])

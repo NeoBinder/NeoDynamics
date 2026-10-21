@@ -24,9 +24,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      # The locked `test` environment carries the engine and preparation test
-      # dependencies; the resident service and its database tests live in the
-      # NeomdServer repository.
+      # The locked `test` environment carries the engine test dependencies.
+      # Scientific preparation and the resident service live in their own
+      # repositories/distributions (ADR-0010/0011) and run their own CI.
       - uses: prefix-dev/setup-pixi@v0
         with:
           pixi-version: v0.77.1
@@ -48,37 +48,5 @@ jobs:
           # string/bit-identity and coordinate-frame hashes.
           NEO_GOLDEN_TOLERANT: "1"
 
-  # 3HTB end-to-end smoke under neomd (migration plan §5 item 3.2).
-  #
-  # antechamber/parmchk2 are REQUIRED for the GAFF ligand leg. They are NOT a
-  # separate install: openff-toolkit depends on ambertools, so every locked
-  # pixi environment (default/test/dev) already ships ambertools 26.0 from
-  # conda-forge — no extra feature, no fresh solve, `locked: true` covers it.
-  # The module also carries a skipif(shutil.which("antechamber")) guard for
-  # hand-rolled environments without it.
-  #
-  # The `test` environment (not `default`) is installed because the module
-  # lives next to pdbfixer-dependent siblings; like `default` it is part of
-  # the committed lock's default solve-group, so this stays a locked install.
-  smoke-3htb:
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    env:
-      # consistent with the test job; the smoke's MD legs pin their own fixed
-      # thread count inside their subprocess (see tests/v2/test_3htb_e2e.py)
-      OPENMM_CPU_THREADS: "1"
-    steps:
-      # full history + tags for versioningit, same as the `test` job
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: prefix-dev/setup-pixi@v0
-        with:
-          pixi-version: v0.77.1
-          environments: test
-          locked: true
-          cache: true
-
-      - name: Run the 3HTB end-to-end smoke
-        run: pixi run -e test pytest tests/v2/test_3htb_e2e.py -v -m 'not golden'
+  # The 3HTB end-to-end smoke moved to the NeomdPreparation CI: it exercises
+  # the GAFF/OpenFF preparation path, which is no longer part of the engine.

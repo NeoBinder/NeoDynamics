@@ -15,18 +15,18 @@ import pytest
 import rfc8785
 from openmm import XmlSerializer, app, unit
 
-from neomd.component_assembly import (
+from neomd_preparation.bundle import read_prepared_bundle
+from neomd_preparation.components.assembly import (
     assemble_component_system,
     build_component_prepared_bundle_v2,
 )
-from neomd.component_contract import ComponentContractError, canonical_sha256
-from neomd.component_import import import_declarative_ligand
-from neomd.component_protein import inspect_protein_variants
-from neomd.component_protein_package import _stage_document, build_protein_package
-from neomd.component_system_qc import verify_component_system_qc
-from neomd.grouped_repair import group_and_repair_protein
-from neomd.prepared import read_prepared_bundle
-from neomd.protein_hydrogens import add_protein_hydrogens
+from neomd_preparation.components.contract import ComponentContractError, canonical_sha256
+from neomd_preparation.components.importers.declarative import import_declarative_ligand
+from neomd_preparation.components.protein_review import inspect_protein_variants
+from neomd_preparation.components.providers.protein import _stage_document, build_protein_package
+from neomd_preparation.components.qc import verify_component_system_qc
+from neomd_preparation.protein.hydrogens import add_protein_hydrogens
+from neomd_preparation.protein.repair import group_and_repair_protein
 from tests.v2.test_component_assembly_real import TASK
 from tests.v2.test_component_assembly_real import retained_case as _retained_case_fixture
 from tests.v2.test_component_protein_package import _records, _state

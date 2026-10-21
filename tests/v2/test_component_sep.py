@@ -12,10 +12,10 @@ from pathlib import Path
 import pytest
 import rfc8785
 
-from neomd.component_assembly import _profile
-from neomd.component_contract import ComponentContractError, canonical_sha256
-from neomd.component_package import validate_package_assets
-from neomd.component_sep import (
+from neomd_preparation.components.assembly import _profile
+from neomd_preparation.components.assets import validate_package_assets
+from neomd_preparation.components.contract import ComponentContractError, canonical_sha256
+from neomd_preparation.components.providers.sep import (
     _ASSET_KEYS,
     _RESOURCE_HASHES,
     _sep_template,
@@ -164,7 +164,7 @@ def test_missing_template_bad_caps_family_and_silent_ser_are_rejected(retained_s
     assert any("one exact reviewed source frame" in detail for _, _, detail in _reasons(
         inspect_sep_template(source, state, wrong_frame, source_residue_id="2",
                              template_id="SEP", template_resource_sha256=_RESOURCE_HASHES[1])))
-    from neomd import component_sep
+    import neomd_preparation.components.providers.sep as component_sep
 
     monkeypatch.setattr(component_sep, "_RESOURCE_HASHES",
                         ("062f99635106ea7e00ab98b9827299ae48ac82875569832a6dea2cb875e0b078",

@@ -12,10 +12,10 @@ import pytest
 import rfc8785
 from openmm import XmlSerializer, unit
 
-from neomd.component_assembly import ComponentAssembly, assemble_component_system
-from neomd.component_contract import ComponentContractError, canonical_sha256
-from neomd.component_import import import_declarative_ligand
-from neomd.component_system_qc import (
+from neomd_preparation.components.assembly import ComponentAssembly, assemble_component_system
+from neomd_preparation.components.contract import ComponentContractError, canonical_sha256
+from neomd_preparation.components.importers.declarative import import_declarative_ligand
+from neomd_preparation.components.qc import (
     read_component_system_qc_report,
     verify_component_system_qc,
 )

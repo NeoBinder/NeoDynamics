@@ -10,12 +10,12 @@ import pytest
 import rfc8785
 from openmm import unit
 
-from neomd.component_contract import (
+from neomd_preparation.components.assets import extract_system_parameters, validate_package_assets
+from neomd_preparation.components.contract import (
     ComponentContractError,
     canonical_sha256,
     imported_package_cache_key,
 )
-from neomd.component_package import extract_system_parameters, validate_package_assets
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "contracts/component-preparation/v1/fixtures/positive"
