@@ -1,0 +1,548 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/components/schemas/MdPreparationResult",
+  "components": {
+    "schemas": {
+      "MdPreparationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "config_contract",
+          "execution_profile",
+          "profile_revision",
+          "executor_git_revision",
+          "native_config_sha256",
+          "prepare_yaml_sha256",
+          "scientific_input_sha256",
+          "source_manifest_sha256",
+          "outcome",
+          "prepared",
+          "error",
+          "resolved_parameters",
+          "qc",
+          "artifacts"
+        ],
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "enum": [
+              "neomd.preparation-result/v1"
+            ]
+          },
+          "config_contract": {
+            "type": "string",
+            "enum": [
+              "neomd.native-prepare/v1"
+            ]
+          },
+          "execution_profile": {
+            "type": "string",
+            "enum": [
+              "classic-source-box/v1"
+            ]
+          },
+          "profile_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "executor_git_revision": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "native_config_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "prepare_yaml_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "scientific_input_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "source_manifest_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "prepared",
+              "scientific_failed"
+            ]
+          },
+          "prepared": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PreparedResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MdPreparationScientificError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resolved_parameters": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Executor actual applied values/units, versions, forcefield resource hashes, box and translation, hydrogen decisions, QC gates and omitted/default provenance; null if resolution unavailable. Never inferred by API."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "qc": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MdPreparationQcReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MdPreparationArtifactRef"
+            }
+          }
+        },
+        "oneOf": [
+          {
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "prepared"
+                ]
+              },
+              "prepared": {
+                "$ref": "#/components/schemas/PreparedResult"
+              },
+              "error": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "scientific_failed"
+                ]
+              },
+              "prepared": {
+                "type": "null"
+              },
+              "error": {
+                "$ref": "#/components/schemas/MdPreparationScientificError"
+              }
+            }
+          }
+        ],
+        "description": "Terminal scientific envelope; Argo success alone never implies prepared. Soft QC failure can be prepared but ineligible; strict failure has null prepared, safe error, optional QC and no success-only artifact download. Infrastructure failure must not synthesize science."
+      },
+      "PreparedResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "revision_id",
+          "manifest_ref",
+          "verification",
+          "eligibility"
+        ],
+        "properties": {
+          "revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "manifest_ref": {
+            "$ref": "#/components/schemas/MdPreparationArtifactRef"
+          },
+          "verification": {
+            "type": "string",
+            "enum": [
+              "passed"
+            ]
+          },
+          "eligibility": {
+            "$ref": "#/components/schemas/MdPreparedEligibility"
+          }
+        },
+        "description": "Immutable exporter revision and real manifest. passed requires independent actual-System and lineage validation; byte/archive validation alone is insufficient. Verified source records and frozen input hashes are retained with the result/attempt before reusable publication. No fixture placeholders accepted."
+      },
+      "MdPreparationArtifactRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "member_path",
+          "sha256",
+          "size_bytes"
+        ],
+        "properties": {
+          "member_path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "media_type": {
+            "type": "string",
+            "description": "Optional MIME type preserved for terminal artifact descriptors; manifest references may omit it. Explicit null is not admitted."
+          }
+        }
+      },
+      "MdPreparedEligibility": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "eligible",
+          "profile",
+          "profile_revision",
+          "reasons"
+        ],
+        "properties": {
+          "eligible": {
+            "type": "boolean"
+          },
+          "profile": {
+            "type": "string",
+            "enum": [
+              "classic-source-box/v1"
+            ]
+          },
+          "profile_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          }
+        }
+      },
+      "MdPreparationScientificError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message",
+          "field_path"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 1024
+          },
+          "field_path": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "maxItems": 32
+          }
+        }
+      },
+      "MdPreparationQcReport": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "verdict",
+          "prepared_revision",
+          "diagnostic_revision",
+          "checks"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "soft",
+              "strict"
+            ]
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "fail",
+              "skipped"
+            ]
+          },
+          "prepared_revision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "diagnostic_revision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MdPreparationQcCheck"
+            }
+          }
+        }
+      },
+      "MdPreparationQcCheck": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "verdict",
+          "total_findings",
+          "displayed_findings",
+          "truncated",
+          "issues"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "fail",
+              "skipped"
+            ]
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "displayed_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 50
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PreparationIssue"
+            },
+            "maxItems": 50
+          }
+        },
+        "description": "displayed_findings equals issues length, total_findings >= displayed_findings, truncated iff total > displayed. Producers count all findings before truncation."
+      },
+      "PreparationIssue": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "issue_id",
+          "code",
+          "source",
+          "severity",
+          "blocks_execution",
+          "scientific_input_sha256",
+          "prepared_revision",
+          "diagnostic_revision",
+          "field_path",
+          "atom_ids",
+          "residue_ids",
+          "measured",
+          "threshold",
+          "units",
+          "message",
+          "evidence_refs"
+        ],
+        "properties": {
+          "issue_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "field_validation",
+              "source_check",
+              "result_qc"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "error"
+            ]
+          },
+          "blocks_execution": {
+            "type": "boolean"
+          },
+          "scientific_input_sha256": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "prepared_revision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "diagnostic_revision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "field_path": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/MdNativeAddressSegment"
+            }
+          },
+          "atom_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "residue_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "measured": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "units": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 1024
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MdPreparationArtifactRef"
+            }
+          }
+        }
+      },
+      "MdNativeAddressSegment": {
+        "oneOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        ],
+        "description": "Typed native field address segment. Sequence indexes and integer mapping keys retain integer type; scientific integers are JS-safe."
+      }
+    }
+  }
+}

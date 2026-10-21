@@ -159,12 +159,13 @@ class CheckResult:
     verdict: str  # "pass" | "fail" | "skipped"
     findings: tuple[Finding, ...] = ()
     notes: tuple[str, ...] = ()
+    total_findings: int | None = None
 
     def to_dict(self) -> dict:
         return {
             "name": self.name,
             "verdict": self.verdict,
-            "n_findings": len(self.findings),
+            "n_findings": len(self.findings) if self.total_findings is None else self.total_findings,
             "findings": [f.to_dict() for f in self.findings[:MAX_FINDINGS_PER_CHECK]],
             "notes": list(self.notes),
         }
@@ -701,7 +702,7 @@ def _check_clashes(geometry: SystemGeometry, thresholds: QCThresholds,
         notes.append(f"{total - len(findings)} more clash findings suppressed "
                      f"(cap {MAX_FINDINGS_PER_CHECK} per check)")
     verdict = "fail" if total else "pass"
-    return CheckResult(name, verdict, tuple(findings), tuple(notes))
+    return CheckResult(name, verdict, tuple(findings), tuple(notes), total)
 
 
 def _check_bonds(geometry: SystemGeometry, thresholds: QCThresholds,
@@ -744,7 +745,7 @@ def _check_bonds(geometry: SystemGeometry, thresholds: QCThresholds,
         notes.append(f"{total - len(findings)} more findings suppressed "
                      f"(cap {MAX_FINDINGS_PER_CHECK} per check)")
     return CheckResult(name, "fail" if total else "pass",
-                       tuple(findings), tuple(notes))
+                       tuple(findings), tuple(notes), total)
 
 
 def _check_angles(geometry: SystemGeometry, thresholds: QCThresholds,
@@ -794,7 +795,7 @@ def _check_angles(geometry: SystemGeometry, thresholds: QCThresholds,
         notes.append(f"{total - len(findings)} more findings suppressed "
                      f"(cap {MAX_FINDINGS_PER_CHECK} per check)")
     return CheckResult(name, "fail" if total else "pass",
-                       tuple(findings), tuple(notes))
+                       tuple(findings), tuple(notes), total)
 
 
 # ---------------------------------------------------------------------------

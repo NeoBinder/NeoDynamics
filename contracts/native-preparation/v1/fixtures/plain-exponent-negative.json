@@ -1,0 +1,9 @@
+{
+  "expected_diagnostic": "json_native_type_mismatch",
+  "expected_typed_node": [
+    "string",
+    "1e-7"
+  ],
+  "input_yaml": "1e-7",
+  "typed_sha256": "471bf0bf0ea74a6f10ddeb5e226513990df7ed2dd5851147473e06422ce1bf24"
+}

@@ -65,6 +65,9 @@ neomd2 = "neomd.cli:main"  # strangler-period alias, removed with neomd_legacy
 where = ["src"]
 
 [tool.setuptools.data-files]
+"share/neodynamics/contracts/native-preparation/v1" = ["contracts/native-preparation/v1/*.json", "contracts/native-preparation/v1/*.md"]
+"share/neodynamics/contracts/native-preparation/v1/fixtures" = ["contracts/native-preparation/v1/fixtures/*"]
+"share/neodynamics/contracts/batch-preparation/v1" = ["contracts/batch-preparation/v1/*.md", "contracts/batch-preparation/v1/*.json"]
 "share/neodynamics/contracts/prepared-bundle/v1" = ["contracts/prepared-bundle/v1/*.json"]
 "share/neodynamics/contracts/prepared-bundle/v2" = ["contracts/prepared-bundle/v2/*.json"]
 "share/neodynamics/contracts/assembly-report/v1" = ["contracts/assembly-report/v1/*.json"]

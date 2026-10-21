@@ -1,0 +1,42 @@
+[
+  {
+    "expected_typed_node": [
+      "float",
+      "1"
+    ],
+    "input_yaml": "1.0",
+    "typed_sha256": "f2e534131cc3bc8662a5f041a44b97f1674b18e21923f97c36554f3b6453ced1"
+  },
+  {
+    "expected_typed_node": [
+      "float",
+      "1e-7"
+    ],
+    "input_yaml": "1.0e-7",
+    "typed_sha256": "2f8f1b4a7edeee9bdde883ddcae9c502a1e4f2acccb5f6d51649b3403c068de1"
+  },
+  {
+    "expected_typed_node": [
+      "float",
+      "0"
+    ],
+    "input_yaml": "-0.0",
+    "typed_sha256": "ebdbf15c0fa1d208b244cf40e70254a3e15663fd610bafdbf3568ad7f9d82050"
+  },
+  {
+    "expected_typed_node": [
+      "float",
+      "0.000001"
+    ],
+    "input_yaml": "1.0e-6",
+    "typed_sha256": "1f099f4c237b0f5941d1eac3a4d686afa5e8dbce191005208f80cecf7b5854f4"
+  },
+  {
+    "expected_typed_node": [
+      "float",
+      "1e+21"
+    ],
+    "input_yaml": "1.0e+21",
+    "typed_sha256": "cce104f6c90cfccbddb0bd97ae267b1da3e748a2f488a6790bb452b5a5bb6537"
+  }
+]

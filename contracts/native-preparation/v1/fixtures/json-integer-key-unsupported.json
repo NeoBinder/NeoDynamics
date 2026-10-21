@@ -1,0 +1,11 @@
+{
+  "output_dir": "./prepared",
+  "protein": {
+    "custom_resname_dict": [
+      {
+        "7": "HID"
+      }
+    ],
+    "path": "./protein.pdb"
+  }
+}

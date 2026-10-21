@@ -522,6 +522,20 @@ def system_from_amber(config: Mapping):
 # ---------------------------------------------------------------------------
 
 
+def _free_chain_id(used):
+    """A chain id not claimed by an already assembled chain.
+
+    Ligand Topologies arrive with the same default chain/residue identifiers
+    from openff; adding several copies to one Modeller would otherwise merge
+    them into a single residue.  Unique ids keep each copy a separate residue.
+    """
+    for code in list("ABCDEFGHIJKLMNOPQRSTUVWXYZ") + list("abcdefghijklmnopqrstuvwxyz") + [str(i) for i in range(10)]:
+        if code not in used:
+            used.add(code)
+            return code
+    raise ConfigValueError("too many chains for single-character PDB identifiers", key="ligands")
+
+
 def _make_system(
     protein_config, ligands_config, forcefield_kwargs, sys_params,
     additional_config, builder, lineage=None,
@@ -581,6 +595,9 @@ def _make_system(
             ligand.generate_unique_atom_names(suffix="")
         for lig_i, ligand_mol in enumerate(ligands):
             ligand_topology = ligand_mol.to_topology().to_openmm()
+            used_ids = {chain.id for chain in modeller.topology.chains()} if modeller is not None else set()
+            for chain in ligand_topology.chains():
+                chain.id = _free_chain_id(used_ids)
             if lineage is not None:
                 info = (list(ligands_config.values())[lig_i]
                         if isinstance(ligands_config, Mapping) else {})
@@ -635,6 +652,9 @@ def _make_system(
         "center_model": True,  # centering is optional
         **additional_config,
     }
+
+    if lineage is not None:
+        lineage.applied_additional = dict(additional_config)
 
     # the openmm ForceField the mid-workflow steps need (lazily built so a
     # solvent-free, custom-addH-free preparation never constructs one)
@@ -977,6 +997,7 @@ def _publish_prepared(lineage, bundle, topology, positions, system, config, dire
                   "qc_report_artifact": "qc_report.json" if "qc_report.json" in artifacts else None,
                   "particle_order_contract": "OpenMM topology order" if topology_particle_indices is None
                   else "explicit importer topology_particle_indices",
+                  "applied_additional": getattr(lineage, "applied_additional", None),
                   "system_constraints": system.getNumConstraints(),
                   "force_types": [type(force).__name__ for force in system.getForces()]}
     inventory, coords = _particle_inventory(system, positions, topology_particle_indices)
@@ -1061,6 +1082,15 @@ def verify_prepared_system(manifest_path, *, expected_sha256=None, profile=None,
     if system.getNumParticles() != manifest["particle_count"]:
         errors.append(_error("particle_count", "actual System particle count differs from manifest"))
     atoms = list(structure.topology.atoms())
+    # OpenMM canonicalizes deposited residue spellings (e.g. HID -> HIS).
+    # Compare manifest labels against the exact written topology, while the
+    # loaded topology continues to verify particle order, coordinates/bonds.
+    from neomd.qc import read_system_geometry
+
+    raw_geometry = read_system_geometry(
+        str(trusted_topology_file or root / names[0]), str(root / "system.xml"))
+    if raw_geometry.n_atoms != len(atoms):
+        errors.append(_error("topology_atom_count", "raw topology rows differ from the actual loader"))
     if len(atoms) != manifest["topology_atom_count"]:
         errors.append(_error("topology_atom_count", "actual topology atom count differs from manifest"))
     _raise(errors)  # Remaining row comparisons require matching dimensions.
@@ -1089,7 +1119,7 @@ def verify_prepared_system(manifest_path, *, expected_sha256=None, profile=None,
         if element != declared["element"] or atom.name != declared["name"]:
             errors.append(_error(f"atoms[{i}]", "topology element/name differs at this declared row"))
         residue = residues[declared["residue_id"]]
-        if atom.residue.name != residue["name"]:
+        if raw_geometry.residue_names[i] != residue["name"]:
             errors.append(_error(f"atoms[{i}].residue_id", "topology residue name differs at this declared row"))
         actual_residues.setdefault(atom.residue.index, set()).add(declared["residue_id"])
     if (any(len(ids) != 1 for ids in actual_residues.values())

@@ -23,6 +23,7 @@ v1 fidelity pins:
 from __future__ import annotations
 
 import json
+import pathlib
 
 import numpy as np
 import pytest
@@ -112,6 +113,28 @@ class TestLigandFromPath:
     def test_load_rdmol_sdf_keeps_hydrogens(self, cco_sdf):
         rdmol = load_rdmol(cco_sdf)
         assert rdmol.GetNumAtoms() == 9  # removeHs=False
+
+    def test_heavy_only_pdb_with_smiles_completes_hydrogens(self, cco_pdb, tmp_path):
+        heavy = tmp_path / "heavy.pdb"
+        heavy.write_text("\n".join(
+            line for line in pathlib.Path(cco_pdb).read_text().splitlines()
+            if not (line.startswith(("ATOM  ", "HETATM")) and line[76:78].strip() == "H")
+        ) + "\n")
+        ligand = Ligand.from_path(str(heavy), smiles="CCO")
+        rdmol = ligand.to_rdkit()
+        assert rdmol.GetNumAtoms() == 9
+        assert sum(1 for atom in rdmol.GetAtoms() if atom.GetAtomicNum() == 1) == 6
+        assert ligand.molecule.conformers is not None
+        assert ligand.molecule.to_topology().to_openmm().getNumResidues() == 1  # heavy atoms and new H share one residue
+
+    def test_heavy_only_pdb_with_mismatched_smiles_is_rejected(self, cco_pdb, tmp_path):
+        heavy = tmp_path / "heavy.pdb"
+        heavy.write_text("\n".join(
+            line for line in pathlib.Path(cco_pdb).read_text().splitlines()
+            if not (line.startswith(("ATOM  ", "HETATM")) and line[76:78].strip() == "H")
+        ) + "\n")
+        with pytest.raises(ValueError, match="heavy-atom graph"):
+            Ligand.from_path(str(heavy), smiles="CCC")
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +228,43 @@ class TestLigandsFromConfig:
 
 
 class TestSystemDelegation:
+    def test_two_ligand_copies_get_distinct_chains(self, cco_sdf, tmp_path):
+        import pathlib
+
+        from neomd_preparation.workflow import prepare_system
+
+        ala2 = pathlib.Path(__file__).resolve().parents[1] / "data" / "ala2" / "ala2.pdb"
+        peptide = tmp_path / "pep.pdb"
+        peptide.write_text(
+            "CRYST1   30.000   30.000   30.000  90.00  90.00  90.00 "
+            "P 1           1\n" + ala2.read_text())
+        recorded = {}
+
+        class RecordingBuilder:
+            def openmm_forcefield(self, ff_kwargs, ligands=None):
+                return object()
+
+            def build(self, topology, positions, ligands, ff_kwargs, sys_kwargs):
+                import openmm
+
+                recorded["chains"] = sorted({res.chain.id for res in topology.residues() if res.name == "LIG"})
+                system = openmm.System()
+                for _ in range(topology.getNumAtoms()):
+                    system.addParticle(1.0)
+                return system, []
+
+        prepare_system({
+            "protein": {"path": str(peptide)},
+            "ligands": {
+                "lig1": {"path": cco_sdf, "smiles": "CCO", "resname": "LIG"},
+                "lig2": {"path": cco_sdf, "smiles": "CCO", "resname": "LIG"},
+            },
+            "additional": {"add_hydrogens": False, "add_solv_ions": False},
+            "output_dir": str(tmp_path / "prep"),
+        }, forcefield=RecordingBuilder())
+        # Two copies must remain separate residues, not merge into one chain.
+        assert len(recorded["chains"]) == 2
+
     def test_prepare_system_with_ligand_workflow(self, cco_sdf, tmp_path):
         import pathlib
 

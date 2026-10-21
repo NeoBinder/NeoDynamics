@@ -78,6 +78,111 @@ def topology_from_rdkit(rdkit_molecule):
     return topology
 
 
+def _element_graph(rdkit_molecule):
+    """Element-labeled molecular graph; unlike topology_from_rdkit it cannot
+    treat different elements with identical connectivity as the same molecule."""
+    graph = nx.Graph()
+    for atom in rdkit_molecule.GetAtoms():
+        graph.add_node(atom.GetIdx(), atomic_number=atom.GetAtomicNum())
+    for bond in rdkit_molecule.GetBonds():
+        graph.add_edge(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx())
+    return graph
+
+
+def _isomorphic(left, right):
+    """Element-aware graph isomorphism for chemistry comparisons."""
+    return nx.is_isomorphic(
+        _element_graph(left), _element_graph(right),
+        node_match=lambda left_node, right_node: left_node["atomic_number"] == right_node["atomic_number"],
+    )
+
+
+def resolve_smiles_chemistry(rdkit_mol, smiles, label="ligand"):
+    """Reconcile a source molecule's coordinates with its SMILES chemistry.
+
+    A crystal-derived ligand file may carry only heavy atoms and distance-inferred
+    bonds (a PDB fragment).  The SMILES declares bond orders, charges and stereo;
+    the file declares the bound pose.  When the file already carries explicit
+    hydrogens and matches the SMILES graph it is returned unchanged (the
+    prepared-SDF contract).  Otherwise the heavy-atom coordinates are retained,
+    SMILES bond orders replace the inferred ones, and hydrogens are added
+    geometrically by RDKit.  Raises ValueError when the heavy-atom graph is not
+    the SMILES graph, rather than guessing a chemistry.
+    """
+    if rdkit_mol is None:
+        raise ValueError(f"{label}: could not parse the ligand file")
+    target = Chem.MolFromSmiles(smiles) if isinstance(smiles, str) else None
+    if target is None:
+        raise ValueError(f"{label}: invalid ligand SMILES")
+    target_h = Chem.AddHs(target)
+    # The already-hydrogenated comparison is element-aware: identical
+    # connectivity between different elements is not the same molecule.
+    if _isomorphic(rdkit_mol, target_h):
+        return rdkit_mol
+    heavy = Chem.RemoveHs(rdkit_mol)
+    if heavy.GetNumAtoms() != target.GetNumAtoms():
+        raise ValueError(
+            f"{label}: source has {heavy.GetNumAtoms()} heavy atoms but the SMILES "
+            f"declares {target.GetNumAtoms()}")
+    if not _isomorphic(heavy, target):
+        raise ValueError(f"{label}: source heavy-atom graph is not isomorphic to the SMILES")
+    try:
+        fixed = AllChem.AssignBondOrdersFromTemplate(target, heavy)
+    except Exception as error:
+        raise ValueError(
+            f"{label}: could not assign SMILES bond orders to the source coordinates "
+            f"({error})") from error
+    Chem.AssignAtomChiralTagsFromStructure(fixed)
+    fixed_h = Chem.AddHs(fixed, addCoords=True)
+    if not nx.is_isomorphic(topology_from_rdkit(fixed_h), topology_from_rdkit(target_h)):
+        raise ValueError(f"{label}: hydrogen-completed source does not match the SMILES graph")
+    return _unify_residue_info(fixed_h)
+
+
+def _unify_residue_info(mol):
+    """Give every atom the heavy-atom residue identity.
+
+    RDKit's AddHs leaves new hydrogens without PDB residue info; openff then
+    splits one ligand into a heavy-atom residue and a hydrogen residue (each with
+    its own chain after assembly). One ligand entry must stay one residue, so the
+    heavy-atom residue identity is copied to every atom while preserving names.
+    """
+    base = None
+    for atom in mol.GetAtoms():
+        if atom.GetAtomicNum() != 1 and atom.GetMonomerInfo() is not None:
+            base = atom.GetMonomerInfo()
+            break
+    if base is None:
+        return mol
+    # Copy before replacing atom 0's info: base is owned by that atom and would
+    # dangle as soon as SetMonomerInfo drops the old object.
+    template = _copy_residue_info(base)
+    for atom in mol.GetAtoms():
+        info = atom.GetMonomerInfo()
+        name = info.GetName() if info is not None else atom.GetSymbol()
+        unified = _copy_residue_info(template)
+        unified.SetName(name)
+        atom.SetMonomerInfo(unified)
+    return mol
+
+
+def _copy_residue_info(source):
+    """Copy a PDBResidueInfo field by field; RDKit does not pickle it."""
+    info = Chem.AtomPDBResidueInfo() if hasattr(Chem, "AtomPDBResidueInfo") else type(source)()
+    for field in ("AltLoc", "ChainId", "InsertionCode", "IsHeteroAtom", "Name",
+                  "Occupancy", "ResidueName", "ResidueNumber", "SegmentNumber",
+                  "SerialNumber", "TempFactor"):
+        getter = getattr(source, "Get" + field, None)
+        setter = getattr(info, "Set" + field, None)
+        if getter is None or setter is None:
+            continue
+        try:
+            setter(getter())
+        except (TypeError, ValueError):
+            pass
+    return info
+
+
 class Ligand:
     """One ligand: an openff ``Molecule`` plus a template-path handle.
 
@@ -107,12 +212,22 @@ class Ligand:
             self.molecule._normalize_partial_charges()
 
     @classmethod
-    def from_path(cls, ligand_path):
-        """Load via :func:`load_rdmol` (Hs kept) into an openff Molecule;
-        PDB inputs additionally get ``AssignAtomChiralTagsFromStructure``."""
+    def from_path(cls, ligand_path, smiles=None):
+        """Load via `load_rdmol` (Hs kept) into an openff Molecule.
+
+        PDB inputs additionally get AssignAtomChiralTagsFromStructure.  When the
+        config declares a SMILES, resolve_smiles_chemistry makes that chemistry
+        authoritative for bond orders/charges and completes missing hydrogens
+        from the file's heavy-atom coordinates.
+        """
         rdkitmolh = load_rdmol(ligand_path)
         if os.path.splitext(ligand_path)[1] in [".pdb"]:
             Chem.AssignAtomChiralTagsFromStructure(rdkitmolh)
+        if smiles and not any(atom.GetAtomicNum() == 1 for atom in rdkitmolh.GetAtoms()):
+            # Heavy-only crystal fragment: the SMILES supplies chemistry and
+            # RDKit completes hydrogens; hydrogenated files keep the existing
+            # graph-validation contract.
+            rdkitmolh = resolve_smiles_chemistry(rdkitmolh, smiles, label=ligand_path)
         ligand_mol = openff_Molecule.from_rdkit(
             rdkitmolh, hydrogens_are_explicit=True)
         return Ligand(ligand_mol)
@@ -139,17 +254,17 @@ def ligands_from_config(config):
     """
     ligands = []
     for ligname, lig_info in config.items():
-        ligand = Ligand.from_path(lig_info["path"])
+        ligand = Ligand.from_path(lig_info["path"], smiles=lig_info.get("smiles"))
         if lig_info.get("resname"):
             ligand.molecule.name = lig_info["resname"]
         elif ligand.molecule.name == "":
             ligand.molecule.name = "LIG"
         ligand.template_path = lig_info.get("template_ffxml")
         rdmol = ligand.to_rdkit()
-        rdmol_top = topology_from_rdkit(rdmol)
         target_mol = Chem.MolFromSmiles(lig_info["smiles"])
-        target_top = topology_from_rdkit(Chem.AddHs(target_mol))
-        if not nx.is_isomorphic(rdmol_top, target_top):
+        # Element-aware: identical connectivity with different elements is not
+        # the declared chemistry (the hydrogenated-file comparison path).
+        if not _isomorphic(rdmol, Chem.AddHs(target_mol)):
             rdmol_smiles = Chem.MolToSmiles(rdmol, isomericSmiles=True,
                                             canonical=True)
             raise ValueError(

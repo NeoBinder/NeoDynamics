@@ -1,0 +1,6 @@
+protein:
+  path: ./protein.pdb
+  custom_resname_dict:
+    - 7: HID
+    - 18: CYX
+output_dir: ./prepared

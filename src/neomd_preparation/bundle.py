@@ -15,7 +15,7 @@ import tempfile
 from collections import Counter
 from collections.abc import Mapping
 from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 import numpy as np
 
@@ -87,7 +87,7 @@ class PreparationLineage:
         errors = []
         if not isinstance(options, Mapping):
             _raise([_error("prepared_export", "must be a mapping")])
-        for key in options.keys() - {"sources", "schema_version"}:
+        for key in options.keys() - {"sources", "schema_version", "source_instances"}:
             errors.append(_error(f"prepared_export.{key}", "unknown field"))
         self.schema_version = options.get("schema_version", SCHEMA_VERSION)
         if type(self.schema_version) is not int or self.schema_version not in (1, 2):
@@ -96,6 +96,7 @@ class PreparationLineage:
         if not isinstance(descriptors, list):
             errors.append(_error("prepared_export.sources", "must be a list"))
             descriptors = []
+        self.source_instances = options.get("source_instances", {})
         self.descriptors = {}
         for i, desc in enumerate(descriptors):
             key = desc.get("input_key") if isinstance(desc, Mapping) else None
@@ -124,6 +125,27 @@ class PreparationLineage:
             _raise([_error(input_key, "topology/coordinate counts disagree")])
         digest = file_digest(source_path) if source_path else hashlib.sha256(source_bytes).hexdigest()
         desc = self.descriptors.get(input_key, {})
+        if input_key in self.source_instances:
+            identity = self.source_instances[input_key]
+            desc = {"input_key": input_key, "kind": identity["kind"],
+                    "source_id": identity["source_instance_id"],
+                    "content_sha256": identity["content_sha256"]}
+            if identity["binding_state"] == "verified_reuse":
+                desc.update(loader=identity["loader"], atom_bindings=identity["atom_bindings"])
+            else:
+                namespace = UUID(identity["source_instance_id"])
+
+                def allocate(kind, ordinal):
+                    name = json.dumps({"kind": kind, "ordinal": ordinal,
+                                       "content_sha256": digest, "loader": loader},
+                                      sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+                    return str(uuid5(namespace, name))
+
+                desc.update(loader=loader, atom_bindings=[
+                    {"input_atom_index": i, "source_atom_id": allocate("atom", i),
+                     "source_residue_id": allocate("residue", atom.residue.index),
+                     "element": _element(atom), "position_nm": coords[i].tolist()}
+                    for i, atom in enumerate(atoms)])
         v2_desc = None
         if self.schema_version == 2:
             from neomd_preparation.source import validate_protein_source
@@ -447,7 +469,7 @@ class PreparationLineage:
         """Publish one new local immutable directory; no remote durability claim."""
         self.bind_assembled(topology, positions_nm)
         _raise([_error(f"sources.{key}", "source descriptor was not consumed")
-                for key in self.descriptors.keys() - self.used_inputs])
+                for key in (self.descriptors.keys() | self.source_instances.keys()) - self.used_inputs])
         mapping = (list(range(len(self.atoms))) if topology_particle_indices is None
                    else list(topology_particle_indices))
         if (len(mapping) != len(self.atoms) or len(set(mapping)) != len(mapping)
@@ -457,9 +479,15 @@ class PreparationLineage:
         by_particle = dict(zip(mapping, self.atoms))
         for atom, record in zip(topology.atoms(), self.atoms):
             record.update(name=atom.name, formal_charge=atom.formalCharge)
-        residue_by_id = {r["residue_id"]: r for r in self.residues}
+        # Classic protonation can rename HIS to HID/HIE/HIP after the
+        # coordinate-preserving lineage observation. Bind final display
+        # metadata to the actual output topology without changing identities.
+        residue_records = {row["residue_id"]: row for row in self.residues}
         for atom, record in zip(topology.atoms(), self.atoms):
-            residue_by_id[record["residue_id"]]["name"] = atom.residue.name
+            residue = atom.residue
+            residue_records[record["residue_id"]].update(
+                name=residue.name, chain_label=residue.chain.id,
+                sequence_label=residue.id, insertion_code=residue.insertionCode)
         inventory = []
         for i, particle in enumerate(particles):
             site = particle.get("virtual_site")

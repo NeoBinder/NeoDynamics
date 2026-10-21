@@ -1,0 +1,4 @@
+protein:
+  path: a.pdb
+  path: b.pdb
+output_dir: out

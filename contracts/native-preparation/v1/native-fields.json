@@ -1,0 +1,407 @@
+{
+  "branches": "exactly one: classic protein/ligands, from_gromacs, from_amber",
+  "container_types": {
+    "additional": "mapping",
+    "ff_setting": "mapping",
+    "ligands": "ordered mapping[string,mapping]",
+    "protein": "mapping",
+    "qc": "mapping",
+    "system_params": "mapping"
+  },
+  "contract": "neomd.native-prepare/v1",
+  "executor_git": "dd62c6308de8c543f5168c194f810d4e6b88a0e1",
+  "fields": [
+    {
+      "default": "required for classic online",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "protein.path",
+      "role": "input_file",
+      "source": "src/neomd/prepare.py:539-552",
+      "type": "nonempty string",
+      "unit": null
+    },
+    {
+      "default": "required",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "ligands.<string-id>.path",
+      "role": "input_file",
+      "source": "src/neomd/prepare.py:480",
+      "type": "nonempty string",
+      "unit": null
+    },
+    {
+      "default": "online required; native tools workflow requires",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "ligands.<string-id>.smiles",
+      "role": "value",
+      "source": "src/neomd/prepare.py:468",
+      "type": "nonempty string",
+      "unit": null
+    },
+    {
+      "default": "native fallback LIG; online explicit",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "ligands.<string-id>.resname",
+      "role": "value",
+      "source": "src/neomd/prepare.py:481",
+      "type": "nonempty string",
+      "unit": null
+    },
+    {
+      "default": "absent",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": false,
+      "path": "ligands.<string-id>.partial_charges",
+      "role": "input_file",
+      "source": "src/neomd/prepare.py:452",
+      "type": "nonempty string",
+      "unit": null
+    },
+    {
+      "default": "absent",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": false,
+      "path": "ligands.<string-id>.template_ffxml",
+      "role": "input_file",
+      "source": "src/neomd/prepare.py:455",
+      "type": "nonempty string",
+      "unit": null
+    },
+    {
+      "default": "amber/protein.ff14SB.xml",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "ff_setting.base_ff",
+      "role": "builtin_resource",
+      "source": "src/neomd/prepare.py:325-327",
+      "type": "string",
+      "unit": null
+    },
+    {
+      "default": "amber/tip3p_standard.xml",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "ff_setting.water_model",
+      "role": "builtin_resource",
+      "source": "src/neomd/prepare.py:325-327",
+      "type": "string",
+      "unit": null
+    },
+    {
+      "default": "absent",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": false,
+      "path": "ff_setting.additional_forcefield_xml_path",
+      "role": "input_file_list",
+      "source": "src/neomd/tools/antechamber.py:674-679",
+      "type": "list[string]",
+      "unit": null
+    },
+    {
+      "default": "2",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": false,
+      "path": "ff_setting.gaff_version",
+      "role": "value",
+      "source": "src/neomd/tools/antechamber.py:695",
+      "type": "string",
+      "unit": null
+    },
+    {
+      "default": true,
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "additional.add_hydrogens",
+      "role": "value",
+      "source": "src/neomd/prepare.py:629-636",
+      "type": "boolean",
+      "unit": null
+    },
+    {
+      "default": true,
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "additional.add_solv_ions",
+      "role": "value",
+      "source": "src/neomd/prepare.py:629-636",
+      "type": "boolean",
+      "unit": null
+    },
+    {
+      "default": 0.1,
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "additional.ion_Strength",
+      "role": "value",
+      "source": "src/neomd/prepare.py:629-636",
+      "type": "finite number >=0",
+      "unit": "mol/L"
+    },
+    {
+      "default": true,
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "additional.center_model",
+      "role": "value",
+      "source": "src/neomd/prepare.py:629-636",
+      "type": "boolean",
+      "unit": null
+    },
+    {
+      "default": "HBonds",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "system_params.constraints",
+      "role": "value",
+      "source": "src/neomd/prepare.py:225-246",
+      "type": "enum[HBonds]",
+      "unit": null
+    },
+    {
+      "default": "pme",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "system_params.nonbonded_method",
+      "role": "value",
+      "source": "src/neomd/prepare.py:225-246",
+      "type": "enum[pme]",
+      "unit": null
+    },
+    {
+      "default": 1.0,
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "system_params.nonbondedCutoff",
+      "role": "value",
+      "source": "src/neomd/prepare.py:225-246",
+      "type": "finite number >0",
+      "unit": "nm"
+    },
+    {
+      "default": true,
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "system_params.rigidWater",
+      "role": "value",
+      "source": "src/neomd/prepare.py:225-246",
+      "type": "boolean",
+      "unit": null
+    },
+    {
+      "default": false,
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "system_params.removeCMMotion",
+      "role": "value",
+      "source": "src/neomd/prepare.py:225-246",
+      "type": "boolean",
+      "unit": null
+    },
+    {
+      "default": 3,
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "system_params.hydrogenMass",
+      "role": "value",
+      "source": "src/neomd/prepare.py:225-246",
+      "type": "finite number >0",
+      "unit": "dalton"
+    },
+    {
+      "default": "soft",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "qc.mode",
+      "role": "value",
+      "source": "src/neomd/qc.py:112-120",
+      "type": "enum[soft,strict]",
+      "unit": null
+    },
+    {
+      "default": 0.2,
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "qc.clash_heavy_nm",
+      "role": "value",
+      "source": "src/neomd/qc.py:74-103",
+      "type": "finite number >=0",
+      "unit": "nm"
+    },
+    {
+      "default": 0.1,
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "qc.clash_hydrogen_nm",
+      "role": "value",
+      "source": "src/neomd/qc.py:74-103",
+      "type": "finite number >=0",
+      "unit": "nm"
+    },
+    {
+      "default": 0.25,
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "qc.bond_relative_tolerance",
+      "role": "value",
+      "source": "src/neomd/qc.py:74-103",
+      "type": "finite number >=0",
+      "unit": "dimensionless"
+    },
+    {
+      "default": 0.03,
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "qc.bond_absolute_nm",
+      "role": "value",
+      "source": "src/neomd/qc.py:74-103",
+      "type": "finite number >=0",
+      "unit": "nm"
+    },
+    {
+      "default": 30.0,
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "qc.angle_tolerance_deg",
+      "role": "value",
+      "source": "src/neomd/qc.py:74-103",
+      "type": "finite number >=0",
+      "unit": "degree"
+    },
+    {
+      "default": 0.5,
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "qc.box_escape_fraction",
+      "role": "value",
+      "source": "src/neomd/qc.py:74-103",
+      "type": "finite number >=0",
+      "unit": "dimensionless"
+    },
+    {
+      "default": "required",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "output_dir",
+      "role": "output_directory",
+      "source": "src/neomd/prepare.py:769-774",
+      "type": "nonempty string",
+      "unit": null
+    },
+    {
+      "default": false,
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": true,
+      "path": "output_keepid",
+      "role": "value",
+      "source": "src/neomd/prepare.py:813-814",
+      "type": "boolean",
+      "unit": null
+    },
+    {
+      "default": "absent",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": false,
+      "path": "protein.custom_resname_dict",
+      "role": "value",
+      "source": "src/neomd/prepare.py:657-676",
+      "type": "list[map[integer>=1,string]]",
+      "unit": "one-based residue ordinal"
+    },
+    {
+      "default": "absent",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": false,
+      "path": "protein.custom_res_bonds.<resname>.bonds_from_ffxml",
+      "role": "input_file",
+      "source": "src/neomd/openmm_privates.py:76-114",
+      "type": "string",
+      "unit": null
+    },
+    {
+      "default": "absent",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": false,
+      "path": "protein.custom_res_bonds.<resname>.custom_bonds",
+      "role": "value",
+      "source": "src/neomd/openmm_privates.py:115-120",
+      "type": "list[list[string,string]]",
+      "unit": null
+    },
+    {
+      "default": "absent",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": false,
+      "path": "protein.custom_res_addH.<resname>.H_from_ffxml",
+      "role": "input_file",
+      "source": "src/neomd/openmm_privates.py:126-170",
+      "type": "string",
+      "unit": null
+    },
+    {
+      "default": "required in selected branch",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": false,
+      "path": "from_gromacs.gro",
+      "role": "input_file",
+      "source": "src/neomd/prepare.py:496-517",
+      "type": "string",
+      "unit": null
+    },
+    {
+      "default": "required in selected branch",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": false,
+      "path": "from_gromacs.top",
+      "role": "input_file",
+      "source": "src/neomd/prepare.py:496-517",
+      "type": "string",
+      "unit": null
+    },
+    {
+      "default": "required in selected branch",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": false,
+      "path": "from_gromacs.ff_path",
+      "role": "input_directory",
+      "source": "src/neomd/prepare.py:496-517",
+      "type": "string",
+      "unit": null
+    },
+    {
+      "default": "required in selected branch",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": false,
+      "path": "from_amber.inpcrd",
+      "role": "input_file",
+      "source": "src/neomd/prepare.py:496-517",
+      "type": "string",
+      "unit": null
+    },
+    {
+      "default": "required in selected branch",
+      "omission": "preserve; default is executor behavior, never serializer insertion",
+      "online": false,
+      "path": "from_amber.prmtop",
+      "role": "input_file",
+      "source": "src/neomd/prepare.py:496-517",
+      "type": "string",
+      "unit": null
+    }
+  ],
+  "unsupported_consumed_metadata": [
+    "templates",
+    "barostat",
+    "system_modification"
+  ],
+  "unsupported_ignored_keys": [
+    "ff_setting.rename_by_template",
+    "ff_setting.templates",
+    "box",
+    "pH",
+    "padding"
+  ]
+}

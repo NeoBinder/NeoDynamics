@@ -1,0 +1,6 @@
+protein:
+  path: ./protein.pdb
+additional:
+  add_hydrogens: false
+  ion_Strength: 1.0e-1
+output_dir: ./prepared

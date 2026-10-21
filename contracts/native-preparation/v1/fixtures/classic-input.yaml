@@ -1,0 +1,26 @@
+protein:
+  path: ./protein.pdb
+ligands:
+  lig1:
+    path: ./ligand.sdf
+    smiles: CCCc1ccccc1O
+    resname: JZ4
+ff_setting:
+  base_ff: amber/protein.ff14SB.xml
+  water_model: amber/tip3p_standard.xml
+additional:
+  add_hydrogens: true
+  add_solv_ions: true
+  ion_Strength: 0.1
+  center_model: true
+system_params:
+  constraints: HBonds
+  nonbonded_method: pme
+  nonbondedCutoff: 1.0
+  rigidWater: true
+  removeCMMotion: false
+  hydrogenMass: 3
+qc:
+  mode: soft
+output_keepid: false
+output_dir: ./prepared
