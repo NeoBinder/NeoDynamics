@@ -10,9 +10,22 @@ The as-built module responsibilities and settled choices are documented in
 The repository Pixi lock targets Linux. `default` contains the OpenMM engine;
 `test` adds preparation/test dependencies; `docs` builds this site. Optional
 `ml` and `rbfe` environments carry their own scientific dependencies. Select
-one with `pixi run -e NAME`. The resident service and its database tests live
-in the NeomdServer repository, together with the `server` environment they
-need.
+one with `pixi run -e NAME`.
+
+`runtime` and `runtime-test` are the consumer environments (ADR-0012): the
+qualified scientific stack (OpenMM 8.6.0, OpenFF, PDBFixer, Gemmi, AmberTools)
+plus `pip`, without the editable engine install; `runtime-gpu` adds the
+`cuda-version 13.2` NVRTC tier for the GPU image. A downstream distribution such
+as the resident service installs this environment from the pinned submodule and
+adds the engine wheel on top instead of declaring the scientific stack itself:
+
+```bash
+pixi install -m third_party/NeoDynamics/pyproject.toml -e runtime-test --locked
+third_party/NeoDynamics/.pixi/envs/runtime-test/bin/python -m pip install --no-deps <engine-wheel> <consumer-wheel>
+```
+
+The resident service and its database tests live in the NeomdServer repository;
+that repository consumes this runtime environment and owns no scientific pins.
 External preparation tools such as antechamber, ORCA and Multiwfn must also be
 available when the chosen workflow needs them; see
 [preparation tools](preparation-tools.md).

@@ -123,7 +123,7 @@ index-url = "https://pypi.org/simple"
 python = "3.12.*"
 
 # The engine stack lives in a FEATURE so the ml environment can carry its own
-# openmm pin (ADR-0004) without intersecting a workspace-level 8.6.*.
+# openmm pin (ADR-0004) without intersecting the qualified 8.6.0 line.
 # The editable engine install belongs to this feature, not the workspace: the
 # `ml` environment pins openmm 8.5.* (ADR-0004) and cannot satisfy the
 # engine's own `openmm>=8.6` requirement, so it runs from PYTHONPATH instead.
@@ -131,16 +131,39 @@ python = "3.12.*"
 NeoDynamics = { path = ".", editable = true }
 
 [tool.pixi.feature.engine.dependencies]
-openmm = "8.6.*"
+pytest = "*"
+
+# The scientific stack is separate from the editable engine so a consumer
+# runtime (ADR-0012) can install it without the engine source tree or its test
+# tooling. openmm is pinned to the qualified build because preparation
+# fixtures and golden recordings record this exact loader identity.
+[tool.pixi.feature.science.dependencies]
+openmm = "==8.6.0"
 openmmforcefields = ">=0.16,<0.17"
 openff-toolkit = ">=0.19,<0.20"
 gemmi = ">=0.7.5,<0.8"
-pytest = "*"
 
 [tool.pixi.feature.test.dependencies]
 pytest = "*"
 jsonschema = ">=4.26,<5"
 pdbfixer = "*"
+
+# Consumer runtime (ADR-0012): the resident service installs this environment
+# from the pinned submodule instead of declaring the scientific stack itself.
+# `pip` installs the service wheel and its PyPI dependencies on top of the
+# conda environment; ambertools supplies the GAFF stages and pdbfixer/jsonschema
+# are runtime preparation dependencies (the `test` feature only adds pytest).
+[tool.pixi.feature.runtime.dependencies]
+ambertools = "*"
+pip = "*"
+pdbfixer = ">=1.12"
+jsonschema = ">=4.26,<5"
+
+# CUDA tier for the GPU runtime image. Kept apart from feature.runtime so the
+# CPU/CI environment does not carry an NVRTC pin; the image solves this feature
+# with CONDA_OVERRIDE_CUDA=13.2 so OpenMM links the matching NVRTC build.
+[tool.pixi.feature.cuda.dependencies]
+cuda-version = "13.2.*"
 
 [tool.pixi.feature.docs.dependencies]
 mkdocs-material = "*"
@@ -189,14 +212,20 @@ rfc8785 = ">=0.1.4,<1"
 test-ml = { cmd = "pytest tests/v2/test_mlmm.py -v", env = { PYTHONPATH = "src" } }
 
 [tool.pixi.environments]
-default = { features = ["engine"], solve-group = "default" }
-test = { features = ["engine", "test"], solve-group = "default" }
-dev = { features = ["engine", "dev"], solve-group = "dev" }
-docs = { features = ["engine", "docs"], solve-group = "default" }
+default = { features = ["engine", "science"], solve-group = "default" }
+test = { features = ["engine", "science", "test"], solve-group = "default" }
+dev = { features = ["engine", "science", "dev"], solve-group = "dev" }
+docs = { features = ["engine", "science", "docs"], solve-group = "default" }
 ml = { features = ["ml"], solve-group = "ml", no-default-feature = true }
 # the rbfe env's gate: the default tier (import-gated tests skip there) plus
 # the openmmtools-gated alchemy smoke (tests/v2/test_rbfe_alchemy.py)
-rbfe = { features = ["engine", "rbfe", "test"], solve-group = "rbfe" }
+rbfe = { features = ["engine", "science", "rbfe", "test"], solve-group = "rbfe" }
+# Consumer runtime (ADR-0012): the scientific stack, the GAFF stages and pip,
+# without the editable engine install. An image or downstream CI installs the
+# engine wheel separately; `runtime-test` adds the engine test extras.
+runtime = { features = ["science", "runtime"], solve-group = "runtime" }
+runtime-test = { features = ["science", "test", "runtime"], solve-group = "runtime" }
+runtime-gpu = { features = ["science", "runtime", "cuda"], solve-group = "runtime-gpu" }
 
 [tool.pixi.tasks]
 test = "pytest tests/ -m 'not golden and not legacy'"
