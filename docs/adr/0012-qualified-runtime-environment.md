@@ -7,9 +7,9 @@ Status: accepted; implementation on `feat/runtime-env`. Builds on ADR-0010
 
 After ADR-0010 the resident service lives in its own repository, but the
 scientific runtime it needs was still declared in that repository: once in the
-Pixi workspace used for development and CI, and once in
-`docker/environment/pixi.toml` for the image. Both copies pinned OpenMM, OpenFF,
-OpenMMForceFields, Gemmi, PDBFixer and AmberTools.
+Pixi workspace used for development and CI, and once in a second,
+container-only environment manifest for the image. Both copies pinned OpenMM,
+OpenFF, OpenMMForceFields, Gemmi, PDBFixer and AmberTools.
 
 That duplication has concrete costs:
 
@@ -64,7 +64,7 @@ are qualified against.
   existing `default`/`test`/`dev`/`docs`/`ml`/`rbfe` environments keep exactly
   the same package set.
 - The service repository removes its scientific pins, its Pixi workspace and
-  its `docker/environment` copy, and pins this engine revision instead. Its
+  its container environment copy, and pins this engine revision instead. Its
   web/runtime dependencies (asyncpg, FastAPI, Uvicorn, WebSockets, httpx)
   remain service-owned and are locked separately.
 - A change to the science stack is an engine change with an engine version,
