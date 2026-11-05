@@ -197,7 +197,7 @@ class LigandExchange:
         self.last_check = event
         if not event["changed"]:
             self._last_checked_step = journal_step
-            return
+            return False
         self.pending = event
         self.persist()  # intent precedes mutation; no checkpoint may be emitted inside this hook
         self.kernel.permute_ligands(self.copies, permutation)
@@ -209,3 +209,4 @@ class LigandExchange:
         self._last_checked_step = journal_step
         self.pending = None
         self.persist()  # completion precedes every reporter and checkpoint at this step
+        return True

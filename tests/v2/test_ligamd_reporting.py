@@ -19,8 +19,9 @@ from neomd.sinks import MemorySink
 def config(steps=None, *, sample_interval=10, trace_interval=10, **gamd):
     """A LiGaMD plan; the cadences live in output.gamd (ADR-0011)."""
     return {"method": "gamd", "temperature": 298,
-            "steps": steps or {"unbiased_eq": 0, "unbiased_production": 10,
-                               "biased_eq": 0, "biased_eq2": 0, "production": 20},
+            "steps": steps or {"unbiased_eq": 2, "unbiased_production": 10,
+                               "biased_eq": 2, "biased_eq2": 2, "production": 20,
+                               "ntave": 2},
             "integrator": {"dt": 0.002},
             "input_files": {"complex": "unused.pdb", "system": "unused.xml"},
             "output": {"output_dir": "unused", "trajectory_interval": 0,
@@ -90,12 +91,29 @@ def test_include_boundary_rejects_a_force_type_outside_force_types():
         ]))
 
 
-def test_overlapping_excluded_boundary_nonbonded_claims_are_rejected_in_plan_validation():
-    with pytest.raises(ConfigValueError, match="overlaps the nonbonded claim"):
+def test_cross_boost_nonbonded_overlap_is_legal_in_plan_validation():
+    """Cross-boost overlap is the point of independent claims (AMBER dual);
+    only WITHIN-boost problems are rejected."""
+    plan = Plan.from_dict(config(boosts=[
+        {"label": "a", "selectors": [{"atom_indices": [0, 1], "force_types": ["nonbonded"],
+                                      "include_boundary": False}]},
+        {"label": "b", "selectors": [{"atom_indices": [1, 2], "force_types": ["nonbonded"]}]},
+    ]))
+    assert [boost["label"] for boost in plan.gamd["boosts"]] == ["a", "b"]
+    with pytest.raises(ConfigValueError, match="double-count"):
         Plan.from_dict(config(boosts=[
-            {"label": "a", "selectors": [{"atom_indices": [0, 1], "force_types": ["nonbonded"],
-                                          "include_boundary": False}]},
-            {"label": "b", "selectors": [{"atom_indices": [1, 2], "force_types": ["nonbonded"]}]},
+            {"label": "a", "selectors": [
+                {"atom_indices": [0, 1], "force_types": ["nonbonded"],
+                 "include_boundary": False},
+                {"atom_indices": [1, 2], "force_types": ["nonbonded"],
+                 "include_boundary": False}]},
+        ]))
+    with pytest.raises(ConfigValueError, match="mixes include_boundary.nonbonded"):
+        Plan.from_dict(config(boosts=[
+            {"label": "a", "selectors": [
+                {"atom_indices": [0], "force_types": ["nonbonded"]},
+                {"atom_indices": [2], "force_types": ["nonbonded"],
+                 "include_boundary": False}]},
         ]))
 
 
@@ -225,12 +243,19 @@ def test_checkpoint_commits_only_after_complete_boundary(failure):
     assert events == (["report"] if failure == "report" else ["report", "method_update"])
 
 
-def test_biased_eq2_is_optional_and_defaults_to_zero():
-    plan = Plan.from_dict(config(steps={"unbiased_eq": 0, "unbiased_production": 10,
-                                        "biased_eq": 0, "production": 20}))
-    assert plan.gamd_steps["biased_eq2"] == 0
-    assert plan.steps == 30
-    # the other stages stay required
+def test_all_five_stages_are_required_and_must_have_steps():
+    """The five-stage protocol is strict: omitting a stage or giving it no
+    steps is a validation error naming the path."""
+    plan = Plan.from_dict(config(steps={"unbiased_eq": 2, "unbiased_production": 10,
+                                        "biased_eq": 2, "biased_eq2": 3,
+                                        "production": 20}))
+    assert plan.gamd_steps["biased_eq2"] == 3
+    assert plan.steps == 37
     with pytest.raises(ConfigKeyError, match="missing GaMD stage"):
-        Plan.from_dict(config(steps={"unbiased_eq": 0, "biased_eq": 0,
-                                     "biased_eq2": 0, "production": 20}))
+        Plan.from_dict(config(steps={"unbiased_eq": 2, "biased_eq": 2,
+                                     "biased_eq2": 2, "production": 20}))
+    for zero in ("unbiased_eq", "biased_eq", "biased_eq2"):
+        with pytest.raises(ConfigValueError, match=f"steps.{zero}"):
+            Plan.from_dict(config(steps={"unbiased_eq": 2, "unbiased_production": 10,
+                                         "biased_eq": 2, "biased_eq2": 2,
+                                         "production": 20} | {zero: 0}))

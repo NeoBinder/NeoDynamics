@@ -25,7 +25,7 @@ from neomd.kernel.port import (
     LegOps,
     provides,
 )
-from tests.v2.test_gamd_partition import fixture
+from tests.v2.test_gamd_partition import fixture, selection
 
 
 def _fake(seed=5):
@@ -129,7 +129,10 @@ def _spec(tmp_path, *, managed_npt: bool):
 
 def _openmm(tmp_path, managed_npt=False):
     kernel = OpenMMKernel(_spec(tmp_path, managed_npt=managed_npt))
-    kernel.install_boost([BoostChannelIR(label="total", groups=())])
+    report = kernel.compile_boost_partitions([
+        selection("total", "all", ["bond", "angle", "dihedral", "nonbonded"])])
+    kernel.install_boost([BoostChannelIR(row["label"], tuple(row["groups"]))
+                          for row in report["channels"]])
     # a threshold above the fixture's potential energy: the boost only acts
     # below it (depth = max(0, threshold - energy)), so k is exercised
     kernel.set_boost_param("total", "threshold", 100.0)

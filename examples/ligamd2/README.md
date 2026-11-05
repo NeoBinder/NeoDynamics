@@ -29,9 +29,12 @@ Its values convert to 37.656/25.104 kJ/mol internally. Durations here are
 examples, not the paper's replicated microsecond validation protocol.
 
 A single explicit boost is valid: remove the final `remaining` entry to keep all
-other interactions unboosted. Multiple explicit channels are processed in list
-order; first match wins. Restraints are excluded from all explicit/remainder
-boosts and remain part of the sampled potential and NPT acceptance energy.
+other interactions unboosted. Multiple boost claims are independent: every
+boost owns everything its selectors match, so claims may overlap (a shared
+interaction is boosted once per covering channel), and the final `remaining`
+boost takes the exact complement of the union. Restraints are excluded from
+all explicit/remainder boosts and remain part of the sampled potential and
+NPT acceptance energy.
 
 Optional ligand exchange uses the method's explicit `exchange` configuration
 and an identity ledger. The deterministic nearest-ligand extension is

@@ -7,6 +7,11 @@ steps:
   biased_eq: 1000
   biased_eq2: 10000
   production: 978000
+  # the two statistics stages are whole multiples of ntave (AMBER's
+  # constraint); unset, the default is ~4x system atoms snapped to 1-2-5
+  # (e.g. 35633 atoms -> 100000) — set it explicitly when stage lengths
+  # are not multiples of that default
+  ntave: 10000
 temperature: 300
 seed: 2026
 integrator: {dt: 0.002, friction_coeff: 1.0}

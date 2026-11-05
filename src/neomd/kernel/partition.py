@@ -117,18 +117,26 @@ class Selection:
 
 
 def nonbonded_claims(chosen: Sequence[Selection]) -> tuple[dict | None, ...]:
-    """Resolve ordered nonbonded ownership of one boost partition.
+    """Resolve per-boost nonbonded coverage of one boost partition.
 
     Returns one entry per boost: ``None`` when it claims no nonbonded channel,
-    else ``{'include', 'sets'}``.  ``include=True`` keeps any-member coverage of
-    the union; ``include=False`` owns the pairs fully inside each of its disjoint
-    sets.  ``include=False`` therefore turns the channel into the masked
-    isolated-subsystem block ``M(S)``, whose complement the remainder supplies.
-    Every such set must be disjoint from all other claim sets, because
-    reciprocal-space blocks are not additive across overlapping subsets.
+    else ``{'include', 'sets'}``.  ``include=True`` is any-member coverage of
+    the union (every pair and long-range term touching it); ``include=False``
+    owns the masked isolated-subsystem blocks ``M(S)`` of its sets (each set's
+    own direct pairs, reciprocal-space block, self energy, masking background
+    and dispersion).
+
+    Claims are INDEPENDENT: two boosts may cover the same pairs (AMBER's
+    dual-boost shape — a shared interaction is boosted once per covering
+    channel).  Only two within-boost constraints remain, both about the
+    boost's OWN energy being a well-defined sum: one
+    ``include_boundary.nonbonded`` value per boost, and pairwise-disjoint
+    ``include=False`` sets within one boost (M(S) blocks double-count their
+    intersection).  Cross-boost ``include=False`` overlaps are legal — the
+    ``remaining`` complement resolves them by inclusion-exclusion over the
+    masked subset energies.
     """
     claims: list[dict | None] = []
-    seen: list[tuple[frozenset[int], bool]] = []
     for choice in chosen:
         selectors = choice.nonbonded_selectors()
         if not selectors:
@@ -139,29 +147,23 @@ def nonbonded_claims(chosen: Sequence[Selection]) -> tuple[dict | None, ...]:
             raise ValueError(f'boost {choice.label!r} mixes include_boundary.nonbonded '
                              f'values {sorted(policies)}; use one value per boost')
         include = policies.pop()
+        own: list[frozenset[int]] = []
         for selector in selectors:
             if not include:
-                for other, _ in seen:
+                for other in own:
                     if selector.atoms & other:
                         raise ValueError(
-                            f'boost {choice.label!r} include_boundary.nonbonded=false set '
-                            'overlaps nonbonded atoms of another claim; overlapping '
-                            'subsets have no additive PME decomposition')
-            elif any(not other_include and selector.atoms & other
-                     for other, other_include in seen):
-                raise ValueError(
-                    f'boost {choice.label!r} nonbonded claim overlaps another boost\'s '
-                    'include_boundary.nonbonded=false set; overlapping subsets have no '
-                    'additive PME decomposition')
-            seen.append((selector.atoms, include))
+                            f'boost {choice.label!r} has overlapping '
+                            'include_boundary.nonbonded=false sets; its masked '
+                            'blocks M(S) would double-count the intersection')
+            own.append(selector.atoms)
         if include:
             union: frozenset[int] = frozenset()
             for selector in selectors:
                 union |= selector.atoms
             claims.append({'include': True, 'sets': (union,)})
         else:
-            claims.append({'include': False,
-                           'sets': tuple(s.atoms for s in selectors)})
+            claims.append({'include': False, 'sets': tuple(own)})
     return tuple(claims)
 
 
@@ -188,12 +190,21 @@ def selections(boosts: Sequence[Mapping], particles: int) -> tuple[Selection, ..
             where = f'boosts[{n}].selectors[{j}]'
             atoms = selector.get('atom_indices', ())
             types = expand_force_types(selector.get('force_types', ()), where)
-            if not atoms or any(isinstance(i, bool) or not isinstance(i, int)
-                                or not 0 <= i < particles for i in atoms):
+            if isinstance(atoms, str):
+                # the whole-system alias (AMBER's igamd=1..5 semantics: the
+                # force type taken over ALL particles, e.g. every dihedral)
+                if atoms != 'all':
+                    raise ValueError(f'{where}.atom_indices must be "all" or a '
+                                     f'nonempty list of zero-based indices')
+                atoms = frozenset(range(particles))
+            elif not atoms or any(isinstance(i, bool) or not isinstance(i, int)
+                                  or not 0 <= i < particles for i in atoms):
                 raise ValueError(f'{where}.atom_indices contains invalid indices')
+            else:
+                atoms = frozenset(atoms)
             include_boundary = parse_include_boundary(
                 selector.get('include_boundary'), types, where)
-            parsed.append(Selector(frozenset(atoms), types, include_boundary))
+            parsed.append(Selector(atoms, types, include_boundary))
         result.append(Selection(label, tuple(parsed), remaining))
     if not result:
         raise ValueError('boosts must not be empty')

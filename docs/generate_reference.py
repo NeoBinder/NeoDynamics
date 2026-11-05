@@ -88,13 +88,17 @@ _TOP_LEVEL = {
     ),
     "gamd": (
         "mapping",
-        "GaMD boost parameters (method `gamd`, ADR-0005/0010): `mode` "
-        "(total|dual|channels), `sigma0` (boost strength; absent = 6 kcal/mol, "
-        "a written number is in `energy_unit`, default kJ/mol), staged-protocol knobs "
-        "and its output namespace `output.gamd` (tape switch, cadences), "
-        "optional `restart_from` / `calibration_input` for continues; "
-        "explicit `channels: [{label, groups}]` for LiGaMD-style setups. "
-        "Stage lengths live in the per-stage `steps` mapping.",
+        "GaMD boost parameters (method `gamd`, ADR-0005/0010): `boosts` "
+        "(absent = plan-level default boost1: every atom and every force type, "
+        "lower threshold policy, sigma0 6 kcal/mol), `sigma0` (boost strength; "
+        "absent = 6 kcal/mol, a written number is in `energy_unit`, default "
+        "kJ/mol), `boost_cv_mode` (`dv` = V0 stays native and the CV carries "
+        "only dV; `v0_dv` = covered native forces move V0+dV into the CV), "
+        "`emit_system` ({stage, E, K}: write the stage's System XML without "
+        "simulating), staged-protocol knobs and its output namespace "
+        "`output.gamd` (tape switch, cadences), optional `restart_from` / "
+        "`calibration_input` for continues. Stage lengths live in the "
+        "per-stage `steps` mapping.",
     ),
     "opes_set": (
         "mapping",
@@ -128,7 +132,10 @@ _TOP_LEVEL = {
         "bool",
         "Resume the run from its checkpoint: the single resume owner "
         "restores the kernel and trims every tape to the checkpoint step. "
-        "Derived default: false.",
+        "A gamd run has two modes: with `gamd.restart_from` it re-enters that "
+        "stage's start from `<output_dir>/restart/<stage>.ckpt` (no "
+        "`input_files.checkpoint` needed); without it, a mid-stage resume "
+        "requires an explicit `input_files.checkpoint`. Derived default: false.",
     ),
     "colvars": (
         "mapping name -> spec",
@@ -173,7 +180,23 @@ _TOP_LEVEL = {
     ),
     "debug": (
         "bool or mapping",
-        "Debug switches.",
+        "Generic numerical debug for every method (neomd.watch). `true` "
+        "enables the per-step numerical trace, first-NaN/Inf detection, "
+        "crash snapshot and an interactive `pdb.post_mortem` at the failing "
+        "frame; `false` is the default. Mapping keys: `enabled`, "
+        "`break_on_error` (default true), `check_nonfinite` (default true), "
+        "`integrator_snapshots` (default true for debugged CustomIntegrators; "
+        "staged `in<n>_*`/`out<n>_*` F/V/X plus scalar energy/V0 globals, "
+        "changes the RNG stream), "
+        "`force_group_per_force` (default false; debug-only one physical "
+        "force group per active Force; errors above OpenMM's 32-group "
+        "limit; methods always keep logical group ids), "
+        "`history` (400), `log_interval` (50), `full_interval` (1; 0 disables "
+        "the force/energy read), `deep_interval` (500; 0 disables) and "
+        "`memory` (50). `neomd run --debug` toggles only `enabled`, so a "
+        "detailed YAML section keeps its cadence and breaker settings. "
+        "Requires an interactive terminal for the breakpoint; batch runs use "
+        "`break_on_error: false`. Legacy `NEOMD_WATCH=1` remains dump-only.",
     ),
     "system_modification": (
         "mapping or list",
@@ -195,8 +218,10 @@ _INPUT_FILES = {
     "system": "Path to the serialized openmm `System` XML.",
     "ligands": "Path to the ligand parameter JSON (from `neomd prepare`).",
     "checkpoint": "Kernel checkpoint to restore (mutually exclusive with "
-                  "`state` under `continue_md`; defaulted to "
-                  "`<output_dir>/output.ckpt` by the derived view).",
+                  "`state` under `continue_md`). Non-gamd mid-stage continues "
+                  "default it to `<output_dir>/output.ckpt`; a gamd mid-stage "
+                  "resume must name it, and a gamd `restart_from` defaults it "
+                  "to `<output_dir>/restart/<stage>.ckpt`.",
     "state": "State file alternative to `checkpoint` for resuming.",
     "templates": "Forcefield template XMLs: a comma-separated string or a "
                  "list of paths (split into a list by the derived view).",

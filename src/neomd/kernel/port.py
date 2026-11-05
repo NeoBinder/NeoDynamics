@@ -1,7 +1,7 @@
 """KernelPort — the physics-kernel seam: the closed operation surface every
 driver, probe and method calls, plus the optional capability protocols
-(BiasOps, BiasParamOps, GroupEnergy, StructureWriter, BoostOps, LegOps)
-negotiated via :func:`provides` — never assumed.
+(BiasOps, BiasParamOps, GroupEnergy, StructureWriter, BoostOps, LegOps,
+WatchOps) negotiated via :func:`provides` — never assumed.
 
 See ``docs/architecture.md`` and ``docs/adr/0005-gamd-boost-seam.md``.
 """
@@ -30,6 +30,8 @@ __all__ = [
     "BoostReading",
     "BoostOps",
     "LegOps",
+    "WatchOps",
+    "IntegratorSnapshotOps",
     "PartitionOps",
     "LigandExchangeOps",
     "CVIR",
@@ -330,6 +332,12 @@ class KernelSpec:
     temperature: float = 298.0  # K
     seed: int = 0
     platform: str = "cuda"  # "cuda" (default) | "cpu"
+    #: GaMD CV energy-model spelling (``dv`` = V0 stays native and the CV
+    #: carries only dV; ``v0_dv`` = the covered native force's V0 plus dV
+    #: live in the CV and the native force is removed).  Plan-level and
+    #: fixed for the whole run; part of the GaMD journal fingerprint so a
+    #: continue cannot silently switch it.
+    boost_cv_mode: str = "dv"
     device_index: str = "0"
     resume: dict | None = None  # {"checkpoint": path} or {"state": path}
     #: system modifications applied before the Context exists (barostat
@@ -444,8 +452,10 @@ class GroupEnergy(Protocol):
     """OPTIONAL capability: per-force-group potential-energy reads.
 
     What the restraint reporter's bias-energy column needs
-    (``group_energy({1, 4})`` -> the energy of exactly those force groups,
-    kJ/mol).  Kernels without group-resolved energies (the replay kernel
+    (``group_energy({1, 4})`` -> the energy of exactly those LOGICAL force
+    groups, kJ/mol).  Methods and ``RunOutcome.fgroups`` always use logical
+    ids; debug force-group splitting is a kernel-internal logical->physical
+    translation and never leaks into this API.  Kernels without group-resolved energies (the replay kernel
     plays a single tape potential) do not provide it and the reporter
     writes ``nan`` — ask ``provides(kernel, GroupEnergy)``.
     """
@@ -499,10 +509,14 @@ class BoostChannelIR:
     GaMD's boost potential ΔV(P) = ½·k·(E−P)² (applied while P < E, else 0)
     depends on the boosted region's OWN potential energy P, so the biased
     force is a SCALED system force, F* = −(1+ΔV′(P))·∇P = −(1−k(E−P))·∇P —
-    not expressible as an additive BiasIR.  A channel names its boost target:
-    the summed energy of ``groups``; ``groups == ()`` is the TOTAL channel
-    (all system force groups, i.e. everything except the groups
-    ``install_bias`` allocated — additive biases are not physics).
+    not expressible as an additive BiasIR.  A channel is a LOGICAL lane; its
+    P is either the summed energy of the real force group(s) in ``groups``
+    (whole-force partitions, where the kernel moves the native forces into a
+    pure group and the statistics integrator can read ``energy{g}``), or the
+    CustomCVForce's own cloned-value sum when ``groups == ()`` (partial /
+    clone-only channels — no physical force group is consumed).  ``groups``
+    never names additive-bias groups: installed restraints/SMD forces are not
+    physics and are excluded from every boost.
 
     Physics (Miao/Feher/McCammon JCTC 2015; LiGaMD Miao 2020): the effective
     harmonic constant is k = k0/(Vmax−Vmin) with 0 < k0 ≤ 1, which bounds the
@@ -523,7 +537,7 @@ class BoostChannelIR:
     """
 
     label: str  # channel name, [a-z][a-z0-9_]* — it is spliced into integrator expressions
-    groups: tuple[int, ...]  # force-group ids whose summed energy is P; () = total
+    groups: tuple[int, ...]  # real pure force-group ids whose energy is P; () = clone-only lane
     threshold: float = 1e99  # E, kJ/mol (zero-strength default with k=0)
     k: float = 0.0  # effective harmonic constant, 1/(kJ/mol); 0 = no boost
 
@@ -574,11 +588,11 @@ class BoostOps(Protocol):
     parameters using ``set_boost_param``. Late bias installs are refused
     because logical group ownership has already been frozen.
 
-    Dual-boost channel discovery is a duck-typed companion method
-    (``torsion_force_groups() -> tuple[int, ...]``, like GroupEnergy):
-    the openmm kernel reports/isolates the system's torsion forces, the
-    fake reports installed torsion biases.  Kernels without it report no
-    torsion groups — methods degrade or refuse cleanly.
+    The selection side lives in ``PartitionOps.compile_boost_partitions``:
+    boosts are INDEPENDENT claims over atom groups and force types — a
+    shared interaction is boosted once per covering channel — and the
+    optional final ``remaining`` boost takes the exact complement of the
+    union of the others' coverage.
     """
 
     def install_boost(self, channels: Iterable[BoostChannelIR]) -> None:
@@ -680,6 +694,75 @@ class CheckpointMetadataOps(Protocol):
     def set_checkpoint_metadata(self, metadata: dict) -> None: ...
 
     def checkpoint_metadata(self) -> dict: ...
+
+
+@runtime_checkable
+class WatchOps(Protocol):
+    """OPTIONAL capability: read-only per-step numerical debug observations.
+
+    What :mod:`neomd.watch` needs to record a pre-crash window without
+    reaching through the kernel seam.  EVERY method must be read-only:
+    positions/velocities/forces/box and method diagnostics may be fetched, but
+    no coordinate, velocity, parameter or RNG state may be changed.  Kernels
+    without it (fake/replay) still get the driver's post-mortem breakpoint but
+    cannot record per-step numerics.
+
+    Units are the engine's canonical ones: positions nm, velocities nm/ps,
+    forces kJ/mol/nm, energy kJ/mol, box vectors (3, 3) nm.
+    """
+
+    def set_watch(self, watch) -> None:
+        """Attach the per-step observer (``neomd.watch.StepWatch``)."""
+        ...
+
+    def notify_watch_failure(self, step: int, error: BaseException) -> None:
+        """Let the observer dump its window for a failure raised outside the
+        stepping loop (the method's per-sample energy check, a probe)."""
+        ...
+
+    def watch_state(self) -> dict:
+        """Cheap state observation: ``positions``/``velocities`` arrays plus
+        scalar step/leg/kinetic/temperature/volume and optional box array."""
+        ...
+
+    def watch_energy(self, *, include_arrays: bool = False) -> dict:
+        """Potential/forces summary; ``include_arrays=True`` also returns the
+        full ``forces`` array so the crash snapshot needs one force call."""
+        ...
+
+    def watch_deep(self) -> dict:
+        """Method/kernel-specific diagnostic readings (JSON-safe)."""
+        ...
+
+    def watch_positions(self):
+        """Current positions (NaN allowed) or None when unreadable."""
+        ...
+
+    def watch_particle_labels(self, indices) -> list[dict]:
+        """Topology labels for particle indices in a non-finite report."""
+        ...
+
+    def platform_info(self) -> dict:
+        """Platform/precision provenance for the crash dump."""
+        ...
+
+
+@runtime_checkable
+class IntegratorSnapshotOps(Protocol):
+    """OPTIONAL capability: exact per-step CustomIntegrator F/V/X snapshots.
+
+    Implemented by the OpenMM adapter for any debugged CustomIntegrator.  Values
+    are read back from named per-DOF variables the integrator wrote on the
+    GPU, so ``in<n>_*``/``out<n>_*``, ``out0_f``, ``out0_f_group_*``,
+    ``out0_energy`` and the scalar ``out0_energy_group_*``/``out9_*`` globals
+    are the values used at those stages, not a later ``getState``
+    recomputation.  Kernels without it (stock integrators, fake/replay)
+    return ``{}`` from the watch's ``getattr`` fallback.
+    """
+
+    def watch_integrator_values(self) -> dict:
+        """Map a stable stage name to its (N, 3) per-DOF snapshot."""
+        ...
 
 
 @runtime_checkable

@@ -2,11 +2,14 @@
 # not a protein–ligand binding simulation or exact LiGaMD2 paper reproduction.
 method: gamd
 steps:
-  unbiased_eq: 0
+  unbiased_eq: 10
   unbiased_production: 20
   biased_eq: 10
   biased_eq2: 20
   production: 50
+  # each statistics stage is exactly one ntave window (the AMBER whole-window
+  # constraint); unset, the default is ~4x system atoms snapped to 1-2-5
+  ntave: 20
 temperature: 298
 seed: 2026
 integrator: {dt: 0.002, friction_coeff: 1.0}

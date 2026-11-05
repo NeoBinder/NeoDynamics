@@ -1,8 +1,9 @@
 """Gaussian-accelerated MD (GaMD) — a method knowledge triple (schema +
 prepare + the staged calibration/boost run).  See ADR-0005
-(docs/adr/0005-gamd-boost-seam.md), ADR-0010 (per-stage steps input and
-boundary restart), ADR-0011 (each stage is an independent LEG with its own
-Context and step axis) and docs/methods/gamd.md.  Registers method: ``gamd``.
+(docs/adr/0005-gamd-boost-seam.md), ADR-0010 (per-stage steps input,
+boundary restart and the AMBER adaptation schedule), ADR-0011 (each stage
+is an independent LEG with its own Context and step axis) and
+docs/methods/gamd.md.  Registers method: ``gamd``.
 Never imports openmm (methods stay kernel-agnostic; the port's kJ/mol
 unit conventions throughout).
 """
@@ -53,12 +54,21 @@ LOG = logging.getLogger("neomd.methods.gamd")
 STAGE_NAMES = ("unbiased_eq", "unbiased_production", "biased_eq", "biased_eq2")
 ALL_STAGE_NAMES = STAGE_NAMES + ("production",)
 
-#: Statistics stages.  ``unbiased_production`` samples the un-boosted
-#: ensemble; the boosted equilibrations sample the original channel energy
-#: under the parameter set fixed at their start.  Parameters are handed over
-#: only at a stage boundary (never inside a stage): the source stage's
-#: samples calibrate the NEXT boost stage (ADR-0010).
+#: Sampled stages: every phase whose channel energies land in the journal
+#: (diagnostics for the boosted equilibration, statistics for the two
+#: AMBER statistics stages below).
 _SAMPLE_PHASES = ("unbiased_production", "biased_eq", "biased_eq2")
+
+#: Statistics stages — AMBER's staged protocol (GaMD_Amber-manual,
+#: gamd-openmm stage_integrator): Vmax/Vmin/Vavg/sigmaV are collected in the
+#: cMD statistics stage (``unbiased_production``) and updated FURTHER in the
+#: adaptive bias collection stage (``biased_eq2``, AMBER's nteb); the bias
+#: preparation stage (``biased_eq``, ntebprep) and production run under the
+#: parameters fixed at their start.  Push schedule: once at the END of
+#: ``unbiased_production``, then every ``steps.ntave``-step window inside
+#: ``biased_eq2`` (plus its leg end) — parameters MOVE inside that one leg,
+#: a deliberate ADR-0010 amendment; production never retunes.
+_STATS_PHASES = ("unbiased_production", "biased_eq2")
 
 #: Checkpoint-metadata key holding the leg the snapshot belongs to.  A leg's
 #: clock is relative to its own Context and its RNG stream is that Context's,
@@ -66,10 +76,14 @@ _SAMPLE_PHASES = ("unbiased_production", "biased_eq", "biased_eq2")
 #: alone cannot disambiguate a clock of 0 between two adjacent leg entries.
 _LEG_METADATA_KEY = "gamd_leg"
 
-#: Stage whose samples calibrate the next boost stage.  ``biased_eq`` hands
-#: over only when ``biased_eq2`` has steps; ``biased_eq2`` never recalibrates,
-#: so production keeps the parameter set its last boost stage started with.
-_HANDOFF_SOURCE = {"unbiased_production": "biased_eq", "biased_eq": "biased_eq2"}
+#: Checkpoint-metadata key carrying the per-step adaptation statistics
+#: (Vmax/Vmin extremes, window + cumulative Welford, the open window) and
+#: the live channel parameters, together with the leg/step they were fed
+#: through.  The statistics are fed every step (AMBER/GaMD-OpenMM), so the
+#: journal's lattice samples cannot rebuild them; the envelope is atomic
+#: with the Context state, making a mid-leg resume of the ADAPTATION exact
+#: (the trajectory itself stays exact only in NVT, ADR-0009).
+_STATS_METADATA_KEY = "gamd_stats"
 
 #: Steps between cumulative-journal flushes inside one preparation
 #: call.  The driver now stops at every reporting-probe boundary, so
@@ -78,26 +92,65 @@ _HANDOFF_SOURCE = {"unbiased_production": "biased_eq", "biased_eq": "biased_eq2"
 _FLUSH_INTERVAL = 5000
 
 #: The built-in boost-strength default: 6 kcal/mol (gamd-openmm's literature
-#: value for the total channel).  It applies when ``gamd.sigma0`` is absent; a
+#: value for the default whole-system boost).  It applies when ``gamd.sigma0`` is absent; a
 #: number written in the YAML is interpreted in ``gamd.energy_unit`` (kJ/mol
 #: unless that key says otherwise).  Everything internal is kJ/mol.
 DEFAULT_SIGMA0_KCAL_MOL = 6.0
 
+
+def default_ntave(num_particles: int) -> int:
+    """The ``steps.ntave`` default: AMBER's ~4x-system-size recommendation.
+
+    Amber 26 manual: "The default is set to 50,000 for GaMD simulations.  It
+    is recommended to be updated as about 4 times of the total number of
+    atoms in the system."  We implement the recommendation (not AMBER's flat
+    50,000) snapped to the 1-2-5 significant-digit series: write 4N as
+    a*10^n with 1 <= a < 10, pick whichever of 1, 2, 5, 10 is nearest to a
+    (the 10 candidate covers rounding up into the next decade) and scale it
+    back.  Ties pick the smaller value (deterministic).
+    """
+    a = float(4 * num_particles)
+    n = 0
+    while a >= 10.0:
+        a /= 10.0
+        n += 1
+    pick = min((1.0, 2.0, 5.0, 10.0), key=lambda c: (abs(c - a), c))
+    return max(1, int(pick * 10 ** n))
+
+
 #: the ``gamd:`` plan section defaults (per-stage lengths live in the
 #: plan-level ``steps`` mapping, see STAGE_NAMES)
 DEFAULT_SETTINGS = {
-    "mode": "total",  # "total" | "dual"  (explicit channels: see below)
+    # The boost layout is one vocabulary: ``boosts`` (independent, possibly
+    # overlapping claims; a final ``remaining: true`` boost takes the exact
+    # complement).  A plan that writes no ``boosts`` is normalized by
+    # ``plan._derive`` into the explicit default boost1 (whole system, every
+    # force type, sigma0 = 6 kcal/mol, lower threshold policy), so this
+    # default is only a fallback for direct construction.
     # None = the literature default, ``DEFAULT_SIGMA0_KCAL_MOL`` kcal/mol; a
-    # value written in the YAML is a plain number in ``energy_unit`` (kJ/mol
-    # unless that key says otherwise)
+    # value written in the YAML is a plain number in ``energy_unit``
     "sigma0": None,
-    "channels": None,  # optional [{label, groups}] explicit channel defs
-    "boosts": None,  # ordered atom/type partitions; never implicit remainder
+    "boosts": None,  # ordered independent boost claims; never implicit remainder
     "threshold_policy": "upper",  # preserves historical upper-with-lower-fallback
     "energy_unit": "kJ/mol",
+    "boost_cv_mode": "dv",  # dv | v0_dv: CV carries dV only, or V0 + dV
+    "emit_system": None,  # {stage, E, K}: write the System XML, do not simulate
     "exchange": None,
     "calibration_input": None,  # external energy tape / gamd_calibration.json
     "restart_from": None,  # continue_md: rerun from this stage's boundary
+}
+
+#: pre-boosts layout keys that were removed; reported with migration
+#: guidance instead of a bare unknown-key error
+_REMOVED_KEYS = {
+    "mode": (
+        "the whole-system boost is the plan-level default boost1 (write no "
+        "key); a dihedral channel is a boost with atom_indices: all + "
+        "force_types: [dihedral]; AMBER's dual boost is two overlapping "
+        "boosts — {force_types: all} plus {force_types: [dihedral]}"),
+    "channels": (
+        "define the partition with gamd.boosts selectors over atom groups "
+        "and force types instead of force-group ids"),
 }
 
 #: The sampling/recording cadences are OUTPUT detail, so they live in the
@@ -106,10 +159,11 @@ DEFAULT_SETTINGS = {
 #: coarse: the CE2 analysis can only use rows a saved frame matches, so a
 #: denser boost tape adds bytes, not information.  ``neomd.plan.gamd_output``
 #: owns the defaults; this mirrors them for direct GamdRun construction.
+#: (plan.gamd_output resolves the REAL defaults — including the
+#: trace_interval sync with trajectory_interval; these are the bare-plan
+#: fallback the plan-side reader fills in before this mirror ever applies)
 OUTPUT_DEFAULTS = {"report": True, "sample_interval": 1000,
                    "trace_interval": 5000}
-
-_VALID_MODES = ("total", "dual")
 
 #: cadence keys that moved into the method's output namespace (ADR-0011):
 #: the plan validator reports these with did-you-mean; kept here so direct
@@ -226,8 +280,8 @@ def _tape_energy_samples(path, labels):
     """Extract per-channel energy samples (kJ/mol) from an external tape.
 
     Accepts a ``gamd.tsv`` boost trace (``<label>__energy`` columns) or a
-    plain ``state.tsv`` energy log (its ``potential`` column feeds ONLY the
-    ``total`` channel — per-channel energies need a gamd tape).  The file
+    plain ``state.tsv`` energy log (its ``potential`` column feeds only a
+    SINGLE whole-system channel; per-channel energies need a gamd tape).  The file
     is user-specified provenance: which run's ensemble these samples
     describe is the user's responsibility, recorded via the sha256 the
     caller stores alongside the selected parameters.
@@ -250,13 +304,13 @@ def _tape_energy_samples(path, labels):
         column = f"{label}__energy"
         if column in header:
             index = header.index(column)
-        elif label == "total" and "potential" in header:
+        elif len(labels) == 1 and "potential" in header:
             index = header.index("potential")
         else:
             raise ValueError(
                 f"calibration_input {path!r} lacks a {column!r} column for "
-                f"boost channel {label!r} (a plain state.tsv can only feed "
-                "the total channel)")
+                f"boost channel {label!r} (a plain state.tsv can only feed a "
+                "single whole-system boost)")
         values = np.asarray([float(row.split("\t")[index]) for row in rows],
                             dtype=np.float64)
         if not np.all(np.isfinite(values)):
@@ -321,16 +375,17 @@ class GamdRun:
                 f"{ {key: _MOVED_OUTPUT_KEYS[key] for key in relocated} }: "
                 "they moved to the method's output namespace as "
                 + ", ".join(_MOVED_OUTPUT_KEYS[key] for key in relocated))
+        removed = sorted(set(section) & set(_REMOVED_KEYS))
+        if removed:
+            raise ValueError(
+                f"gamd section has removed keys {removed}: "
+                + "; ".join(f"gamd.{key}: {_REMOVED_KEYS[key]}" for key in removed))
         unknown = set(section) - set(DEFAULT_SETTINGS)
         if unknown:
             raise ValueError(
                 f"gamd section has unknown keys {sorted(unknown)} "
                 f"(known: {sorted(DEFAULT_SETTINGS)})")
         settings.update(section)
-        if settings["mode"] not in _VALID_MODES and not settings["channels"] and not settings["boosts"]:
-            raise ValueError(
-                f"gamd.mode must be one of {_VALID_MODES} (or define "
-                f"gamd.channels explicitly), got {settings['mode']!r}")
         sigma0_written = "sigma0" in section
         sigma0 = float(settings["sigma0"]) if sigma0_written else None
         if sigma0 is not None and (not np.isfinite(sigma0) or sigma0 <= 0.0):
@@ -339,6 +394,8 @@ class GamdRun:
         if settings["energy_unit"] not in ("kJ/mol", "kcal/mol"):
             raise ValueError("gamd.energy_unit must be kJ/mol or kcal/mol")
         self.energy_factor = 4.184 if settings["energy_unit"] == "kcal/mol" else 1.0
+        if settings.get("boost_cv_mode", "dv") not in ("dv", "v0_dv"):
+            raise ValueError("gamd.boost_cv_mode must be 'dv' or 'v0_dv'")
         # The built-in default is 6 kcal/mol; a written number is in
         # ``energy_unit`` (kJ/mol unless the section overrides the unit).
         self.sigma0 = (DEFAULT_SIGMA0_KCAL_MOL * 4.184 if sigma0 is None
@@ -354,6 +411,27 @@ class GamdRun:
                 f"gamd needs the per-stage steps mapping with keys "
                 f"{list(ALL_STAGE_NAMES)}; missing {missing}")
         self.gamd_steps = {name: int(gamd_steps[name]) for name in ALL_STAGE_NAMES}
+        # steps.ntave: the Vavg/sigmaV averaging window (AMBER's ntave).  An
+        # explicit value wins; the default is AMBER's ~4x-system-size
+        # recommendation snapped to the 1-2-5 series (default_ntave).
+        ntave = getattr(plan, "gamd_ntave", None)
+        self.ntave = (default_ntave(self.kernel.num_particles) if ntave is None
+                      else int(ntave))
+        # AMBER alignment: the two statistics stages must be whole ntave
+        # windows ("ntcmdprep, ntcmd, ntebprep and nteb need to be multiples
+        # of ntave") so every window the pushes read is complete.  Our
+        # per-leg windows restart at leg entry, so ntcmdprep/ntebprep need
+        # no constraint of their own; unbiased_production may be 0 when an
+        # external calibration_input supplies the parameters (0 divides).
+        for name in ("unbiased_production", "biased_eq2"):
+            if self.gamd_steps[name] % self.ntave:
+                raise ValueError(
+                    f"steps.{name} must be a multiple of steps.ntave "
+                    f"({self.ntave}): AMBER requires the statistics stages "
+                    "to be whole ntave windows ('ntcmdprep, ntcmd, ntebprep "
+                    "and nteb need to be multiples of ntave') so every "
+                    "window the boost parameters read is complete - adjust "
+                    f"steps.{name} or set steps.ntave explicitly")
         self.restart_from = settings["restart_from"]
         if self.restart_from is not None and self.restart_from not in ALL_STAGE_NAMES:
             raise ValueError(
@@ -377,11 +455,9 @@ class GamdRun:
         if self.trace_interval < 1:
             raise ValueError("output.gamd.trace_interval must be >= 1")
 
-        # -- the channels (mode-driven; explicit channels override) --------
+        # -- boost claims: explicit boosts (plan normalization guarantees one)
         self.channels: dict[str, tuple[int, ...]] = {}
         if settings["boosts"]:
-            if settings["channels"]:
-                raise ValueError("gamd.boosts and gamd.channels are mutually exclusive")
             if not provides(kernel, PartitionOps):
                 raise NotImplementedError("explicit GaMD boosts require PartitionOps")
             self.partition_report = kernel.compile_boost_partitions(settings["boosts"])
@@ -397,26 +473,14 @@ class GamdRun:
                 if not np.isfinite(sigma) or sigma <= 0 or policy not in ("lower", "upper"):
                     raise ValueError(f"invalid calibration settings for boost {label!r}")
                 self.channel_settings[label] = {"sigma0": sigma, "threshold_policy": policy}
-        elif settings["channels"]:
-            for entry in settings["channels"]:
-                if "label" not in entry or "groups" not in entry:
-                    raise ValueError(
-                        "every gamd.channels entry needs 'label' and "
-                        f"'groups', got {entry!r}")
-                self.channels[str(entry["label"])] = \
-                    tuple(int(g) for g in entry["groups"])
         else:
-            self.channels["total"] = ()
-            if settings["mode"] == "dual":
-                discover = getattr(kernel, "torsion_force_groups", None)
-                groups = tuple(discover()) if callable(discover) else ()
-                if not groups:
-                    raise NotImplementedError(
-                        "gamd dual boost needs the system's torsion forces "
-                        "in their own force group(s): this kernel/system "
-                        "reports none (openmm: no torsion forces; fake: "
-                        "install a dihedral restraint first)")
-                self.channels["dihedral"] = groups
+            # No explicit boosts: plan normalization synthesizes the default
+            # whole-system boost1 (single source of truth, visible in the
+            # journal/fingerprint).  Direct construction without that
+            # normalization is a programming error, not a runtime default.
+            raise ValueError(
+                "gamd.boosts is required; the no-boosts default boost1 is "
+                "synthesized during plan normalization")
 
         #: label -> the calibration outcome actually pushed to the kernel
         self.calibration: dict[str, dict] = {}
@@ -428,15 +492,19 @@ class GamdRun:
 
         Channels are installed at ZERO strength — the same pre-Context
         discipline as ``install_bias`` — and the calibrated (threshold E,
-        harmonic k) values are pushed through ``set_boost_param`` at each
-        stage boundary (the BiasParamOps pattern applied to channels).  No
-        stage retunes the boost while it is running; see ADR-0009/0010 for
-        the hand-over chain.  ``mode:
-        total`` installs one ``total`` channel (``groups == ()``, the
-        system energy); ``mode: dual`` adds a ``dihedral`` channel over
-        the system's torsion force groups (discovered through the kernel's
-        duck-typed ``torsion_force_groups()``; group ids stay opaque
-        ints); ``channels: [{label, groups}]`` defines explicit channels.
+        harmonic k) values are pushed through ``set_boost_param`` on
+        AMBER's schedule (the BiasParamOps pattern applied to channels):
+        once at the END of ``unbiased_production`` (stage 2), then every
+        ``steps.ntave`` window inside ``biased_eq2`` (stage 4) plus its
+        leg end; ``biased_eq`` (stage 3) and production run under the
+        parameters fixed at their start — see ADR-0009/0010.  Plan
+        normalization guarantees a nonempty ``boosts`` list (the no-boosts
+        case becomes the explicit whole-system ``boost1``); the kernel's
+        partition compiles the claims into per-channel groups (independent,
+        possibly overlapping; a final ``remaining: true`` boost is the exact
+        complement of the union).  ``gamd.emit_system`` short-circuits before
+        resume/Context creation and returns a dry PreparedMethod (the driver
+        writes ``<stage>_system.xml``).
 
         The driver runs the production loop (driver.run_prepared_method)
         with the gamd.tsv probe this method builds; nothing physics-side
@@ -455,8 +523,21 @@ class GamdRun:
         # the same dynamics as an un-boosted run (ADR-0005: the unbiased
         # stages have no bit-string-identity obligations)
         self.kernel.install_boost(
-            BoostChannelIR(label=label, groups=groups)
-            for label, groups in self.channels.items())
+            (BoostChannelIR(label=label, groups=groups)
+             for label, groups in self.channels.items()))
+
+        # emit_system: a dry preparation — build the System exactly as the
+        # requested stage would, apply the user's (E, k) as CV global defaults
+        # and let the driver write <stage>_system.xml.  No resume, no Context,
+        # no integration.
+        emit = self.settings.get("emit_system")
+        if emit is not None:
+            self._apply_emit_parameters(emit)
+            if self.sink is not None and self.partition_report is not None:
+                self.sink.write_bytes(
+                    "gamd_partitions.json",
+                    json.dumps(self.partition_report, indent=2).encode())
+            return PreparedMethod(total_steps=0)
 
         # resume through the single owner — AFTER install_boost (the
         # openmm Context must come up with the boost integrator in place)
@@ -563,9 +644,10 @@ class GamdRun:
             return min(target, (self.kernel.current_step // interval + 1) * interval)
         return target
 
-    def exchange_at_boundary(self):
+    def exchange_at_boundary(self) -> bool:
         if self.exchange is not None and self.kernel.current_step % self.exchange.interval == 0:
-            self.exchange.on_step(self.kernel.current_step)
+            return bool(self.exchange.on_step(self.kernel.current_step))
+        return False
 
     def _finish(self, result) -> MethodResult:
         """End-of-run artifacts + the result drive() records."""
@@ -715,6 +797,26 @@ class GamdRun:
                 "provenance": self.calibration_provenance,
             }, indent=2, sort_keys=True).encode("utf-8"))
 
+    def _apply_emit_parameters(self, emit: dict) -> None:
+        """Apply ``emit_system.E``/``K`` as the CV's global default values.
+
+        Values are kJ/mol (E) and 1/(kJ/mol) (K) by contract, independent of
+        ``gamd.energy_unit`` (which only rescales the boost definitions'
+        sigma0).  Missing labels default to 0; unknown labels are an error.
+        """
+        energies = emit.get("E") or {}
+        harmonics = emit.get("K") or {}
+        unknown = (set(energies) | set(harmonics)) - set(self.channels)
+        if unknown:
+            raise ValueError(
+                f"emit_system.E/K name unknown boost labels {sorted(unknown)}; "
+                f"known: {sorted(self.channels)}")
+        for label in self.channels:
+            self.kernel.set_boost_param(
+                label, "threshold", float(energies.get(label, 0.0)))
+            self.kernel.set_boost_param(
+                label, "k", float(harmonics.get(label, 0.0)))
+
     def _push_calibration(self) -> None:
         """Push (threshold, k) per channel via ``set_boost_param``; pushing
         over a restored checkpoint is idempotent (resume re-pushes, it does
@@ -749,22 +851,37 @@ def _layout_description(settings) -> dict:
     """
     boosts = settings.get("boosts")
     if boosts:
+        def atoms_key(selector):
+            atoms = selector.get("atom_indices")
+            if atoms == "all":
+                return "all"  # the whole system, however it is spelled
+            return sorted(int(a) for a in (atoms or []))
+
         return {"boosts": [
             {"label": boost.get("label"),
              "remaining": bool(boost.get("remaining")),
              "selectors": [
-                 {"atom_indices": sorted(int(a) for a in (selector.get("atom_indices") or [])),
+                 {"atom_indices": atoms_key(selector),
                   "force_types": sorted(_force_type_list(selector.get("force_types"))),
                   "include_boundary": {str(k): bool(v) for k, v in
                                        sorted((selector.get("include_boundary") or {}).items())}}
                  for selector in (boost.get("selectors") or [])]}
             for boost in boosts]}
-    channels = settings.get("channels")
-    if channels:
-        return {"channels": [{"label": row.get("label"),
-                              "groups": sorted(int(g) for g in (row.get("groups") or []))}
-                             for row in channels]}
-    return {"mode": settings.get("mode")}
+    # no boosts: the plan-level default boost1
+    return {"default": "boost1"}
+
+
+def _canonical_layout(layout):
+    """Normalize a recorded layout across the removed legacy spellings.
+
+    Pre-boosts journals recorded ``{"mode": "total"}``; that layout is the
+    same as today's boost-less default.  ``mode: dual`` and force-group
+    ``channels`` layouts have no boosts spelling, so they stay distinct and
+    (correctly) fail the layout gate on continue.
+    """
+    if isinstance(layout, dict) and set(layout) == {"mode"} and layout.get("mode") == "total":
+        return {"default": "total"}
+    return layout
 
 
 def _force_type_list(types):
@@ -777,37 +894,21 @@ def _force_type_list(types):
 
 
 def _recorded_payload(run, saved):
-    """The configuration a run recorded, or None when it kept none.
+    """The configuration a run recorded, or None when the journal kept none.
 
-    Newer journals carry the fingerprint payload; older ones are described by
-    their sibling ``gamd_metadata.json`` (the settings/output namespace that
-    run actually used), which is what makes both the layout gate and the
-    drift warning work for directories written before the payload existed.
+    Only the current schema's ``fingerprint_payload`` is consulted: GaMD's
+    artifact formats are still in development, so there is no legacy-journal
+    compatibility layer (an old directory must be adopted through
+    ``input_files.checkpoint``).
     """
     payload = saved.get("fingerprint_payload")
     if isinstance(payload, dict) and isinstance(payload.get("settings"), dict):
         return payload
-    if run.sink is not None and run.sink.exists("gamd_metadata.json"):
-        try:
-            metadata = json.loads(run.sink.read_bytes("gamd_metadata.json"))
-        except (ValueError, TypeError, UnicodeDecodeError):
-            return None
-        settings = metadata.get("settings")
-        if isinstance(settings, dict):
-            recorded = {"settings": {
-                key: value for key, value in settings.items()
-                if key not in ("restart_from", "calibration_input")}}
-            output = metadata.get("output_gamd")
-            if isinstance(output, dict):
-                recorded["output"] = {
-                    "sample_interval": output.get("sample_interval"),
-                    "trace_interval": output.get("trace_interval")}
-            return recorded
     return None
 
 
 def _recorded_layout(run, saved):
-    """The recorded boost layout, or None when the directory did not keep it."""
+    """The recorded boost layout, or None when the journal did not keep it."""
     payload = _recorded_payload(run, saved)
     if payload is None:
         return None
@@ -824,7 +925,7 @@ def _layout_drift(run, saved) -> str:
     if recorded is None:
         return ""  # nothing to compare against; the restore itself is the guard
     current = _layout_description(run.settings)
-    if recorded == current:
+    if _canonical_layout(recorded) == _canonical_layout(current):
         return ""
     return f"recorded {_short(recorded)} -> now {_short(current)}"
 
@@ -837,9 +938,9 @@ def _short(value) -> str:
 def _fingerprint_drift(recorded, current) -> str:
     """Name the keys that differ between a journal and this run's config.
 
-    Best effort: journals written before the payload was recorded return "".
-    The comparison is per top-level group (``settings.*`` / ``output.*`` plus
-    the resolved channel layout), which is exactly what the hash covers.
+    Best effort: a journal without a payload returns "".  The comparison is
+    per top-level group (``settings.*`` / ``output.*``), which is exactly what
+    the fingerprint hash covers.
     """
     if not isinstance(recorded, dict) or not isinstance(current, dict):
         return ""
@@ -857,9 +958,6 @@ def _fingerprint_drift(recorded, current) -> str:
             if before.get(key) != after.get(key):
                 drifted.append(f"{group}.{key}: {_short(before.get(key))} -> "
                                f"{_short(after.get(key))}")
-    if "channels" in recorded and "channels" in current \
-            and recorded["channels"] != current["channels"]:
-        drifted.append("channels (boost labels / force-group layout) changed")
     return ("; drifted: " + "; ".join(drifted)) if drifted else ""
 
 
@@ -883,11 +981,10 @@ class GamdStages:
     ``gamd.restart_from`` re-enters its leg at 0 and an adopted external
     checkpoint has its step counter zeroed rather than continued.
 
-    Every leg transition persists a boundary checkpoint naming the state
-    that BEGINS a stage — ``ckpt/entry.ckpt`` for ``unbiased_eq``,
-    ``ckpt/<previous stage>.ckpt`` afterwards (zero-length stages share
-    their successor's).  Those are the restore points ``restart_from``
-    re-enters.  ``completed`` (journal, schema 4) holds each stage's already
+    Every leg transition persists a restart checkpoint naming the state
+    that BEGINS a stage — ``restart/<stage>.ckpt`` (zero-length stages
+    share their successor's).  Those are the restore points
+    ``restart_from`` re-enters.  ``completed`` (journal, schema 4) holds each stage's already
     run step count; a resumed mid-leg checkpoint restores its leg's own
     counter.  Adaptive statistics start a new cumulative window per source
     stage after boost preparation; production never updates parameters.
@@ -935,6 +1032,7 @@ class GamdStages:
             self.fingerprint_payload, sort_keys=True,
             default=list).encode()).hexdigest()
         self.records: list[dict] = []
+        self.cv_v0_log: list[dict] = []  # DEBUG: CV-vs-native V0 verification tape
         self._last_flush = 0
         self._stepped = 0
         #: per-stage already-run steps; earlier legs are always ``configured``
@@ -965,9 +1063,33 @@ class GamdStages:
             if run.sink is None or not run.sink.exists(boundary):
                 raise ValueError(
                     f"gamd.restart_from {run.restart_from!r} needs the "
-                    f"{boundary} boundary checkpoint, which does not exist "
+                    f"{boundary} restart checkpoint, which does not exist "
                     "(the stage before it never completed); available "
-                    f"boundaries: {self._available_boundaries(run) or 'none'}")
+                    f"restart checkpoints: {self._available_boundaries(run) or 'none'}")
+            # A stage-head restart needs no separate entry checkpoint (the plan
+            # derives restart/<stage>.ckpt); an explicitly supplied
+            # input_files.checkpoint is allowed only as a copy of that same
+            # stage-head blob — a rolling/mid-stage checkpoint would silently
+            # restore the wrong state.
+            entry = getattr(run.plan, "checkpoint", None)
+            if entry is not None:
+                try:
+                    entry_bytes = Path(entry).read_bytes()
+                except OSError:
+                    entry_bytes = None
+                if entry_bytes is None:
+                    raise ValueError(
+                        f"gamd.restart_from {run.restart_from!r} needs its "
+                        f"stage-head checkpoint {boundary!r}; "
+                        f"input_files.checkpoint {entry!r} cannot be read")
+                if entry_bytes != run.sink.read_bytes(boundary):
+                    raise ValueError(
+                        f"gamd.restart_from {run.restart_from!r} restarts from "
+                        f"the stage-head checkpoint {boundary!r}; "
+                        f"input_files.checkpoint must point at it (or a "
+                        f"byte-identical copy), not {entry!r} — a rolling "
+                        "checkpoint is only valid for a mid-stage continue_md "
+                        "without restart_from")
             # the rolling checkpoint restored by plan_resume is the WRONG
             # state for a rerun — swap in the stage-boundary state and
             # re-trim every tape to its per-leg bound (resume stays the
@@ -1008,6 +1130,52 @@ class GamdStages:
         self.moments = {phase: {} for phase in _SAMPLE_PHASES}
         for record in self.records:
             self._accumulate(record)
+        # -- AMBER adaptation statistics (Vmax/Vmin running since collection
+        # began; Vavg/σV from closed windows of ``steps.ntave`` steps; fed
+        # EVERY STEP of the statistics legs — AMBER's per-step imax/imin,
+        # GaMD-OpenMM's per-step Welford).  The accumulators AND the live
+        # channel parameters ride the checkpoint envelope (``gamd_stats``,
+        # the same NEOMD wrapper ``gamd_leg`` uses), so a resume restores
+        # them at exactly the position the restored Context re-runs from;
+        # the journal's lattice records are diagnostics and the legacy
+        # fallback, never the statistics source.
+        self.ntave = max(1, int(run.ntave))
+        #: the kernel's per-step V0 fast read (the GaMD statistics
+        #: integrator's globals), when the kernel offers one; None on
+        #: kernels without it (the fake) — boost_potentials is the fallback
+        fast = getattr(run.kernel, "boost_step_energies", None)
+        self._step_energy_read = fast if callable(fast) else None
+        self.extremes: dict[str, dict[str, float]] = {}
+        self.cumulative: dict[str, dict] = {}
+        self.window_stats: dict[str, dict] = {}
+        self._window: dict[str, dict] = {}
+        self._stats_phase: str | None = None
+        self._open_window = 0
+        self._stats_leg: int | None = None
+        self._stats_step = 0
+        if not self._restore_stats_state(run):
+            # legacy directory (a checkpoint from before the envelope) or a
+            # fresh/adopted run: the journal's lattice samples are the only
+            # statistics available — replay them, at lattice fidelity
+            if self.records and self.mode in ("resume", "restart"):
+                run.log.warning(
+                    "gamd: the restored checkpoint carries no adaptation-"
+                    "statistics envelope (gamd_stats); rebuilding from the "
+                    "journal's %d lattice samples — per-step statistics are "
+                    "not recoverable across this version boundary",
+                    len(self.records))
+            for i, record in enumerate(self.records):
+                # a completed leg's last sample is its leg end (advance
+                # always samples at ``target == end``); the resumed leg in
+                # progress is not — its final window stays open for the
+                # continuation
+                later = self.records[i + 1] if i + 1 < len(self.records) else None
+                phase = record["phase"]
+                leg_end = ((later is None or later["phase"] != phase)
+                           and self.completed.get(phase, 0) >= self.configured.get(phase, 0))
+                self._feed_stats(record, live=False, leg_end=leg_end)
+                if leg_end and phase in _STATS_PHASES:
+                    self._push_adapted(phase, boundary=True, record=False)
         #: artifact -> bound for the per-stage tapes this resume adopted;
         #: ``GamdRun.prepare`` folds it into the ResumePlan the driver reads,
         #: so every probe's append decision agrees with the trim that happened
@@ -1091,7 +1259,8 @@ class GamdStages:
         return leg
 
     def _sync_checkpoint_metadata(self):
-        """Commit the running leg into every subsequent checkpoint snapshot."""
+        """Commit the running leg and the adaptation statistics into every
+        subsequent checkpoint snapshot."""
         from neomd.kernel.port import CheckpointMetadataOps, provides
 
         kernel = self.run.kernel
@@ -1099,7 +1268,107 @@ class GamdStages:
             return
         metadata = dict(kernel.checkpoint_metadata() or {})
         metadata[_LEG_METADATA_KEY] = int(self.index)
+        snapshot = self._stats_snapshot()
+        if snapshot is None:
+            metadata.pop(_STATS_METADATA_KEY, None)
+        else:
+            metadata[_STATS_METADATA_KEY] = snapshot
         kernel.set_checkpoint_metadata(metadata)
+
+    def _stats_snapshot(self):
+        """The per-step statistics state + live parameters for the envelope.
+
+        ``None`` while nothing has been fed (fresh runs before the first
+        statistics step): the key stays out of the envelope so a restore of
+        such a checkpoint starts statistics from scratch.
+        """
+        if self._stats_leg is None:
+            return None
+        return {
+            "leg": int(self._stats_leg),
+            "step": int(self._stats_step),
+            "stats_phase": self._stats_phase,
+            "open_window": int(self._open_window),
+            "extremes": {label: {"min": float(w["min"]), "max": float(w["max"])}
+                         for label, w in self.extremes.items()},
+            "cumulative": {label: {"count": int(w["count"]), "mean": float(w["mean"]),
+                                   "m2": float(w["m2"])}
+                           for label, w in self.cumulative.items()},
+            "window_stats": {label: {"count": int(w["count"]), "mean": float(w["mean"]),
+                                     "m2": float(w["m2"])}
+                             for label, w in self.window_stats.items()},
+            "window": {label: {"count": int(w["count"]), "mean": float(w["mean"]),
+                               "m2": float(w["m2"])}
+                       for label, w in self._window.items()},
+            "parameters": self.run.calibration,
+        }
+
+    def _restore_stats_state(self, run) -> bool:
+        """Restore the per-step statistics from the checkpoint envelope.
+
+        ``gamd_stats`` is atomic with the Context state inside the same
+        checkpoint blob, so wherever it validates it is authoritative:
+
+        * mid-leg resume: ``leg == self.index`` with ``step == completed``
+          (the re-run feeds its tail on top of exactly this state);
+        * a completed earlier leg: ``leg < self.index`` with ``step ==
+          configured[leg]`` (any leg after it that also fed statistics
+          would have moved the position itself).
+
+        The envelope also carries the live ``(E, k)`` the interrupted
+        Context ran with, which restores ``run.calibration`` — without it,
+        a mid-adaptive-leg resume would restart from the previous stage's
+        set, diverging from the uninterrupted run before its next window
+        push.  ``False`` (absent or unvalidatable) falls back to the
+        journal's lattice replay.
+        """
+        from neomd.kernel.port import CheckpointMetadataOps, provides
+
+        if not provides(run.kernel, CheckpointMetadataOps):
+            return False
+        snap = (run.kernel.checkpoint_metadata() or {}).get(_STATS_METADATA_KEY)
+        if not isinstance(snap, dict):
+            return False
+        try:
+            leg = int(snap["leg"])
+            step = int(snap["step"])
+            if not 0 <= leg < len(ALL_STAGE_NAMES):
+                return False
+            if leg == self.index:
+                if step != self.completed[ALL_STAGE_NAMES[leg]]:
+                    return False
+            elif leg > self.index or step != self.configured[ALL_STAGE_NAMES[leg]]:
+                return False
+            def welford(raw):
+                return {label: {"count": int(w["count"]), "mean": float(w["mean"]),
+                                "m2": float(w["m2"])}
+                        for label, w in raw.items()}
+            extremes = {label: {"min": float(w["min"]), "max": float(w["max"])}
+                        for label, w in snap["extremes"].items()}
+            cumulative = welford(snap["cumulative"])
+            window_stats = welford(snap["window_stats"])
+            window = welford(snap["window"])
+            open_window = int(snap["open_window"])
+            stats_phase = snap["stats_phase"]
+            if stats_phase is not None and not isinstance(stats_phase, str):
+                return False
+            parameters = snap.get("parameters") or {}
+            if not isinstance(parameters, dict):
+                return False
+        except (KeyError, TypeError, ValueError):
+            return False
+        self.extremes = extremes
+        self.cumulative = cumulative
+        self.window_stats = window_stats
+        self._window = window
+        self._open_window = open_window
+        self._stats_phase = stats_phase
+        self._stats_leg, self._stats_step = leg, step
+        if parameters:
+            # the live set the interrupted context ran with; parameter
+            # history and revisions stay owned by the journal
+            run.calibration = parameters
+        return True
 
     def _begin_leg(self):
         """Establish the current leg: step axis 0, derived RNG, entry ckpt."""
@@ -1177,8 +1446,8 @@ class GamdStages:
 
     @staticmethod
     def _boundary_name(index):
-        """Boundary checkpoint preceding stage ``index`` ("entry" for 0)."""
-        return f"ckpt/{'entry' if index == 0 else ALL_STAGE_NAMES[index - 1]}.ckpt"
+        """Restart checkpoint holding the state that BEGINS stage ``index``."""
+        return f"restart/{ALL_STAGE_NAMES[index]}.ckpt"
 
     def _available_boundaries(self, run):
         names = [self._boundary_name(i) for i in range(len(ALL_STAGE_NAMES))]
@@ -1196,6 +1465,18 @@ class GamdStages:
                 "output.ckpt into a fresh run via input_files.checkpoint "
                 "instead")
         if saved["fingerprint"] != self.fingerprint:
+            # The CV energy-model mode changes the System composition itself
+            # (dv keeps the native forces; v0_dv removes the covered ones and
+            # puts their V0 in the CV), so a restored Context cannot switch
+            # it: refuse before the layout comparison.
+            payload = _recorded_payload(run, saved) or {}
+            recorded_mode = (payload.get("settings") or {}).get("boost_cv_mode", "dv")
+            if recorded_mode != run.settings.get("boost_cv_mode", "dv"):
+                raise ValueError(
+                    "GaMD boost_cv_mode changed since checkpoint "
+                    f"({recorded_mode!r} -> {run.settings.get('boost_cv_mode')!r}); "
+                    "the restored System has a different force composition — "
+                    "adopt the run's output.ckpt into a fresh run to switch modes")
             # A continue may deliberately change physical settings (sigma0,
             # threshold policy, unit, sampling/tape cadence, exchange): they
             # shape only what the run does FROM HERE, and the restored Context
@@ -1269,11 +1550,21 @@ class GamdStages:
              if self._sample_kept(stage, int(record["step"]))),
             key=lambda record: (ALL_STAGE_NAMES.index(record["phase"]),
                                 record["step"]))
+        def _history_kept(stage, entry):
+            position = ALL_STAGE_NAMES.index(stage)
+            if position < self.index:
+                return True
+            if position > self.index:
+                return False
+            # the current leg's entries survive only up to the restored
+            # position: past it they describe pushes the tail re-run will
+            # redo anyway (the journal may have flushed ahead of the
+            # checkpoint), so keeping them would publish future parameters
+            return int(entry.get("step", 0)) <= self.completed.get(stage, 0)
+
         run.parameter_history = {
             stage: entry for stage, entry in saved["parameter_history"].items()
-            if ALL_STAGE_NAMES.index(stage) < self.index
-            or (ALL_STAGE_NAMES.index(stage) == self.index
-                and self.completed[self.phase] >= self.configured[self.phase])}
+            if _history_kept(stage, entry)}
         if run.parameter_history:
             run.calibration = max(
                 run.parameter_history.values(),
@@ -1317,6 +1608,68 @@ class GamdStages:
         # entered; that leg is the DRIVER's loop, not advance()'s
         return self.index == len(ALL_STAGE_NAMES) - 1
 
+    # -- CV-vs-native V0 verification tape (DEBUG, one-line opt-in) --------
+
+    def record_cv_v0(self, step):
+        """Record one frame's V0 cross-check (CV path vs native system).
+
+        DEBUG/verification only — call this from :meth:`advance` (see the
+        one-line call there, comment it out to disable).  Each frame appends
+        rows to ``self.cv_v0_log`` (a plain list of dicts; cheap to append,
+        tiny to hold) comparing, at the SAME configuration, the live Context
+        against a Reference context over the pre-boost native System
+        (``kernel.verify_cv_v0``):
+
+        * ``v0_cv``    — the CV's value (``getCollectiveVariableValues``):
+                         the bare boosted-region energy P, no boost.
+        * ``dV``       — the boost potential this frame, from the CV's own
+                         (threshold, k).
+        * ``e_native`` — the native System's energy (no boost layer) at the
+                         same positions/box.
+        * ``e_total``  — the live Context's whole potential.
+        * ``residual`` — ``e_total - e_native - Σ dV``: the invariant the
+                         new design promises; ≈ 0 is the assertion, anything
+                         else means the CV carries more than dV.
+
+        Rows are flushed per stage to ``gamd_cv_v0/<stage>.tsv``.
+        """
+        if not self.cv_v0_log:
+            self.cv_v0_log = []
+        check = self.run.kernel.verify_cv_v0() if hasattr(self.run.kernel, "verify_cv_v0") else {}
+        if not check:
+            return
+        for label, row in check.items():
+            self.cv_v0_log.append({"step": int(step), "phase": str(self.phase),
+                                   "label": label, "v0_cv": row["v0_cv"],
+                                   "dV": row["dV"], "e_total": row["e_total"],
+                                   "e_native": row["e_native"],
+                                   "threshold": row["threshold"], "k": row["k"]})
+
+    def flush_cv_v0(self):
+        """Write each stage's verification rows to its OWN ``gamd_cv_v0/<stage>.tsv``.
+
+        One file per stage (like the per-stage rolling ``<stage>.ckpt``): the rows recorded
+        during ``unbiased_eq`` land in ``gamd_cv_v0/unbiased_eq.tsv``,
+        ``unbiased_production`` in its own file, and so on.  Each file is
+        rewritten (atomic replace) with only that stage's rows, so reading a
+        file is exactly "what this stage saw".
+        """
+        if not getattr(self, "cv_v0_log", None) or self.run.sink is None:
+            return
+        header = "step\tphase\tlabel\tv0_cv\tdV\te_total\te_native\tthreshold\tk"
+        # group rows by the phase they were recorded in (one file per stage)
+        by_phase: dict[str, list[dict]] = {}
+        for row in self.cv_v0_log:
+            by_phase.setdefault(row.get("phase", "unknown"), []).append(row)
+        for phase, rows in by_phase.items():
+            lines = [header] + [
+                f"{r['step']}\t{r['phase']}\t{r['label']}\t{r['v0_cv']:.6f}"
+                f"\t{r['dV']:.6f}\t{r['e_total']:.6f}\t{r['e_native']:.6f}"
+                f"\t{r['threshold']:.6f}\t{r['k']:.6f}"
+                for r in rows]
+            self.run.sink.write_bytes(
+                f"gamd_cv_v0/{phase}.tsv", ("\n".join(lines) + "\n").encode())
+
     def _accumulate(self, record):
         moments = self.moments[record["phase"]]
         for label, value in record["energies"].items():
@@ -1327,32 +1680,95 @@ class GamdStages:
             m["m2"] += delta * (value - m["mean"])
             m["min"], m["max"] = min(m["min"], value), max(m["max"], value)
 
-    # -- stage-boundary parameter handover -----------------------------------
+    # -- AMBER adaptation statistics and parameter pushes --------------------
 
-    def _handoff_source(self, phase):
-        """The stage ``phase``'s samples calibrate, or ``None``.
+    def _feed_stats(self, record, live, leg_end=False):
+        """Feed one step's channel energies into the adaptation statistics.
 
-        ``unbiased_production`` always seeds ``biased_eq``; ``biased_eq``
-        seeds ``biased_eq2`` only when that stage actually has steps.  The
-        last boost stage (``biased_eq2`` with steps, else ``biased_eq``) never
-        recalibrates, so ``production`` keeps the parameter set it started
-        with — and therefore runs the same boost as that equilibration.
+        Vmax/Vmin run since collection BEGAN (they carry from the cMD stage
+        into the adaptive stage — AMBER's continuation); Vavg/σV come from
+        closed windows of ``steps.ntave`` steps.  Live feeding happens
+        EVERY step of a statistics leg (AMBER's per-step imax/imin,
+        GaMD-OpenMM's per-step Welford — ``advance`` steps one step at a
+        time there to read each step's P), so a window of ``ntave`` steps
+        closes exactly on its boundary step, and a leg's last step seals
+        its final (possibly partial) window.  ``live=False`` is the legacy
+        replay of a journal's lattice samples: sparser feeding with the
+        same window arithmetic (the first sample beyond a boundary closes
+        it), re-applying parameters without recording revisions — the
+        journal already carries them, and a tail rerun re-records what its
+        filter dropped.
         """
-        target = _HANDOFF_SOURCE.get(phase)
-        if target is None:
-            return None
-        if target == "biased_eq2" and self.configured["biased_eq2"] <= 0:
-            return None
-        return phase
+        phase = record["phase"]
+        if phase not in _STATS_PHASES:
+            return
+        if phase != self._stats_phase:
+            # a new statistics leg starts a FRESH window (GaMD-OpenMM resets
+            # windowCount at stage boundaries); the extremes carry over
+            self._stats_phase = phase
+            self._window = {}
+            self._open_window = 0
+        step = int(record["step"])
+        for label, value in record["energies"].items():
+            extreme = self.extremes.setdefault(label, {"min": value, "max": value})
+            extreme["min"] = min(extreme["min"], value)
+            extreme["max"] = max(extreme["max"], value)
+            for store in (self.cumulative, self._window):
+                w = store.setdefault(label, {"count": 0, "mean": 0., "m2": 0.})
+                w["count"] += 1
+                delta = value - w["mean"]
+                w["mean"] += delta / w["count"]
+                w["m2"] += delta * (value - w["mean"])
+        # the position the statistics were fed through (envelope validation
+        # on resume): every feeding call moves it, live or replay
+        self._stats_leg = ALL_STAGE_NAMES.index(phase)
+        self._stats_step = step
+        window_index = step // self.ntave
+        if leg_end or window_index > self._open_window:
+            self._close_window()
+            self._open_window = window_index
+            if phase == "biased_eq2" and not leg_end:
+                # the in-leg adaptation push: parameters MOVE inside this
+                # one leg (AMBER's nteb; ADR-0010 amendment)
+                self._push_adapted(phase, record=live)
 
-    def _final_source(self, configured):
-        """The stage whose statistics define the last boost stage's set."""
-        return "biased_eq" if configured.get("biased_eq2", 0) > 0 else "unbiased_production"
+    def _close_window(self):
+        """Seal the open window's Welford state as the latest Vavg/σV."""
+        if any(w["count"] for w in self._window.values()):
+            self.window_stats = {label: dict(w) for label, w in self._window.items()}
+        self._window = {}
 
-    def _handoff_parameters(self, source):
-        """(E, k) per channel from one source stage's cumulative moments."""
+    def _adaptation_moments(self):
+        """(min, max, Vavg, σV², count) per channel for the next push.
+
+        Vmax/Vmin are the running extremes since collection began; Vavg/σV
+        come from the last closed window (when it holds a spread), else the
+        whole collection.  A single-sample stage still yields a row — its
+        degenerate statistics select ZERO strength, which the boundary push
+        records exactly like the pre-window code did.
+        """
+        out = {}
+        for label, extreme in self.extremes.items():
+            window = self.window_stats.get(label)
+            cumulative = self.cumulative.get(label)
+            for stats in (window, cumulative):
+                if stats is not None and stats["count"] >= 2:
+                    out[label] = {"min": extreme["min"], "max": extreme["max"],
+                                  "mean": stats["mean"], "m2": stats["m2"],
+                                  "count": stats["count"]}
+                    break
+            else:
+                stats = window or cumulative
+                if stats is not None:
+                    out[label] = {"min": extreme["min"], "max": extreme["max"],
+                                  "mean": stats["mean"], "m2": stats["m2"],
+                                  "count": stats["count"]}
+        return out
+
+    def _parameters_from(self, moments):
+        """(E, k) per channel from one statistics mapping (the Calc_E_k0)."""
         calibration = {}
-        for label, moment in self.moments[source].items():
+        for label, moment in moments.items():
             settings = self.run.channel_settings.get(label, {})
             sigma0 = settings.get("sigma0", self.run.sigma0)
             policy = settings.get("threshold_policy", self.run.settings["threshold_policy"])
@@ -1362,56 +1778,77 @@ class GamdStages:
                 sigma0, policy)
         return calibration
 
-    def _calibrate_handoff(self, phase):
-        """Hand one stage's samples to the next boost stage, at its end only.
+    def _push_adapted(self, phase, *, boundary=False, record=True):
+        """Recompute (E, k) from the adaptation statistics and push them.
 
-        An external ``gamd.calibration_input`` pins every channel, so the
-        internal statistics are recorded but never recomputed (ADR-0010).
-        The un-boosted statistics stage calibrates unconditionally (on a fresh
-        run there is no incoming set); a boosted source with a single sample or
-        no usable spread keeps the incoming set instead of disabling the
-        channel outright.
+        The schedule is AMBER's (user-confirmed): stage 2 pushes once at its
+        END (its set starts every boost leg); stage 4 (``biased_eq2``) pushes
+        at every ntave window it closes plus its leg end, so production
+        freezes the freshest set; stage 3 (``biased_eq``) and production
+        never push.  An external ``gamd.calibration_input`` pins every
+        channel, so statistics are recorded but never recomputed.
+
+        A stage-2 push with no samples at all keeps the installed set and
+        warns loudly (a production run under zero-strength boosts is a
+        scientific no-op); any push from a BOOSTED source (in-leg window or
+        the adaptive stage's end) whose statistics are too flat (fewer than
+        two samples, or a channel the selection would disable) keeps the
+        incoming set instead of disabling the channel outright.
         """
         if self.run.calibration_input is not None:
             return
-        source = self._handoff_source(phase)
-        if source is None:
-            return
-        moments = self.moments[source]
+        moments = self._adaptation_moments()
         if not moments:
-            # NOT silent: no sample means the stage was shorter than
-            # output.gamd.sample_interval, so the next leg keeps whatever
-            # (possibly zero) strength is installed.  A production run under
-            # zero-strength boosts is a scientific no-op, so say so loudly.
-            self.run.log.warning(
-                "gamd %s produced no V(P) statistics samples (its leg is "
-                "shorter than output.gamd.sample_interval=%d): the next stage "
-                "keeps the currently installed boost parameters, which means "
-                "ZERO strength on a fresh run; lengthen the stage or lower "
-                "output.gamd.sample_interval",
-                source, self.run.sample_interval)
+            if boundary and phase == "unbiased_production":
+                # NOT silent: with per-step feeding, empty statistics mean
+                # the stage never ran a step, so the boost legs keep
+                # whatever (possibly zero) strength is installed.
+                self.run.log.warning(
+                    "gamd %s produced no V(P) statistics steps: the boost "
+                    "stages keep the currently installed boost parameters, "
+                    "which means ZERO strength on a fresh run; lengthen "
+                    "the stage", phase)
+            else:
+                self.run.log.info(
+                    "gamd %s produced no V(P) statistics steps; keeping the "
+                    "installed boost parameters", phase)
             return
-        if source == "biased_eq":
-            fit = self._handoff_parameters(source)
+        if not boundary or phase == "biased_eq2":
+            # a boosted source (in-leg window or the adaptive stage's end)
+            # with a single sample or no usable spread keeps the incoming
+            # set instead of disabling the channel outright; the un-boosted
+            # statistics stage pushes unconditionally (fresh runs have no
+            # incoming set to keep)
+            fit = self._parameters_from(moments)
             if (min(moment["count"] for moment in moments.values()) < 2
                     or any(params["disabled_reason"] for params in fit.values())):
                 self.run.log.info(
-                    "gamd %s sampled too little spread to re-calibrate; keeping "
-                    "the incoming boost parameters for the next stage", source)
+                    "gamd %s statistics too flat to re-tune; keeping the "
+                    "current boost parameters", phase)
                 return
-        self.run.complete_calibration(
-            {label: () for label in moments}, moments=moments, persist=False,
-            stage=source)
+        if record:
+            self.run.complete_calibration(
+                {label: () for label in moments}, moments=moments, persist=False,
+                stage=phase)
+        else:
+            # replay: identical values over identical samples — re-apply
+            # without a new revision (the journal owns the history)
+            self.run.calibration = self._parameters_from(moments)
+            self.run._push_calibration()
+
+    def _final_source(self, configured):
+        """The stage whose statistics define the last boost stage's set."""
+        return "biased_eq2" if configured.get("biased_eq2", 0) > 0 else "unbiased_production"
 
     def reconcile_handoff(self):
         """Keep production's parameters tied to its last boost equilibration.
 
         An unchanged configuration needs nothing: the journal's last entry
-        already is the set the last boost stage started with.  Only when the
+        already is the set the last boost stage ended with.  Only when the
         saved layout put a *different* stage at the end of the chain (e.g. a
         resume that adds or drops ``biased_eq2``) is the set re-derived from
-        the new source stage's restored moments, so production cannot inherit
-        parameters from a stage layout that no longer exists.
+        the new source stage's restored statistics, so production cannot
+        inherit parameters from a stage layout that no longer exists.
         """
         saved = self._saved_configured
         if saved is None or self.run.calibration_input is not None:
@@ -1420,10 +1857,13 @@ class GamdStages:
         if source == self._final_source(saved):
             return
         if self._completed_now()[source] < self.configured[source]:
-            return  # still to run: advance() hands over at its end
-        if not self.moments[source]:
+            return  # still to run: advance() pushes at its windows/end
+        moments = self._adaptation_moments() if self.extremes else {}
+        if not moments:
+            moments = self.moments.get(source) or {}
+        if not moments:
             return
-        calibration = self._handoff_parameters(source)
+        calibration = self._parameters_from(moments)
         if calibration == self.run.calibration:
             return
         self.run.log.info(
@@ -1448,6 +1888,7 @@ class GamdStages:
 
     def persist(self):
         if self.run.sink is not None:
+            # self.flush_cv_v0()  # DEBUG: write gamd_cv_v0.tsv (comment out to disable)
             self.run._persist_calibration()
             self.run.sink.write_bytes(self.filename, json.dumps({
                 "schema_version": self._SCHEMA_VERSION,
@@ -1475,6 +1916,15 @@ class GamdStages:
         Stopping exactly at the leg's last step is what lets the driver write
         that stage's own artifact rows under its own name and step number
         before :meth:`begin_next_leg` swaps in the next Context.
+
+        Statistics legs (``unbiased_production``/``biased_eq2``) integrate
+        ONE STEP AT A TIME: every step's channel energies feed Vmax/Vmin
+        and the window Welford immediately (AMBER's per-step imax/imin,
+        GaMD-OpenMM's per-step Welford — their CustomIntegrator globals,
+        read method-side because our P lives inside the CustomCVForce where
+        an integrator expression cannot see it).  Non-statistics legs keep
+        chunked stepping: nothing is read between the journal's lattice
+        points there.
         """
         if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < 1:
             raise ValueError("max_steps must be a positive integer")
@@ -1496,31 +1946,33 @@ class GamdStages:
         interval = self.interval  # output.gamd.sample_interval
         cap = min(end, kernel.current_step + max_steps)
         reached_end = False
+        per_step = phase in _STATS_PHASES
         while kernel.current_step < cap:
-            # leg-relative lattice: every stage starts its sampling at 0
-            next_sample = ((kernel.current_step // interval) + 1) * interval
-            target = self.run.next_exchange_boundary(min(cap, next_sample))
+            if per_step:
+                # step(1) at a time: the next step's P is only readable
+                # through the step's own force evaluation, so intermediate
+                # steps cannot be skipped (exchange boundaries are still
+                # hit exactly — every step is a loop boundary now)
+                target = kernel.current_step + 1
+            else:
+                # leg-relative lattice: every stage starts its sampling at 0
+                next_sample = ((kernel.current_step // interval) + 1) * interval
+                target = self.run.next_exchange_boundary(min(cap, next_sample))
             before = kernel.current_step
             kernel.step(target - before)
             self._stepped += target - before
-            self.run.exchange_at_boundary()
-            sample = phase in _SAMPLE_PHASES and (target == end or target == next_sample)
-            if sample:
-                readings = kernel.boost_potentials()
-                values = {label: float(readings[label].energy) for label in self.run.channels}
-                if not all(np.isfinite(v) for v in values.values()):
-                    raise ValueError("nonfinite GaMD calibration energy")
-                record = {"step": target, "phase": phase, "energies": values}
-                self.records.append(record)
-                self._accumulate(record)
-                # Parameters change ONLY at a stage boundary, never inside a
-                # stage: the trajectory of every stage runs under the set it
-                # started with, and the samples of a source stage calibrate
-                # the next boost stage (see _handoff_source).
-                if target == end:
-                    self._calibrate_handoff(phase)
+            exchanged = self.run.exchange_at_boundary()
+            if per_step:
+                self._read_step(phase, target, end, interval,
+                                fresh=exchanged)
+            else:
+                self._record_lattice(phase, target, end, target == next_sample)
+            # self.record_cv_v0(target)  # DEBUG: CV-vs-native V0 check (comment out to disable)
             if target == end:
                 reached_end = True
+        # the statistics state moved with every step above: commit it so the
+        # driver's next checkpoint envelope carries the exact position
+        self._sync_checkpoint_metadata()
         # The journal is cumulative, so rewriting it at every bounded turn is
         # unnecessary I/O (the driver now stops at each reporting-probe
         # boundary).  Flush on the checkpoint cadence the driver drives at,
@@ -1530,6 +1982,86 @@ class GamdStages:
             self.persist()
             self._last_flush = self._stepped
         return kernel.current_step
+
+    def _read_step(self, phase, step, end, interval, *, fresh=False):
+        """Read one step's channel energies and feed them where they go.
+
+        The adaptation statistics feed on EVERY step (that is the whole
+        point of the per-step loop); the journal's diagnostic record lands
+        on the ``sample_interval`` lattice (and always on the leg's last
+        step).  ``leg_end`` seals the final (possibly partial) window and
+        the boundary push follows it — stage 2 hands its set to the boost
+        legs, stage 4 leaves production the freshest set; biased_eq2 also
+        pushed at every window it closed inside the leg.
+
+        Group-readable channels use the CustomIntegrator's per-step V0
+        global (a few microseconds).  Clone/CV channels have no fast value
+        and are read fresh through ``boost_readings``.  ``fresh=True`` is
+        used after a ligand exchange actually moved coordinates: every
+        channel must then come from the post-exchange configuration, so the
+        pre-exchange integrator globals are skipped.
+        """
+        kernel = self.run.kernel
+        values: dict[str, float] = {}
+        if not fresh:
+            fast = self._step_energy_read
+            if fast is not None:
+                values.update({label: float(value)
+                               for label, value in fast().items()})
+        missing = [label for label in self.run.channels if label not in values]
+        if missing:
+            reader = getattr(kernel, "boost_readings", None)
+            if not callable(reader):
+                reader = kernel.boost_potentials
+            readings = reader()
+            for label in missing:
+                values[label] = float(readings[label].energy)
+        bad = {label: value for label, value in values.items()
+               if not np.isfinite(value)}
+        if bad:
+            # This check can fire BEFORE the platform's own NaN check
+            # (an energy reads inf while the coordinates are still
+            # finite), so the offending numbers themselves are the
+            # diagnosis: name them, and let an attached watchdog dump
+            # the window it kept.
+            error = ValueError(
+                f"nonfinite GaMD calibration energy: {bad} "
+                "(channel energies at this step; set plan debug: true, or "
+                "legacy NEOMD_WATCH=1, for the per-tile readings)")
+            notifier = getattr(kernel, "notify_watch_failure", None)
+            if callable(notifier):
+                notifier(step, error)
+            raise error
+        leg_end = step == end
+        record = {"step": step, "phase": phase, "energies": values}
+        if leg_end or step % interval == 0:
+            self.records.append(record)
+            self._accumulate(record)
+        # every step feeds the statistics — the record above is diagnostics
+        self._feed_stats(record, live=True, leg_end=leg_end)
+        if leg_end:
+            self._push_adapted(phase, boundary=True)
+
+    def _record_lattice(self, phase, target, end, on_lattice):
+        """Non-statistics legs: journal + diagnostics at the lattice only."""
+        if not (phase in _SAMPLE_PHASES and (target == end or on_lattice)):
+            return
+        readings = self.run.kernel.boost_potentials()
+        values = {label: float(readings[label].energy) for label in self.run.channels}
+        bad = {label: value for label, value in values.items()
+               if not np.isfinite(value)}
+        if bad:
+            error = ValueError(
+                f"nonfinite GaMD calibration energy: {bad} "
+                "(channel energies at this sample step; set plan debug: "
+                "true, or legacy NEOMD_WATCH=1, for the per-tile readings)")
+            notifier = getattr(self.run.kernel, "notify_watch_failure", None)
+            if callable(notifier):
+                notifier(target, error)
+            raise error
+        record = {"step": target, "phase": phase, "energies": values}
+        self.records.append(record)
+        self._accumulate(record)
 
 
 # ---------------------------------------------------------------------------
@@ -1585,70 +2117,121 @@ def reweight_observable(values, boost_kjmol, temperature: float):
 
 SCHEMA = {
     "required": {
-        "gamd": ("mapping: mode (total | dual), sigma0 (boost strength; absent "
-                 "= 6 kcal/mol = 25.104 kJ/mol, a written number is in "
-                 "energy_unit, default kJ/mol), "
-                 "channels (optional explicit [{label, groups}] — LiGaMD "
-                 "group definitions), calibration_input (optional external "
+        "gamd": ("mapping: boosts (optional ordered boost claims; absent = plan-"
+                 "level default boost1: atom_indices all + bond/angle/dihedral/"
+                 "nonbonded, threshold_policy lower, sigma0 6 kcal/mol — AMBER's "
+                 "igamd=1), sigma0 (boost strength; absent = 6 kcal/mol = "
+                 "25.104 kJ/mol, a written number is in energy_unit, default "
+                 "kJ/mol), calibration_input (optional external "
                  "energy tape / gamd_calibration.json), restart_from "
-                 "(optional continue stage rerun); the sampling and recording "
-                 "cadences live in output.gamd"),
+                 "(optional continue stage rerun), boost_cv_mode (dv | v0_dv), "
+                 "emit_system (dry System-XML preparation, no simulation); the "
+                 "sampling and recording cadences live in output.gamd"),
         "steps": ("per-stage mapping {unbiased_eq, unbiased_production, "
                   "biased_eq, biased_eq2, production} — each value is that "
                   "stage's own step requirement and the length of its leg "
-                  "(method 'gamd' only; ADR-0010 + ADR-0011); biased_eq2 "
-                  "defaults to 0 and may be omitted"),
+                  "(method 'gamd' only; ADR-0010 + ADR-0011); ALL five stage "
+                  "keys are required and each must be >= 1 (the strict "
+                  "five-stage protocol: plain eq, cMD statistics, boost eq, "
+                  "adaptive boost eq, boost production; the only exception "
+                  "is unbiased_production: 0 with gamd.calibration_input); "
+                  "the optional integer "
+                  "ntave is the Vavg/sigmaV averaging window in steps "
+                  "(AMBER's ntave; default: AMBER's ~4x-system-size "
+                  "recommendation snapped to the 1-2-5 series — "
+                  "neomd.methods.gamd.default_ntave): unbiased_production "
+                  "and biased_eq2 must be whole multiples of ntave (AMBER: "
+                  "'ntcmdprep, ntcmd, ntebprep and nteb need to be multiples "
+                  "of ntave') so every window the pushes read is complete; "
+                  "the statistics legs feed Vmax/Vmin and the window Welford "
+                  "on EVERY step, and parameters are pushed at the end of "
+                  "unbiased_production and at every ntave window inside "
+                  "biased_eq2"),
         "temperature": "number, kelvin (plan-level key)",
     },
     "optional": {
         "gamd.boosts": ("ordered [{label, selectors:[{atom_indices,force_types,include_boundary?}], "
                         "sigma0?, threshold_policy?, energy_unit?}] with optional final "
-                        "{label,remaining:true}; force_types takes bond/angle/dihedral/"
+                        "{label,remaining:true}; atom_indices is a nonempty list of "
+                        "zero-based indices or the whole-system alias 'all' (AMBER's "
+                        "igamd=1..5 semantics, e.g. every dihedral); force_types takes "
+                        "bond/angle/dihedral/"
                         "nonbonded or the scalar 'all'; include_boundary is true/false per "
                         "selected force type (bond/angle/dihedral default false, nonbonded "
                         "default true) and controls whether crossing terms join the boost; "
-                        "a named type force_types does not select is an error; first-defined "
-                        "owns each term; restraints excluded"),
+                        "a named type force_types does not select is an error; claims are "
+                        "INDEPENDENT — every boost owns everything its selectors match, so "
+                        "overlapping boosts share terms (AMBER's dual boost: a "
+                        "{force_types: all} boost plus a {force_types: [dihedral]} boost); "
+                        "the final remaining:true boost is the exact complement of the "
+                        "union of the others' coverage; one include_boundary.nonbonded "
+                        "value per boost, and include=false sets within one boost must be "
+                        "disjoint (their masked blocks M(S) would double-count); "
+                        "restraints excluded; a channel owning whole forces "
+                        "gets those natives moved into its pure force group and its V0 is "
+                        "read as that group's energy (partial or shared selections read "
+                        "the CV's clone values — identical numbers)"),
         "gamd.threshold_policy": "upper (default, lower fallback) or lower, independently overridable per boost",
+        "gamd.boost_cv_mode": ("dv (default: V0 stays native; the CustomCVForce "
+                               "carries only dV) or v0_dv (the whole native force "
+                               "V0 plus dV live in the CV; covered native forces "
+                               "are removed from the System, so every boosted "
+                               "Force must be covered exactly once by the boost "
+                               "channels — Σ channel V0 == native energy — else "
+                               "preparation raises and asks for dv). Fixed for the "
+                               "whole run and part of the journal fingerprint"),
+        "gamd.emit_system": ("mapping {stage?, E?, K?}: a dry preparation that "
+                             "builds the requested stage's System (same CV mode) "
+                             "and writes <output_dir>/<stage>_system.xml, then "
+                             "stops without creating a Context or integrating; "
+                             "stage defaults to production; E is a {boost label: "
+                             "threshold in kJ/mol} mapping and K a {boost label: "
+                             "k in 1/(kJ/mol)} mapping, both defaulting to 0; "
+                             "cannot be combined with continue_md"),
         "gamd.energy_unit": "kJ/mol (default) or kcal/mol; kcal/mol is explicitly multiplied by 4.184",
-        "output.gamd.sample_interval": ("steps between the equilibration legs' V(P) "
-                                        "statistics samples that calibrate the next boost "
-                                        "stage (default 1000); the stage lengths must span "
-                                        "at least a few samples"),
+        "output.gamd.sample_interval": ("steps between the equilibration legs' "
+                                        "DIAGNOSTIC V(P) samples journaled to "
+                                        "gamd_stages.json (default 1000); the "
+                                        "adaptation statistics themselves feed on "
+                                        "EVERY step of the statistics legs (AMBER's "
+                                        "per-step imax/imin, GaMD-OpenMM's per-step "
+                                        "Welford — the journal's lattice is not the "
+                                        "statistics source)"),
         "output.gamd.trace_interval": ("steps between production.tsv boost rows (default "
                                        "5000); rows a saved frame does not match add bytes, "
                                        "not information, so this is the fallback cadence "
                                        "when no finer frame source exists"),
         "output.gamd.report": "boolean, default true: write the production.tsv boost trace (the CE2 analysis input)",
         "gamd.calibration_input": ("optional path to an energy-sample tape (gamd.tsv / "
-                                   "state.tsv — the latter feeds only the total channel) or a "
+                                   "state.tsv — the latter feeds a single whole-system boost) or a "
                                    "gamd_calibration.json whose (threshold, k) are adopted "
                                    "verbatim; the file's sha256 is recorded as provenance and "
                                    "the internal statistics stage never recomputes parameters"),
         "gamd.restart_from": ("optional stage name; with continue_md, rerun from the "
-                              "previous stage's boundary checkpoint (ckpt/<stage>.ckpt) "
-                              "instead of resuming mid-stage; parameters are pinned to "
-                              "the boundary calibration unless calibration_input is given"),
+                              "stage's restart checkpoint (restart/<stage>.ckpt) instead "
+                              "of resuming mid-stage — no input_files.checkpoint is "
+                              "needed (an explicit one must be a byte-identical copy of "
+                              "that stage-head blob); parameters are pinned to the "
+                              "boundary calibration unless calibration_input is given"),
         "gamd.exchange": ("experimental deterministic ligand relabel: copies, reference_atoms, interval? (default 1), "
                           "designated_slot?, ligand_reference_atoms? (copy offsets), cutoff_nm?, periodic?; "
                           "with cutoff retain designated copy at distance <= cutoff; "
                           "only when designated is outside swap the nearest other copy at distance <= cutoff; "
                           "without cutoff choose nearest of all slots; no energy or Metropolis acceptance gate; "
                           "not a qualified equilibrium PMF sampler"),
-        "gamd.channels": ("legacy explicit channel definitions [{label, groups}] "
-                          "over force-group ids (LiGaMD: point at the "
-                          "ligand dihedral / ligand-nonbonded groups of a "
-                          "system that separates them into their own "
-                          "force groups)"),
-        "continue_md": ("bool; restore output.ckpt (or input_files.checkpoint), trim "
-                        "tapes, and continue — mid-stage resume in a gamd directory, "
-                        "adopt from a foreign checkpoint, or with gamd.restart_from "
-                        "a boundary rerun"),
+        "continue_md": ("bool; resume from the plan's resolved checkpoint — with "
+                        "gamd.restart_from a stage-head restart (entry = "
+                        "restart/<stage>.ckpt, no input_files.checkpoint needed), "
+                        "otherwise a mid-stage resume that must name "
+                        "input_files.checkpoint (adopting a foreign checkpoint is "
+                        "the mid-stage form)"),
         "output.gamd": ("mapping: report (bool, default true — the gamd.tsv "
                         "boost-trace switch the driver owns), sample_interval "
                         "(equilibration V(P) statistics cadence, default "
-                        "1000), trace_interval (production tape cadence, "
-                        "default 5000)"),
+                        "1000), trace_interval (production tape cadence; "
+                        "defaults to the trajectory_interval cadence so "
+                        "every saved DCD frame gets a CE2 row — flat 5000 "
+                        "only with no trajectory)"),
     },
 }
 

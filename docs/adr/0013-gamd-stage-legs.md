@@ -53,11 +53,11 @@ only later legs are entered normally.
   closing stage's rows are recorded under its own name at its own step number
   before the next Context is built; only then does it call
   `GamdStages.begin_next_leg()`.
-- `ckpt/entry.ckpt` is the state that BEGINS `unbiased_eq`;
-  `ckpt/<stage>.ckpt` is the state that BEGINS the stage after `<stage>`
-  (written immediately after that leg's `start_leg`, i.e. at step 0 of the
-  next leg). Zero-length stages share their successor's checkpoint, exactly
-  as zero-length stages always shared a boundary step.
+- `restart/<stage>.ckpt` is the state that BEGINS `<stage>` (written
+  immediately after that leg's `start_leg`, i.e. at step 0 of the leg) —
+  the file is named for the stage it starts. Zero-length stages share their
+  successor's checkpoint, exactly as zero-length stages always shared a
+  boundary step.
 - `output.ckpt` stays the single rolling resume point.
 
 Resume trimming follows from the above: a per-stage tape's rows are bounded
@@ -86,7 +86,7 @@ and the next leg's start.
 
 GaMD therefore commits the leg index into the checkpoint envelope itself
 (`CheckpointMetadataOps`, key `gamd_leg`) whenever a leg begins, so every
-`output.ckpt`, `<stage>.ckpt` and `ckpt/<stage>.ckpt` names the leg its
+`output.ckpt`, `<stage>.ckpt` and `restart/<stage>.ckpt` names the leg its
 Context belongs to. A resume reads it back and takes the stage's progress
 from the restored clock; a restart additionally checks that the boundary it
 restored belongs to the stage the user asked to re-enter. A blob without the

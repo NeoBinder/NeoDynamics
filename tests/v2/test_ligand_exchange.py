@@ -125,12 +125,16 @@ def test_interruption_after_mutation_before_ledger_commit_replays_from_checkpoin
 
 def test_driver_reports_and_checkpoints_after_exchange(tmp_path):
     def config(steps, resume=False):
+        inputs = {"complex": "unused", "system": "unused"}
+        if resume:
+            # a mid-stage gamd resume names its checkpoint explicitly
+            inputs["checkpoint"] = str(tmp_path / "output.ckpt")
         return Plan.from_dict({"method": "gamd", "temperature": 298,
-                               "steps": {"unbiased_eq": 0, "unbiased_production": 2,
-                                         "biased_eq": 0, "biased_eq2": 0,
-                                         "production": steps - 2},
+                               "steps": {"unbiased_eq": 1, "unbiased_production": 2,
+                                         "biased_eq": 1, "biased_eq2": 1,
+                                         "production": steps - 5, "ntave": 1},
                                "continue_md": resume,
-                               "input_files": {"complex": "unused", "system": "unused"},
+                               "input_files": inputs,
                                "output": {"output_dir": str(tmp_path), "state_interval": 0,
                                           "trajectory_interval": 5, "checkpoint_interval": 5,
                                           "gamd": {"sample_interval": 1,
@@ -147,13 +151,13 @@ def test_driver_reports_and_checkpoints_after_exchange(tmp_path):
     checkpoint_kernel = kernel()
     checkpoint_kernel.restore(sink.read_bytes("output.ckpt"))
     # output.ckpt is the production leg's rolling checkpoint: leg-relative
-    # (10 total = 2-step calibration leg + an 8-step production leg)
-    assert checkpoint_kernel.current_step == 8
+    # (10 total = a 5-step preparation chain + a 5-step production leg)
+    assert checkpoint_kernel.current_step == 5
     drive(config(15, True), kernel_factory=lambda spec: kernel(), sink=sink)
     ledger = json.loads(sink.read_bytes("ligand_exchange.json"))
-    # event steps use gamd's monotone virtual clock: the finished 2-step
-    # calibration leg + the production leg's step 5 where the swap happened
-    assert [json.loads(line)["step"] for line in sink.read_bytes(EVENTS_FILENAME).splitlines()] == [7]
+    # event steps use gamd's monotone virtual clock: the finished 5-step
+    # preparation chain + the production leg's step 5 where the swap happened
+    assert [json.loads(line)["step"] for line in sink.read_bytes(EVENTS_FILENAME).splitlines()] == [10]
     assert not ledger["equilibrium_reweighting_qualified"]
 
 
@@ -228,8 +232,9 @@ def test_public_gamd_default_exchange_interval_is_each_step(tmp_path, monkeypatc
     exchange_config = settings(cutoff_nm=4.)
     del exchange_config["interval"]
     plan = Plan.from_dict({"method": "gamd", "temperature": 298,
-                           "steps": {"unbiased_eq": 0, "unbiased_production": 2,
-                                     "biased_eq": 0, "biased_eq2": 0, "production": 3},
+                           "steps": {"unbiased_eq": 1, "unbiased_production": 2,
+                                     "biased_eq": 1, "biased_eq2": 1, "production": 3,
+                                     "ntave": 1},
                            "input_files": {"complex": "unused", "system": "unused"},
                            "output": {"output_dir": str(tmp_path), "state_interval": 0,
                                       "trajectory_interval": 1, "checkpoint_interval": 1,
@@ -241,8 +246,10 @@ def test_public_gamd_default_exchange_interval_is_each_step(tmp_path, monkeypatc
     assert ledger["event_count"] == 0
     assert sink.read_bytes(EVENTS_FILENAME) == b""
     # every integration step is checked, in every leg: the raw step restarts
-    # at 1 in the 3-step production leg while the virtual clock keeps counting
-    assert calls == [(1, 1), (2, 2), (1, 3), (2, 4), (3, 5)]
+    # at 1 inside each leg while the virtual clock keeps counting through
+    # the whole five-leg chain (1 + 2 + 1 + 1 + 3 steps)
+    assert calls == [(1, 1), (1, 2), (2, 3), (1, 4), (1, 5),
+                     (1, 6), (2, 7), (3, 8)]
 
 
 def test_noop_checks_do_not_write_and_changed_journal_work_is_linear():

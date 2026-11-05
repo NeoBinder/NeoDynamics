@@ -131,6 +131,13 @@ CustomIntegrator 表达式实现 Welford——可测试性差（fake 与 openmm 
 
 ## 实现补记
 
+> **修订（2026-10）：以下 `torsion_force_groups()`/`gamd.channels` 设计已被
+> 取代并删除。** 布局词汇表统一为 `gamd.boosts` 的选择器声明（独立圈定、
+> 允许重叠；不写 boosts = plan 归一化生成的默认 boost1（全体系四类力），见 ADR-0009
+> 修订）：dual 的二面角通道改由 `atom_indices: all` + `force_types:
+> [dihedral]` 表达，LiGaMD 的配体分组改由原子组选择器表达。原设计留档
+> 如下。
+
 dual boost 的二面角通道需要"哪些 force group 持有扭转能"这一发现能力。
 落在 BoostOps 之外的一个 duck-typed 伴随方法
 `torsion_force_groups() -> tuple[int, ...]`（与 GroupEnergy 同款协商风格，

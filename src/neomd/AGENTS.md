@@ -29,10 +29,13 @@
   there loses the last deposit and breaks exact resume.
 - ML/MM assembly precedes Context creation; NNP forces never enter
   `system.xml` (not XML-serializable); the fake kernel ignores `ml_region`.
-  GaMD calibration is a bounded method-side stage; resume re-pushes the
-  persisted parameter set, and only a resume that moves which stage ends the
-  chain re-derives it from the restored samples. Its five-stage steps mapping,
-  boundary checkpoints (`ckpt/entry.ckpt`, `ckpt/<stage>.ckpt`) and
+  GaMD calibration is a bounded method-side stage whose statistics feed on
+  EVERY step of the statistics legs; the per-step accumulators and live (E, k)
+  ride the checkpoint envelope (`gamd_stats`, the same wrapper as `gamd_leg`)
+  so a mid-leg resume of the adaptation is exact, and only a resume that moves
+  which stage ends the chain re-derives it from the restored statistics. Its
+  five-stage steps mapping,
+  per-stage restart checkpoints (`restart/<stage>.ckpt`) and
   `restart_from` semantics are ADR-0010/0011: each stage is a LEG with its
   own Context (`kernel.start_leg(index)`), its own step axis from 0 and no
   global axis anywhere (an adopted external checkpoint contributes
@@ -106,5 +109,29 @@ project-root-relative; local guides carry kernel and method-specific constraints
   preparation loop and `MDStepper.advance` so the line really fires on
   schedule; every intermediate record is `inline=True` (same-line
   replacement) and only a leg's closing record stays in the scrollback.
+- `debug` is METHOD-AGNOSTIC numerical observation, not a GaMD feature: the
+  driver attaches the same `neomd.watch.StepWatch` before every method
+  dispatch, the OpenMM adapter integrates one step at a time while attached,
+  and runtime failures first write a bounded crash snapshot and then enter
+  `pdb.post_mortem` with the ORIGINAL traceback. Observation is read-only and
+  debug-off keeps the chunked stepping path byte-identical. Plan values beat
+  the legacy dump-only `NEOMD_WATCH_*` env; `break_on_error: false` is the
+  batch/service mode. Any debugged CustomIntegrator is copied with staged
+  snapshots: `in0/out0` surround `updateContextState`; later updates use
+  `in<n>_*` inputs and `out<n>_*` outputs (velocity kick, constraints, drifts,
+  O step, oldx, x=oldx, correction); force/energy snapshots use actual System
+  force-group ids. Globals (`out0_energy`, `out0_energy_group_*`) and
+  per-DOF arrays are both read. This is on by default for debug runs
+  (`debug.integrator_snapshots: false` opts out) because extra
+  CustomIntegrator ops shift its random stream and change the trajectory.
+  All GaMD runs use a CustomIntegrator: group channels fast-value globals are
+  `gamd_p_<label>` in production and `out9_<label>` in debug; CV/clone
+  channels use the fresh `boost_readings()` fallback. `CustomIntegrator`
+  checkpointing does not serialize its RNG stream, so a mid-run GaMD resume is
+  statistically equivalent, never bit-identical. `debug.force_group_per_force:
+  true` is a debug-only physical split (one OpenMM force group per active
+  Force, error above the 32-group budget); methods, probes and
+  `RunOutcome.fgroups` keep LOGICAL group ids and the kernel translates at
+  every group read.
 - OpenMM private accesses stay behind the pinned 8.6.x version gate; QC writes
   `qc_report.json` via sinks at preparation/minimization tails, soft by default.

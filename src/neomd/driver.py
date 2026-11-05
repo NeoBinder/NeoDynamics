@@ -1028,6 +1028,7 @@ def advance_preparation(kernel, plan, prepared, max_steps, *, sink=None,
     reporter.log_interval = max(1, int(log_interval))
     cap = kernel.current_step + max_steps
     interval = int(getattr(plan, "checkpoint_interval", 0) or 0)
+    view_factory = _default_view_factory(kernel)
     if probes is not None:
         scheduler = ProbeScheduler(probes)
     else:
@@ -1065,7 +1066,11 @@ def advance_preparation(kernel, plan, prepared, max_steps, *, sink=None,
             if step <= before:
                 raise RuntimeError("method preparation did not advance")
             reporter.stepped(step - before)
-            view = KernelView(kernel, step)
+            # the SAME box accessor the production loop hands its probes:
+            # without it a staged method's <stage>.dcd is created with the
+            # header's non-periodic flag, so it carries no unit-cell record
+            # and skips molecule wrapping
+            view = view_factory(kernel, step)
             boundary_hit = bool(leg_end) and step == leg_end
             # A leg boundary is an extra observation point for the reporting
             # tapes, but ``output.ckpt`` is committed and reported only where
@@ -1243,11 +1248,12 @@ def _manifest_recorder(manifest, sink):
     return record
 
 
-def drive(
+def _drive(
     plan,
     kernel_factory: Callable[[KernelSpec], KernelPort] = KernelFactory.create,
     sink=None,
     logger=None,
+    _watch_holder: dict | None = None,
 ) -> RunOutcome:
     """Execute what ``plan`` says, one call: kernel → restraints → method →
     manifest.
@@ -1308,6 +1314,23 @@ def drive(
         ensure_adapters()  # the default factory needs the adapter registry
 
     kernel = kernel_factory(_kernel_spec(plan))
+
+    from .watch import attach_watch
+
+    # opt-in generic numerical debug (plan.debug / --debug / legacy
+    # NEOMD_WATCH); None — and free — by default.  The holder lets the public
+    # driver boundary below dump the scene and enter the post-mortem with the
+    # ORIGINAL traceback for failures raised outside kernel.step (method
+    # sampling checks, probes, preparation).
+    watch = attach_watch(kernel, plan, sink, log)
+    if _watch_holder is not None:
+        _watch_holder["kernel"] = kernel
+        _watch_holder["watch"] = watch
+    if watch is not None:
+        import os as _os
+        log.info("watchdog provenance: platform request=%s CUDA "
+                 "precision request=%s", getattr(plan, "platform", "cuda"),
+                 _os.environ.get("NEOMD_CUDA_PRECISION", "single"))
 
     from .manifest import RunManifest
 
@@ -1398,20 +1421,45 @@ def drive(
         entry = registry.get("method", method)  # KeyError w/ did-you-mean
         prepared = entry.prepare(kernel=kernel, plan=plan, sink=sink,
                                  logger=log)
-        if prepared.resume_plan is not None:
-            resume = prepared.resume_plan
-            log.info("resuming from step %d (checkpoint %s); tapes trimmed: %s",
-                     resume.resume_step, resume.checkpoint,
-                     sorted(resume.trims) or "none")
-            manifest.add_epoch(f"resume:{resume.resume_step}",
-                               steps_so_far=resume.resume_step)
-        results.append(run_prepared_method(
-            kernel, plan, prepared, sink=sink, logger=log,
-            on_progress=record_progress,
-            restraint_independent=independent_fgroups or None,
-            restraint_shared_group=shared_group))
+        emit = None
+        if method == "gamd":
+            emit = (getattr(plan, "gamd", None) or {}).get("emit_system")
+        if emit is not None:
+            # emit_system is a dry preparation: the method built the System
+            # (requested CV mode, user E/k defaults) but no Context or
+            # integration exists yet.  Serialize through the kernel seam and
+            # stop — no production loop, no trajectory.
+            serialize = getattr(kernel, "system_xml", None)
+            if serialize is None:
+                raise NotImplementedError(
+                    f"kernel {getattr(kernel, 'name', type(kernel).__name__)!r} "
+                    "cannot emit a System XML")
+            if sink is None:
+                raise ValueError("gamd.emit_system requires an output directory")
+            stage = str(emit.get("stage", "production"))
+            filename = f"{stage}_system.xml"
+            sink.write_bytes(filename, serialize().encode())
+            log.info("gamd.emit_system: wrote %s (cv_mode=%s, no simulation run)",
+                     filename, (getattr(plan, "gamd", None) or {}).get(
+                         "boost_cv_mode", "dv"))
+            results.append({"emit_system": filename})
+        else:
+            if prepared.resume_plan is not None:
+                resume = prepared.resume_plan
+                log.info("resuming from step %d (checkpoint %s); tapes trimmed: %s",
+                         resume.resume_step, resume.checkpoint,
+                         sorted(resume.trims) or "none")
+                manifest.add_epoch(f"resume:{resume.resume_step}",
+                                   steps_so_far=resume.resume_step)
+            results.append(run_prepared_method(
+                kernel, plan, prepared, sink=sink, logger=log,
+                on_progress=record_progress,
+                restraint_independent=independent_fgroups or None,
+                restraint_shared_group=shared_group))
 
     manifest.add_epoch(f"done:{method}", steps_so_far=kernel.current_step)
+    if watch is not None:
+        watch.close(kernel.current_step)
     _log_run_end(log, started)
 
     manifest_path = None
@@ -1428,3 +1476,42 @@ def drive(
         results=results,
         manifest_path=manifest_path,
     )
+
+
+def drive(
+    plan,
+    kernel_factory: Callable[[KernelSpec], KernelPort] = KernelFactory.create,
+    sink=None,
+    logger=None,
+) -> RunOutcome:
+    """Execute what ``plan`` says, one call: kernel → restraints → method →
+    manifest (see :func:`_drive` for the phase contract).
+
+    This public boundary is also the method-agnostic debug failure boundary:
+    when ``debug`` is enabled, a runtime exception is dumped by the attached
+    :mod:`neomd.watch` observer and then raised through ``pdb.post_mortem``
+    with its ORIGINAL traceback.  The driver does not catch-and-continue, so
+    an unmodified simulation-only failure still terminates after the user
+    leaves the debugger; a batch run sets ``debug.break_on_error: false``.
+    """
+    holder: dict = {}
+    try:
+        return _drive(plan, kernel_factory=kernel_factory, sink=sink,
+                      logger=logger, _watch_holder=holder)
+    except Exception as error:
+        watch = holder.get("watch")
+        if watch is not None:
+            kernel = holder.get("kernel")
+            try:
+                step = None if kernel is None else int(kernel.current_step) + 1
+            except Exception:  # pragma: no cover - damaged kernel state
+                step = None
+            try:
+                watch.handle_exception(step, error)
+            except Exception:  # pragma: no cover - dump is best effort
+                LOG.exception("numeric debug: crash dump failed")
+            try:
+                watch.debug(error)
+            except Exception:  # pragma: no cover - debugger is best effort
+                LOG.exception("numeric debug: post-mortem debugger failed")
+        raise

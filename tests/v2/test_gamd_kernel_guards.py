@@ -16,7 +16,7 @@ from tests.v2.test_gamd_partition import fixture, original_state, selection
 
 @pytest.mark.parametrize('parameter', ['E_total', 'k_total'])
 @pytest.mark.parametrize('location', ['physical', 'nested', 'restraint'])
-@pytest.mark.parametrize('entrypoint', ['legacy', 'partition'])
+@pytest.mark.parametrize('entrypoint', ['partition'])
 def test_boost_global_collisions_fail_without_mutating_system(tmp_path, parameter, location, entrypoint):
     system, _, spec = fixture(tmp_path)
     force = openmm.CustomBondForce(f'0.5*{parameter}*(r-0.3)^2')
@@ -35,10 +35,7 @@ def test_boost_global_collisions_fail_without_mutating_system(tmp_path, paramete
                                   label='user'))
     original_xml = openmm.XmlSerializer.serialize(kernel.system)
     with pytest.raises(ValueError, match='collide with existing force globals'):
-        if entrypoint == 'legacy':
-            kernel.install_boost([BoostChannelIR('total', (), threshold=10., k=.1)])
-        else:
-            kernel.compile_boost_partitions([selection('total', [0], ['bond'])])
+        kernel.compile_boost_partitions([selection('total', [0], ['bond'])])
     assert openmm.XmlSerializer.serialize(kernel.system) == original_xml
     assert kernel._simulation is None  # The guard must run before Context construction.
 
@@ -51,7 +48,11 @@ def test_noncolliding_physical_global_is_unchanged_by_boost_updates(tmp_path):
     system.addForce(force)
     expected, _ = original_state(system, positions)
     kernel = OpenMMKernel(replace(spec, system_xml=openmm.XmlSerializer.serialize(system)))
-    kernel.install_boost([BoostChannelIR('safe', (), threshold=10., k=.1)])
+    report = kernel.compile_boost_partitions([
+        selection('safe', list(range(system.getNumParticles())),
+                  ['bond', 'angle', 'dihedral', 'nonbonded'])])
+    kernel.install_boost([BoostChannelIR(row['label'], tuple(row['groups']), 10., .1)
+                          for row in report['channels']])
     assert kernel.boost_potentials()['safe'].energy == pytest.approx(expected, abs=1e-5)
     kernel.set_boost_param('safe', 'k', .2)
     kernel.set_boost_param('safe', 'threshold', 20.)

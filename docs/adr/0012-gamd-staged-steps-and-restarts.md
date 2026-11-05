@@ -20,10 +20,11 @@ For `method: gamd`, `steps` is a five-key mapping —
 an intentional breaking change, per the no-compatibility-layer policy). Stage
 names double as the user-facing protocol: two unbiased equilibrations, two
 boosted equilibrations, fixed production, with velocities carried across every
-boundary. `unbiased_production` and `production` require at least one step
-(the statistics floor lifts only when `gamd.calibration_input` sources the
-parameters externally); `biased_eq2` is the only stage whose key may be
-omitted, defaulting to zero; every other stage may be written as zero. Values
+boundary. ALL five stage keys are required and every stage must have steps (the
+user-confirmed strict five-stage protocol: plain cMD eq, cMD statistics,
+boost eq, adaptive boost eq, boost production); the statistics floor for
+`unbiased_production` lifts to zero only when `gamd.calibration_input`
+sources the parameters externally. Values
 are per-stage
 required steps — they never account for steps already run — and each value
 is ALSO the length of that stage's leg, so the derived sum is only a
@@ -32,30 +33,70 @@ keep the integer form and reject the mapping.
 
 ## Boost-parameter hand-over
 
+> **Revision (AMBER schedule, user-confirmed).** The original contract below
+> moved parameters only at stage boundaries. The accepted amendment replaces
+> the *chained hand-over* with AMBER's staged protocol (GaMD_Amber-manual;
+> GaMD-OpenMM `stage_integrator.py`): `unbiased_production` (cMD statistics)
+> pushes once at its leg END; `biased_eq` (ntebprep) runs frozen; `biased_eq2`
+> (nteb, when it has steps) **adapts in-leg** — the statistics legs feed
+> Vmax/Vmin and the window Welford on EVERY step (AMBER's per-step
+> imax/imin; GaMD-OpenMM's per-step Welford globals — read method-side via
+> `boost_potentials`, whose V0 an integrator expression cannot see), and
+> every closed `steps.ntave` window recomputes Vavg/σV and pushes a new
+> (E, k) through `set_boost_param`, plus one final push at its leg end;
+> production stays frozen on the last set.  **Whole-window constraint
+> (AMBER-aligned, user-confirmed)**: `steps.unbiased_production` and
+> `steps.biased_eq2` must be whole multiples of `steps.ntave` (AMBER's
+> "ntcmdprep, ntcmd, ntebprep and nteb need to be multiples of ntave" —
+> our per-leg windows restart at leg entry, so only the two statistics
+> leg lengths need the constraint), so every window a push reads is
+> complete; the default ntave is AMBER's ~4x-system-size recommendation
+> snapped to the 1-2-5 series (`neomd.methods.gamd.default_ntave`).  V0 follows AMBER's group-energy
+> semantics: whole-force channels get their native forces moved into a
+> pure channel force group and read V0 as that group's potential; on
+> every GaMD run a CustomIntegrator (LFMiddle, op-for-op stock-equivalent
+> noiseless; a different gaussian draw order, so trajectories are
+> deterministic but not stock-bit-identical) records each group-readable
+> step's V0 into integrator globals — GaMD-OpenMM's mechanism — while
+> partial-selection channels read the CustomCVForce's clone values through
+> the fresh `boost_readings()` path (numerically identical either way).
+> The global is `gamd_p_<label>` in production and `out9_<label>` in debug.
+> Because OpenMM's CustomIntegrator checkpoint does not serialize its RNG
+> stream, a mid-run GaMD resume is statistically equivalent, not
+> bit-identical. Every other clause — the
+> `parameter_history` provenance, resume re-push, and layout-change handling —
+> survives unchanged, except that `biased_eq` is never a statistics source
+> and the per-step accumulators plus the live (E, k) ride the checkpoint
+> envelope (`gamd_stats`, the same NEOMD wrapper `gamd_leg` uses) so a
+> resume restores them at exactly the position the restored Context re-runs
+> from — the journal's lattice samples are diagnostics, and only legacy
+> directories (pre-envelope checkpoints) rebuild statistics from them.
+> Reweighting stays exact:
+> each `gamd.tsv` row carries the `parameter_revision` it was produced under.
+
 The `steps` mapping also decides which stage supplies production's frozen boost
-parameters (ADR-0009 states the chaining rule): `unbiased_production`'s samples
-always calibrate `biased_eq`'s set, and `biased_eq`'s samples calibrate
-`biased_eq2`'s set only when `biased_eq2` has steps. Because the last boost
-equilibration never recalibrates, production runs the set its last boost stage
-started with — `biased_eq2`'s when it has steps, otherwise `biased_eq`'s, which
-in turn came from `unbiased_production`. Parameters therefore move only at a
-stage boundary: no stage, production included, re-tunes the boost while it is
-running.
+parameters: `unbiased_production`'s leg-end set starts every boost leg, and
+`biased_eq2`'s window/leg-end pushes leave production the freshest set (with
+`biased_eq2: 0`, the stage-2-end set). `biased_eq` never re-tunes: no stage
+other than `biased_eq2` re-tunes the boost while it is running, and production
+included never does.
 
 Crossing a resume with a layout whose *source* stage changed (adding or
 dropping `biased_eq2`) re-derives that set from the new source stage's restored
 samples at prepare, so a continued run cannot inherit parameters from a stage
 layout that no longer exists. `gamd_stages.json`'s `parameter_history` is keyed
-by the stage that produced each set (only a stage that acted as a statistics
-source appears) and records that hand-over's monotone `revision` and step, which
+by the stage that produced each set (only a stage that actually pushed appears;
+a stage's entry is overwritten by its later pushes) and records the push's
+monotone `revision` and step, which
 is how the provenance stays auditable. Its `samples` are grouped by stage —
 `{stage: [{step, energies}]}` — because each stage owns its own statistics
 window; the stages that never sample stay empty rather than sharing one list.
 
 The stage lengths are deliberately NOT part of the resume fingerprint:
 changing them between sessions is the supported way to extend or shorten a
-run. The fingerprint still covers mode, channels/selectors, sigma0, units,
-policies, intervals and exchange — physical configuration.
+run. The fingerprint still covers the boost layout (selectors, with legacy
+`mode`/`channels` spellings normalized to their boosts equivalent), sigma0,
+units, policies, intervals and exchange — physical configuration.
 
 ## Per-stage accounting and exact plain resume
 
@@ -81,10 +122,10 @@ gone.
 ## Boundary checkpoints and `restart_from`
 
 The rolling `output.ckpt` holds only the final state, so stage reruns cannot
-use it. The pipeline writes `ckpt/entry.ckpt` at prepare and
-`ckpt/<stage>.ckpt` as each stage completes (zero-length stages share the
-same-step boundary). These flat names are intentionally outside the service's
-static checkpoint-file list.
+use it. The pipeline writes `restart/<stage>.ckpt` when each stage's leg
+begins (at prepare for `unbiased_eq`, after the previous stage completes for
+the rest; zero-length stages share the same-step boundary). These names are
+intentionally outside the service's static checkpoint-file list.
 
 `continue_md: true` therefore forks by source type:
 
@@ -92,12 +133,16 @@ static checkpoint-file list.
   example an external equilibration): coordinates, velocities and the step
   axis are adopted, all five stages run from zero.
 - **resume** — a gamd directory without `gamd.restart_from`: continue
-  mid-stage as above.
-- **restart** — a gamd directory with `gamd.restart_from: <stage>`: restore
-  the boundary checkpoint beginning that stage, re-enter the leg at step 0
-  (ADR 0011), re-trim every per-stage tape to its own leg's bound
-  (`resume.trim_to`, keeping resume the trimming owner), pin the boost
-  parameters to the calibration in effect at the boundary, and rerun the
+  mid-stage from the checkpoint the plan names explicitly (a gamd directory
+  has no implicit entry-checkpoint default).
+- **restart** — a gamd directory with `gamd.restart_from: <stage>`: the plan
+  derives the stage-head checkpoint `<output_dir>/restart/<stage>.ckpt` as the
+  continue_md entry (no separate checkpoint needed; an explicit
+  `input_files.checkpoint` is accepted only as a byte-identical copy of that
+  blob), restores it, re-enters the leg at step 0
+  (ADR 0011), re-trims every per-stage tape to its own leg's bound
+  (`resume.trim_to`, keeping resume the trimming owner), pins the boost
+  parameters to the calibration in effect at the boundary, and reruns the
   tail. Because a restart performs a full prepare, the integrator, restraint
   set, sigma0 and stage lengths may change deliberately; the fingerprint
   still rejects accidental physical-configuration drift key by key. A

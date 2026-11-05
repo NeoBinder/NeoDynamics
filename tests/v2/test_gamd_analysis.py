@@ -297,8 +297,8 @@ def test_actual_fake_gamd_run_dcd_to_analysis(tmp_path):
     from neomd.sinks import LocalDirSink
     kernel = FakeKernel(KernelSpec(kind='fake', seed=831, integrator={'dt': .002}))
     config = dict(method='gamd', temperature=298, integrator={'dt': .002},
-        steps={'unbiased_eq': 0, 'unbiased_production': 20, 'biased_eq': 0,
-               'biased_eq2': 0, 'production': 60},
+        steps={'unbiased_eq': 5, 'unbiased_production': 20, 'biased_eq': 5,
+               'biased_eq2': 5, 'production': 60, 'ntave': 5},
         input_files={'complex': 'unused', 'system': 'unused'},
         output=dict(output_dir=str(tmp_path), trajectory_interval=10,
                     state_interval=0, checkpoint_interval=0,
