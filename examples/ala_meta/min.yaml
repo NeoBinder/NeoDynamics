@@ -3,7 +3,6 @@ min_params:
   tolerance: 10
   maxiter: 10000
 integrator:
-  integrator_name: LangevinIntegrator
   dt: 0.001
   friction_coeff: 1.0
 seed: 0

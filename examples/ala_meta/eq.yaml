@@ -3,7 +3,6 @@ continue_md: false
 steps: 50000
 
 integrator:
-  integrator_name: LangevinIntegrator
   dt: 0.002
   friction_coeff: 1.0
 barostat:

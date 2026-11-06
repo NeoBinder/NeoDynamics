@@ -247,7 +247,7 @@ spread keeps the incoming set rather than disabling the channel. An external
 recorded but never recomputed.
 
 > **Superseded (user-confirmed AMBER schedule).** The in-leg freeze above no
-> longer holds for `biased_eq2`: per [ADR 0010](0010-gamd-staged-steps-and-restarts.md)'s
+> longer holds for `biased_eq2`: per [ADR 0012](0012-gamd-staged-steps-and-restarts.md)'s
 > revision, `biased_eq2` re-tunes every closed `steps.ntave` window (plus its
 > leg end), `biased_eq` runs frozen, and production freezes the last pushed
 > set. Every other clause here — the statistics guard, the external pin, the
