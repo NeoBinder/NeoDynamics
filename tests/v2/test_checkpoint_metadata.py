@@ -89,7 +89,16 @@ def test_openmm_metadata_direct_and_lazy_resume_preserve_native_state(tmp_path, 
 
     def build(settings):
         kernel = OpenMMKernel(settings)
-        kernel.install_boost([BoostChannelIR("total", (), 100., .002)])
+        # A boost channel's P comes from the compiled partition's CV energy
+        # model (ADR-0009), so the whole-system partition must be compiled
+        # before the channel is installed — the public GaMD order.
+        report = kernel.compile_boost_partitions([{
+            "label": "total",
+            "selectors": [{"atom_indices": "all",
+                           "force_types": ("bond", "angle", "dihedral", "nonbonded")}],
+        }])
+        groups = tuple(report["channels"][0]["groups"])
+        kernel.install_boost([BoostChannelIR("total", groups, 100., .002)])
         return kernel
 
     kernel = build(spec)

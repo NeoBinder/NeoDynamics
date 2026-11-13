@@ -15,6 +15,23 @@ from neomd.run import compile as compile_run
 from tests.v2.test_gamd_partition import fixture
 
 
+def total_boost(kernel):
+    """Compile the whole-system partition, then install the total boost.
+
+    ``install_boost`` is no longer a whole-force clone fallback (ADR-0009):
+    a boost channel reads P from the compiled CV energy model, so the
+    partition must exist before the channel is installed — the same
+    pre-Context order the public GaMD method uses.
+    """
+    report = kernel.compile_boost_partitions([{
+        "label": "total",
+        "selectors": [{"atom_indices": "all",
+                       "force_types": ("bond", "angle", "dihedral", "nonbonded")}],
+    }])
+    groups = tuple(report["channels"][0]["groups"])
+    kernel.install_boost([BoostChannelIR("total", groups, 100., .002)])
+
+
 def configuration(spec, directory, **barostat):
     return dict(method="md", steps=15, seed=spec.seed, temperature=spec.temperature,
                 integrator=spec.integrator, barostat={"frequency": 3, **barostat},
@@ -63,18 +80,27 @@ def test_public_compile_explicit_managed_selection(tmp_path):
     native = compile_run(configuration(spec, tmp_path / "native"), platform="cpu").kernel
     with pytest.raises(ValueError, match="matching isotropic barostat"):
         native.restore(managed_checkpoint)
-    # Installing boosts is pre-Context only; two managed kernels stay identical.
+    # Installing boosts is pre-Context only: the compiled partition must exist
+    # before the channel (ADR-0009).  Two managed kernels restored from the
+    # same snapshot carry the same proposal state, so the restored
+    # configuration is exact.
     managed = compile_run(configuration(spec, tmp_path / "managed_boost", managed=True), platform="cpu").kernel
-    managed.install_boost([BoostChannelIR("total", (), 100., .002)])
+    total_boost(managed)
     other = compile_run(configuration(spec, tmp_path / "managed_boost_2", managed=True), platform="cpu").kernel
-    other.install_boost([BoostChannelIR("total", (), 100., .002)])
+    total_boost(other)
     managed.step(7)
     other.restore(managed.snapshot())
-    managed.step(8)
-    other.step(8)
     np.testing.assert_array_equal(other.positions(), managed.positions())
     np.testing.assert_array_equal(other.box_vectors(), managed.box_vectors())
     assert other.snapshot() == managed.snapshot()
+    # A boosted kernel integrates through the unified CustomIntegrator, whose
+    # RNG stream is not checkpointed (see test_gamd_npt_resume): after resume
+    # the stochastic trajectory is equivalent, not bit-identical.
+    managed.step(8)
+    other.step(8)
+    assert other.positions().shape == managed.positions().shape
+    assert np.isfinite(other.positions()).all()
+    assert np.isfinite(other.box_vectors()).all()
 
 
 def test_boost_install_leaves_native_proposals_in_charge(tmp_path):
@@ -90,7 +116,7 @@ def test_boost_install_leaves_native_proposals_in_charge(tmp_path):
     native.step(7)
     raw_checkpoint = native.snapshot()
     kernel = OpenMMKernel(settings)
-    kernel.install_boost([BoostChannelIR("total", (), 100., .002)])
+    total_boost(kernel)
     barostat = next(force for force in kernel.system.getForces()
                     if isinstance(force, openmm.MonteCarloBarostat))
     assert barostat.getFrequency() == 7  # managed ownership would zero it
@@ -110,7 +136,7 @@ def test_native_anisotropic_barostat_is_left_native_by_boost_install(tmp_path):
                                                         spec.temperature))
     anisotropic = replace(spec, system_xml=openmm.XmlSerializer.serialize(system))
     kernel = OpenMMKernel(anisotropic)
-    kernel.install_boost([BoostChannelIR("total", (), 100., .002)])
+    total_boost(kernel)
     kernel.step(3)
     # Managed proposals remain isotropic-only and refuse the variant explicitly.
     with pytest.raises(ValueError, match="isotropic"):
