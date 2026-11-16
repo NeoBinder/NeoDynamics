@@ -4,14 +4,26 @@
 plus optional capability protocols (`BiasOps`, `BiasParamOps`,
 `GroupEnergy`, `StructureWriter`, `MoleculeGroups` — topology-bond
 connectivity for `output.wrap_coordinates`, via the openmm-free `wrap.py`;
-`BoostOps` — GaMD-style energy-dependent force scaling, ADR-0005, with the
-duck-typed dual-boost companion `torsion_force_groups()`) negotiated via
-`provides()`. Three adapters: `openmm` (production, the only core file
+`BoostOps` — GaMD-style energy-dependent force scaling, ADR-0005 (selection
+side: `PartitionOps.compile_boost_partitions`, independent overlapping claims
+with a final `remaining` complement); `LegOps` —
+`start_leg(index)` for GaMD's per-stage legs, ADR-0011; `WatchOps` —
+read-only per-step debug observations, arrays in canonical units, implemented
+by the openmm adapter; `IntegratorSnapshotOps` — optional staged
+`in<n>_*`/`out<n>_*` snapshots (per-DOF arrays plus scalar energy/V0 globals)
+from any debugged CustomIntegrator) negotiated via `provides()`. Three adapters: `openmm`
+(production, the only core file
 importing openmm), `fake` (deterministic textbook Langevin, the CI
 workhorse), `replay` (golden-tape playback; must be imported before
 factory use).
 
-**Force groups**: ids come from the one allocator
+**Force groups**: method-facing ids are ALWAYS logical (install-time ids;
+`RunOutcome.fgroups` included). Debug snapshot names use the ACTUAL System
+force-group ids (`out0_f_group_<g>`, `out0_energy_group_<g>`), independent of
+the logical mapping. `debug.force_group_per_force` may split each active Force
+into a physical debug group before Context creation; the adapter translates
+logical->physical inside `group_energy`/boost/bias reads and records the map in
+the debug crash. Ids come from the one allocator
 `port.pick_free_force_group`; user-added forces install under the
 SHARED-force-group policy, one shared group per CATEGORY — every
 `restraint:` entry's forces in one group (restraint.tsv reports one

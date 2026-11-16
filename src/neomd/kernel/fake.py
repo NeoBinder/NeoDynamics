@@ -359,6 +359,28 @@ class FakeKernel:
         """The synthetic system's fixed box ((3, 3) nm rows, None = vacuum)."""
         return None if self._box is None else self._box.copy()
 
+    # ------------------------------------------------------------------
+    # leg boundaries (port.LegOps, ADR-0011)
+    # ------------------------------------------------------------------
+
+    def start_leg(self, index: int) -> None:
+        """Zero the step axis (and reseed for ``index > 0``).
+
+        Leg 0 is the stream the kernel was constructed with — the same
+        ``RandomState(spec.seed)`` that seeded the Maxwell-Boltzmann
+        velocities — so only the clock resets.  Later legs reseed the noise
+        stream to ``spec.seed + index`` while keeping positions and
+        velocities, which is this adapter's analogue of OpenMM's fresh
+        Context.  The most recent boost readings belong to the leg that just
+        ended; they are dropped as in :meth:`permute_ligands`.
+        """
+        if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+            raise ValueError("leg index must be a non-negative integer")
+        if index:
+            self._rng = np.random.RandomState(self.spec.seed + index)
+            self._boost_last = {}
+        self._step = 0
+
     def energy_forces(self) -> EnergyReport:
         """Bias potential (kJ/mol, sum of installed bias energies) + ZERO
         forces (bias forces are not propagated into the dynamics); kinetic
@@ -470,26 +492,45 @@ class FakeKernel:
             readings[label] = BoostReading(boost, energy, scale)
         return readings
 
+    def boost_readings(self) -> dict:
+        """Compatibility alias for the unified fresh V0 getter."""
+        return self.boost_potentials()
+
     def compile_boost_partitions(self, boosts):
         """The fake has no physical force-field terms; biases remain excluded.
 
         Empty logical groups intentionally exercise method and resume behavior
         without claiming that restraint fixtures are physical force fields.
         """
-        from .partition import selections
+        if getattr(self.spec, "boost_cv_mode", "dv") != "dv":
+            raise NotImplementedError(
+                "the fake kernel implements only boost_cv_mode 'dv'; "
+                "v0_dv needs a real System (openmm kernel)")
+        from .partition import FORCE_TYPES, selections
         chosen = selections(boosts, self.num_particles)
         if self._boost or self._partition_groups:
             raise RuntimeError('compile partitions before boost creation, only once')
         used = {group for group, _ in self._biases}
         rows = []
         for choice in chosen:
-            group = pick_free_force_group(used, {g: 'existing group' for g in used})
-            used.add(group)
-            self._partition_groups.add(group)
-            rows.append(dict(label=choice.label, groups=[group], matched=0,
-                             assigned=0, claimed=0, force_types={}))
+            # A whole-system claim (every atom, every force type) is the
+            # fake's ``()`` total channel: its P is every installed bias's
+            # energy, like the old implicit total channel.
+            whole_system = any(
+                selector.atoms == frozenset(range(self.num_particles))
+                and selector.types == FORCE_TYPES
+                for selector in choice.selectors)
+            if whole_system:
+                group = ()
+            else:
+                group = pick_free_force_group(used, {g: 'existing group' for g in used})
+                used.add(group)
+                self._partition_groups.add(group)
+            rows.append(dict(label=choice.label,
+                             groups=[] if whole_system else [group],
+                             matched=0, assigned=0, claimed=0, force_types={}))
         return dict(particles=[dict(particle_index=i, mass_dalton=float(m), virtual_site=False, topology_atom_index=None) for i, m in enumerate(self._masses)], bonds=[],
-                    semantics='ordered-any-atom-first-defined-wins', channels=rows,
+                    semantics='boundary-aware-independent-claims-overlap-allowed-remaining-complement-of-union', channels=rows,
                     residual=dict(groups=[], assigned=0), component_count=0,
                     excluded_restraint_groups=sorted(g for g, _ in self._biases),
                     adapter='fake: no physical force-field interactions')
@@ -510,27 +551,6 @@ class FakeKernel:
             self._positions[list(groups[destination])] = positions[list(groups[source])]
             self._velocities[list(groups[destination])] = velocities[list(groups[source])]
         self._boost_last = {}
-
-
-    def torsion_force_groups(self) -> tuple[int, ...]:
-        """Duck-typed dual-boost discovery (mirrors the openmm adapter):
-        the force groups of installed torsion biases.  The fake has no
-        system forces, so its whole potential lives in the installed
-        biases — a dihedral restraint IS the dihedral energy a dual-boost
-        channel targets.  Both torsion spellings match: a plain
-        ``CustomTorsionForce`` and the dihedral-restraint triple's
-        4-group ``CustomCentroidBondForce`` whose expression calls
-        ``dihedral(g1..g4)``.  Group ids stay opaque (they are only ever
-        handed back to ``install_boost``)."""
-        def is_torsion(bias: BiasIR) -> bool:
-            if bias.kind == "CustomTorsionForce":
-                return True
-            return (bias.kind == "CustomCentroidBondForce"
-                    and bias.groups is not None and len(bias.groups) == 4
-                    and "dihedral(" in bias.energy)
-
-        return tuple(sorted(group for group, bias in self._biases
-                            if is_torsion(bias)))
 
     def _channel_energy(self, channel: dict, positions: np.ndarray) -> float:
         """P of one channel: summed energy of its groups (all biases if ())."""

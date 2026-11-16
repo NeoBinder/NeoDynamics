@@ -32,7 +32,8 @@ from .errors import (
     suggest,
 )
 
-__all__ = ["Plan", "load_plan", "KNOWN_KEYS", "validate_config", "check_plan_files"]
+__all__ = ["Plan", "load_plan", "KNOWN_KEYS", "validate_config",
+           "check_plan_files", "gamd_output"]
 
 
 # ---------------------------------------------------------------------------
@@ -72,16 +73,60 @@ KNOWN_KEYS = frozenset(
 #: sections every runnable plan needs
 REQUIRED_KEYS = ("input_files", "output")
 
+#: the gamd per-stage ``steps`` vocabulary (method "gamd"; ADR-0010) —
+#: each value is that stage's own step requirement, not an absolute count
+_GAMD_STAGE_NAMES = (
+    "unbiased_eq",
+    "unbiased_production",
+    "biased_eq",
+    "biased_eq2",
+    "production",
+)
+
+#: The no-boosts default: one whole-system boost.  ``gamd.boosts`` absent is
+#: normalized into this explicit entry (plan level, so the synthesized layout
+#: reaches validation, the journal fingerprint, partition reporting and every
+#: plan consumer).  ``atom_indices: all`` + every force type is AMBER's total
+#: boost; the lower threshold / 6 kcal/mol sigma0 are the GaMD literature
+#: defaults for the default whole-system boost.
+_GAMD_DEFAULT_BOOSTS = (
+    {
+        "label": "boost1",
+        "selectors": (
+            {
+                "atom_indices": "all",
+                "force_types": ("bond", "angle", "dihedral", "nonbonded"),
+            },
+        ),
+        "threshold_policy": "lower",
+        "sigma0": 6,
+        "energy_unit": "kcal/mol",
+    },
+)
+
+#: CV energy model spellings: ``dv`` (V0 stays native; the CV carries only
+#: dV) and ``v0_dv`` (the CV carries the removed native force's V0 plus dV).
+_GAMD_BOOST_CV_MODES = ("dv", "v0_dv")
+_GAMD_EMIT_KEYS = frozenset({"stage", "E", "K"})
+
 _INPUT_FILES_KEYS = frozenset(
     {"complex", "system", "checkpoint", "state", "ligands", "templates"}
 )
+#: Steps between console progress records (``output.progress_interval``).
+#: One cadence for every method; ``neomd.driver`` owns the line, this is only
+#: its default so a plan always carries the value.
+DEFAULT_PROGRESS_INTERVAL = 5000
+
 _OUTPUT_KEYS = frozenset(
     {
         "output_dir",
+        "progress_interval",
         "report_interval",
         "report_restraint",
         "report_smd",
-        "report_gamd",
+        # method-specific output detail lives in the method's own namespace:
+        # everything directly under ``output`` stays generic
+        "gamd",
         "trajectory_interval",
         "state_interval",
         "checkpoint_interval",
@@ -89,6 +134,30 @@ _OUTPUT_KEYS = frozenset(
         "wrap_coordinates",
     }
 )
+
+#: the ``output.gamd`` vocabulary (methods/gamd.py owns the semantics; the
+#: ``steps`` mapping itself stays plan-level).  ``sample_interval`` is the
+#: cadence of the DIAGNOSTIC V(P) samples journaled from the equilibration
+#: legs (the adaptation statistics themselves feed on every step);
+#: ``trace_interval`` is the cadence of the production ``gamd.tsv`` boost
+#: rows and defaults to the plan's ``trajectory_interval`` when one is set
+#: (every saved DCD frame gets a CE2 row), with the flat 5000 only as the
+#: no-trajectory fallback.
+_OUTPUT_GAMD_KEYS = frozenset({"report", "sample_interval", "trace_interval"})
+_OUTPUT_GAMD_INTERVALS = ("sample_interval", "trace_interval")
+_OUTPUT_GAMD_DEFAULTS = {"report": True, "sample_interval": 1000,
+                         "trace_interval": 5000}
+#: top-level ``debug`` switches (neomd.watch): a generic, observational
+#: numerical debug mode for every method.  The mapping's presence enables it
+#: unless ``enabled: false``; cadence entries are validated here and resolved
+#: by ``neomd.watch`` (explicit plan values > legacy ``NEOMD_WATCH_*`` env >
+#: the defaults documented there).
+_DEBUG_BOOL_KEYS = ("enabled", "break_on_error", "check_nonfinite",
+                    "integrator_snapshots", "force_group_per_force")
+_DEBUG_INT_KEYS = ("history", "log_interval", "full_interval", "deep_interval",
+                   "memory")
+_DEBUG_ZERO_ALLOWED = frozenset({"full_interval", "deep_interval"})
+_DEBUG_KEYS = frozenset(_DEBUG_BOOL_KEYS + _DEBUG_INT_KEYS)
 _INTERVAL_KEYS = (
     "report_interval",
     "trajectory_interval",
@@ -157,6 +226,15 @@ class _FrozenDict(dict):
     update = _deny
     setdefault = _deny
 
+    # Copies are plain, mutable mappings: callers that want to derive a new
+    # plan from a section (``dict(plan.gamd)`` / ``deepcopy``) must not inherit
+    # the freeze rules while rebuilding it.
+    def __copy__(self):
+        return dict(self)
+
+    def __deepcopy__(self, memo):
+        return copy.deepcopy(dict(self), memo)
+
 
 class _FrozenList(list):
     """A list whose every mutating operation raises PlanFrozenError."""
@@ -179,6 +257,12 @@ class _FrozenList(list):
     sort = _deny
     __iadd__ = _deny
     __imul__ = _deny
+
+    def __copy__(self):
+        return list(self)
+
+    def __deepcopy__(self, memo):
+        return copy.deepcopy(list(self), memo)
 
 
 def _freeze(obj: Any) -> Any:
@@ -300,21 +384,33 @@ def _validate(data: Any, ctx: _Context) -> list:
 
     if data.get("steps") is not None:
         steps = data["steps"]
-        steps_ok = False
-        if not isinstance(steps, bool) and (
-            _is_number(steps) or isinstance(steps, str)
-        ):
-            try:
-                steps_ok = int(steps) > 0 and float(steps) == int(steps)
-            except (TypeError, ValueError, OverflowError):
-                steps_ok = False
-        if not steps_ok:
+        if data.get("method") == "gamd":
+            _validate_gamd_steps(data, steps, problem)
+        elif isinstance(steps, Mapping):
             problem(
                 ConfigValueError,
-                "steps must be a positive integer",
+                "a per-stage steps mapping is only supported for method 'gamd' "
+                f"(keys {list(_GAMD_STAGE_NAMES)}); other methods take a "
+                "positive integer",
                 ("steps",),
                 steps,
             )
+        else:
+            steps_ok = False
+            if not isinstance(steps, bool) and (
+                _is_number(steps) or isinstance(steps, str)
+            ):
+                try:
+                    steps_ok = int(steps) > 0 and float(steps) == int(steps)
+                except (TypeError, ValueError, OverflowError):
+                    steps_ok = False
+            if not steps_ok:
+                problem(
+                    ConfigValueError,
+                    "steps must be a positive integer",
+                    ("steps",),
+                    steps,
+                )
 
     temperature = data.get("temperature")
     if temperature is not None:
@@ -345,14 +441,7 @@ def _validate(data: Any, ctx: _Context) -> list:
                 data["continue_md"],
             )
 
-    if "debug" in data and data["debug"] is not None:
-        if not isinstance(data["debug"], (bool, Mapping)):
-            problem(
-                ConfigValueError,
-                f"debug must be a boolean or a mapping, got {type(data['debug']).__name__}",
-                ("debug",),
-                data["debug"],
-            )
+    _validate_debug(data.get("debug"), problem)
 
     # -- integrator -------------------------------------------------------
     integrator = data.get("integrator")
@@ -450,7 +539,15 @@ def _validate(data: Any, ctx: _Context) -> list:
         )
     elif isinstance(output, Mapping):
         for key in output:
-            if not isinstance(key, str) or key not in _OUTPUT_KEYS:
+            if key == "report_gamd":
+                problem(
+                    ConfigKeyError,
+                    "output.report_gamd moved to the method's output namespace "
+                    "as output.gamd.report",
+                    ("output", "report_gamd"),
+                    known_keys=_OUTPUT_KEYS,
+                )
+            elif not isinstance(key, str) or key not in _OUTPUT_KEYS:
                 problem(
                     ConfigKeyError,
                     f"unknown output key {key!r}",
@@ -477,6 +574,16 @@ def _validate(data: Any, ctx: _Context) -> list:
                     ("output", key),
                     interval,
                 )
+        progress = output.get("progress_interval")
+        if progress is not None:
+            integral = _is_number(progress) and float(progress).is_integer()
+            if not integral or int(progress) < 1:
+                problem(
+                    ConfigValueError,
+                    "output.progress_interval must be an integer >= 1 step",
+                    ("output", "progress_interval"),
+                    progress,
+                )
         report_restraint = output.get("report_restraint")
         if report_restraint is not None and not isinstance(report_restraint, bool):
             problem(
@@ -502,6 +609,7 @@ def _validate(data: Any, ctx: _Context) -> list:
                 ("output", "wrap_coordinates"),
                 wrap_coordinates,
             )
+        _validate_output_gamd(output.get("gamd"), problem)
 
     # Managed NPT is opt-in outside GaMD, preserving native trajectory parity.
     barostat = data.get("barostat")
@@ -537,15 +645,25 @@ def _validate(data: Any, ctx: _Context) -> list:
 
 
 def _load_registry():
-    """Import neomd.registry lazily; None when it is not importable yet.
+    """Import neomd.registry plus the in-tree racks; None when unavailable.
 
-    Validation treats the registry's absence as "no type-level check
-    possible" rather than an error.
+    Validation treats the registry's ABSENCE as "no type-level check
+    possible" rather than an error.  An EMPTY registry is different: the
+    in-tree racks register at import time, so the plan layer imports them
+    (the same discipline the method-schema check below already follows) —
+    otherwise a bare ``Plan.from_dict``/``neomd validate`` in a fresh process
+    would silently skip every restraint and CV key check.
     """
     try:
-        return importlib.import_module("neomd.registry")
+        module = importlib.import_module("neomd.registry")
     except ImportError:
         return None
+    for rack in ("neomd.restraints", "neomd.colvars"):
+        try:
+            importlib.import_module(rack)  # noqa: F401  (import = registration)
+        except ImportError:  # pragma: no cover - slim deployment without the rack
+            continue
+    return module
 
 
 def _validate_restraint_types(data: Mapping, ctx: _Context, problem) -> None:
@@ -1176,14 +1294,254 @@ def _validate_plugins_section(data: Mapping, ctx: _Context, problem) -> None:
                     else ("plugins", name),
                     known_keys=declared,
                 )
+def gamd_output(plan) -> dict:
+    """``output.gamd`` with its defaults applied — the ONE reader of it.
+
+    The GaMD method, the driver's tape gate and the service mirror all go
+    through here, so the namespace cannot drift between them.  A plan that
+    predates the namespace (or a bare mapping plan built by a test) simply
+    reports the defaults.
+    """
+    output = getattr(plan, "output", None)
+    if not isinstance(output, Mapping):
+        raw = getattr(plan, "raw", None)
+        output = raw.get("output") if isinstance(raw, Mapping) else None
+    section = output.get("gamd") if isinstance(output, Mapping) else None
+    if not isinstance(section, Mapping):
+        section = {}
+    defaults = dict(_OUTPUT_GAMD_DEFAULTS)
+    if "trace_interval" not in section:
+        # sync the CE2 tape with the DCD cadence: every saved trajectory
+        # frame gets a gamd.tsv row (a sparser tape would strand frames the
+        # reweighting cannot use); the flat 5000 only when no trajectory
+        trajectory = getattr(plan, "trajectory_interval", None)
+        if (trajectory is None and isinstance(output, Mapping)
+                and isinstance(output.get("trajectory_interval"), int)
+                and not isinstance(output.get("trajectory_interval"), bool)):
+            trajectory = output.get("trajectory_interval")
+        if isinstance(trajectory, int) and not isinstance(trajectory, bool) \
+                and trajectory > 0:
+            defaults["trace_interval"] = trajectory
+    return {key: section.get(key, defaults[key])
+            for key, default in _OUTPUT_GAMD_DEFAULTS.items()}
+
+
+def _validate_debug(section, problem):
+    """Collect generic numerical-debug switch errors.
+
+    ``debug`` is method-agnostic: one switch covers ordinary MD and every
+    registry method (metadynamics, SMD, OPES, GaMD, RBFE, plugins).  The
+    runtime semantics live in :mod:`neomd.watch`; this is the collect-all
+    structural tier so a bad key/value fails before any simulation starts.
+    """
+    if section is None:
+        return
+    if isinstance(section, bool):
+        return
+    if not isinstance(section, Mapping):
+        problem(
+            ConfigValueError,
+            f"debug must be a boolean or a mapping, got {type(section).__name__}",
+            ("debug",),
+            section,
+        )
+        return
+    for key in section:
+        if not isinstance(key, str) or key not in _DEBUG_KEYS:
+            problem(
+                ConfigKeyError,
+                f"unknown debug key {key!r}",
+                ("debug", key) if isinstance(key, str) else ("debug",),
+                known_keys=_DEBUG_KEYS,
+            )
+    for key in _DEBUG_BOOL_KEYS:
+        if key not in section:
+            continue
+        value = section[key]
+        if not isinstance(value, bool):
+            problem(
+                ConfigValueError,
+                f"debug.{key} must be a boolean (true/false)",
+                ("debug", key),
+                value,
+            )
+    for key in _DEBUG_INT_KEYS:
+        if key not in section:
+            continue
+        value = section[key]
+        integral = _is_number(value) and float(value).is_integer()
+        minimum = 0 if key in _DEBUG_ZERO_ALLOWED else 1
+        if not integral or int(value) < minimum:
+            problem(
+                ConfigValueError,
+                f"debug.{key} must be an integer >= {minimum}",
+                ("debug", key),
+                value,
+            )
+
+
+def _validate_output_gamd(section, problem):
+    """Collect ``output.gamd`` errors (method-specific output detail).
+
+    ``output``'s direct children stay generic: GaMD's tape switch and its two
+    step cadences live in this namespace instead of at the top level or in the
+    scientific ``gamd`` section.
+    """
+    if section is None:
+        return
+    if not isinstance(section, Mapping):
+        problem(ConfigValueError,
+                f"output.gamd must be a mapping, got {type(section).__name__}",
+                ("output", "gamd"), section)
+        return
+    for key in section:
+        if not isinstance(key, str) or key not in _OUTPUT_GAMD_KEYS:
+            problem(ConfigKeyError, f"unknown output.gamd key {key!r}",
+                    ("output", "gamd", key) if isinstance(key, str)
+                    else ("output", "gamd"),
+                    known_keys=_OUTPUT_GAMD_KEYS)
+    report = section.get("report")
+    if report is not None and not isinstance(report, bool):
+        problem(ConfigValueError,
+                "output.gamd.report must be a boolean (true/false)",
+                ("output", "gamd", "report"), report)
+    for key in _OUTPUT_GAMD_INTERVALS:
+        interval = section.get(key)
+        if interval is None:
+            continue
+        integral = _is_number(interval) and float(interval).is_integer()
+        if not integral or int(interval) < 1:
+            problem(ConfigValueError,
+                    f"output.gamd.{key} must be an integer >= 1 step",
+                    ("output", "gamd", key), interval)
+
+
+def _validate_gamd_steps(data, steps, problem):
+    """gamd's ``steps`` is a per-stage mapping (ADR-0010), not a total.
+
+    Each value is that stage's own step requirement; the run's final step
+    is their sum.  The five-stage protocol is STRICT (user-confirmed,
+    AMBER's shape): every stage key is required and every stage must have
+    steps — stage 1 plain cMD equilibration, stage 2 cMD statistics (boost
+    parameter updates), stage 3 boosted equilibration, stage 4 adaptive
+    boosted equilibration (per-ntave parameter updates), stage 5 boosted
+    production.  The one exception: ``unbiased_production`` may be 0 when
+    an external ``gamd.calibration_input`` supplies the boost parameters
+    (its statistics stage has nothing to collect).
+    """
+    if not isinstance(steps, Mapping):
+        problem(
+            ConfigValueError,
+            "gamd steps must be a per-stage mapping with keys "
+            f"{list(_GAMD_STAGE_NAMES)} (the run's final step is their sum)",
+            ("steps",),
+            steps,
+        )
+        return
+    for key in steps:
+        if key not in _GAMD_STAGE_NAMES and key != "ntave":
+            problem(
+                ConfigKeyError,
+                f"unknown GaMD stage {key!r} in steps",
+                ("steps", key),
+                known_keys=list(_GAMD_STAGE_NAMES) + ["ntave"],
+            )
+    # ntave: the Vavg/sigmaV averaging-window interval (AMBER's ntave /
+    # gamd-openmm's averaging-window-interval).  Optional; the default is
+    # the method layer's (AMBER's ~4x-system-size recommendation snapped
+    # to the 1-2-5 series, ``neomd.methods.gamd.default_ntave``), and the
+    # whole-window stage constraint is validated there (it needs the
+    # kernel's particle count for the default).  Sits beside the per-stage
+    # step counts in the steps mapping.
+    if "ntave" in steps:
+        ntave = steps["ntave"]
+        if isinstance(ntave, bool) or not isinstance(ntave, int) or ntave < 1:
+            problem(
+                ConfigValueError,
+                "steps.ntave must be an integer >= 1 (the Vavg/sigmaV "
+                "averaging-window interval, AMBER's ntave)",
+                ("steps", "ntave"),
+                ntave,
+            )
+    gamd_section = data.get("gamd")
+    externally_calibrated = isinstance(gamd_section, Mapping) and bool(
+        gamd_section.get("calibration_input"))
+    floors = {"unbiased_production": 0 if externally_calibrated else 1}
+    for key in _GAMD_STAGE_NAMES:
+        if key not in steps:
+            problem(
+                ConfigKeyError,
+                f"missing GaMD stage {key!r} in steps (all five stages of "
+                "the protocol are required)",
+                ("steps",),
+                known_keys=_GAMD_STAGE_NAMES,
+            )
+            continue
+        value = steps[key]
+        floor = floors.get(key, 1)
+        if isinstance(value, bool) or not isinstance(value, int) or value < floor:
+            hint = (" (or provide gamd.calibration_input to source the "
+                    "boost parameters externally)"
+                    if key == "unbiased_production" and floor else "")
+            problem(
+                ConfigValueError,
+                f"steps.{key} must be an integer >= {floor}{hint}",
+                ("steps", key),
+                value,
+            )
+
+
+def _nonbonded_claim_conflicts(claims, issue):
+    """Reject per-boost nonbonded selector problems (cross-boost overlap is legal).
+
+    Claims are independent, so two boosts may cover the same pairs (AMBER's
+    dual-boost shape).  What cannot work is WITHIN one boost: mixing
+    ``include_boundary.nonbonded`` values (its P would be an ill-defined
+    combination) and overlapping ``include=False`` sets (their masked blocks
+    M(S) double-count the intersection; ADR-0009).
+    """
+    by_boost = {}
+    for label, spath, atoms, include in claims:
+        by_boost.setdefault(label, []).append((spath, atoms, include))
+    for label, selectors in by_boost.items():
+        includes = {include for _spath, _atoms, include in selectors}
+        if len(includes) > 1:
+            issue(f"boost {label!r} mixes include_boundary.nonbonded values "
+                  f"{sorted(includes)}; use one value per boost",
+                  selectors[0][0])
+        blocked = [entry for entry in selectors if not entry[2]]
+        for i, (spath, atoms, _include) in enumerate(blocked):
+            for other_spath, other, _other_include in blocked[:i]:
+                # ``"all"`` (the whole-system atom_indices alias) shares atoms
+                # with every other claim by definition
+                overlap = (atoms == "all" or other == "all"
+                           or (not isinstance(atoms, str) and atoms & other))
+                if overlap:
+                    issue(
+                        "nonbonded include_boundary=false sets overlap inside "
+                        f"boost {label!r}; masked blocks M(S) would double-count "
+                        "the intersection",
+                        spath, atoms if isinstance(atoms, str) else sorted(atoms))
+
+
 def _validate_gamd_section(data, problem):
     """Collect ordered boost selection and staged protocol configuration errors."""
     section = data.get("gamd")
     if not isinstance(section, Mapping):
         return
-    keys = {"mode", "sigma0", "calibration_steps", "calibration_interval", "frequency",
-            "channels", "boosts", "threshold_policy", "energy_unit", "preparation_steps",
-            "boost_preparation_steps", "equilibration_steps", "adaptation_interval", "exchange"}
+    keys = {"sigma0", "boosts", "threshold_policy",
+            "energy_unit", "exchange", "calibration_input", "restart_from",
+            "boost_cv_mode", "emit_system"}
+    #: pre-ADR-0010 stage keys, now carried by the per-stage steps mapping
+    moved = {"preparation_steps": "unbiased_eq",
+             "calibration_steps": "unbiased_production",
+             "boost_preparation_steps": "biased_eq",
+             "equilibration_steps": "biased_eq2"}
+    #: sampling/recording cadences: they are OUTPUT detail, so they live in
+    #: the method's output namespace (output.gamd), not in the science section
+    relocated = {"calibration_interval": ("output", "gamd", "sample_interval"),
+                 "adaptation_interval": ("output", "gamd", "sample_interval"),
+                 "frequency": ("output", "gamd", "trace_interval")}
 
     def issue(message, path, value=_NOT_GIVEN):
         location = ".".join(str(part) for part in ("gamd",) + path)
@@ -1205,36 +1563,152 @@ def _validate_gamd_section(data, problem):
 
     def indices(value, path):
         if not isinstance(value, (list, tuple)) or not value:
-            issue("must be a nonempty list of zero-based atom indices", path, value)
+            issue("must be a nonempty list of zero-based atom indices "
+                  "or the whole-system alias 'all'", path, value)
             return
         for i, atom in enumerate(value):
             integer(atom, path + (i,), 0)
 
-    unknown(section, keys, ())
+    for old, new in moved.items():
+        if old in section:
+            problem(ConfigKeyError,
+                    f"GaMD key {old!r} moved to the per-stage steps mapping "
+                    f"as steps.{new} (ADR-0010)",
+                    ("gamd", old), known_keys=keys)
+    for old, path in relocated.items():
+        if old in section:
+            problem(ConfigKeyError,
+                    f"GaMD key {old!r} moved to the method's output namespace "
+                    f"as {'.'.join(path)}",
+                    ("gamd", old), known_keys=keys)
+    removed = {"mode": "the whole-system boost is the plan-level default "
+                       "boost1 (write no key); a dihedral channel is a boost "
+                       "with atom_indices: all + force_types: [dihedral]; "
+                       "AMBER's dual boost is two overlapping boosts",
+               "channels": "define the partition with gamd.boosts selectors "
+                           "over atom groups and force types instead of "
+                           "force-group ids"}
+    for old, guidance in removed.items():
+        if old in section:
+            problem(ConfigKeyError,
+                    f"GaMD key {old!r} was removed: {guidance}",
+                    ("gamd", old), known_keys=keys)
+    unknown(section, keys | set(moved) | set(relocated) | set(removed), ())
     for key in ("sigma0",):
         if key in section:
             positive(section[key], (key,))
-    for key in ("calibration_steps", "calibration_interval", "frequency", "adaptation_interval"):
-        if key in section and section[key] is not None:
-            integer(section[key], (key,))
-    for key in ("preparation_steps", "boost_preparation_steps", "equilibration_steps"):
-        if key in section:
-            integer(section[key], (key,), 0)
+    if "calibration_input" in section:
+        value = section["calibration_input"]
+        if not isinstance(value, str) or not value:
+            issue("calibration_input must be a nonempty path to an energy-sample "
+                  "tape (gamd.tsv / state.tsv) or a gamd_calibration.json", ("calibration_input",), value)
+    if "restart_from" in section and section["restart_from"] is not None:
+        value = section["restart_from"]
+        if value not in _GAMD_STAGE_NAMES:
+            issue(f"restart_from must be one of {list(_GAMD_STAGE_NAMES)}",
+                  ("restart_from",), value)
     if section.get("energy_unit", "kJ/mol") not in ("kJ/mol", "kcal/mol"):
         issue("energy_unit must be kJ/mol or kcal/mol", ("energy_unit",), section["energy_unit"])
     if section.get("threshold_policy", "upper") not in ("lower", "upper"):
         issue("threshold_policy must be lower or upper", ("threshold_policy",))
+    mode = section.get("boost_cv_mode", "dv")
+    if mode not in _GAMD_BOOST_CV_MODES:
+        issue(f"boost_cv_mode must be one of {list(_GAMD_BOOST_CV_MODES)}",
+              ("boost_cv_mode",), mode)
+    emit = section.get("emit_system")
+    if emit is not None:
+        if not isinstance(emit, Mapping):
+            issue("emit_system must be a mapping with optional stage/E/K keys",
+                  ("emit_system",), emit)
+        else:
+            unknown(emit, _GAMD_EMIT_KEYS, ("emit_system",))
+            stage = emit.get("stage", "production")
+            if stage not in _GAMD_STAGE_NAMES:
+                issue(f"emit_system.stage must be one of {list(_GAMD_STAGE_NAMES)}",
+                      ("emit_system", "stage"), stage)
+            for key, nonnegative in (("E", False), ("K", True)):
+                values = emit.get(key)
+                if values is None:
+                    continue
+                if not isinstance(values, Mapping):
+                    issue(f"emit_system.{key} must be a mapping "
+                          "{<boost label>: value in kJ/mol}", ("emit_system", key), values)
+                    continue
+                for label, value in values.items():
+                    if not isinstance(label, str) or re.fullmatch(
+                            r"[a-z][a-z0-9_]*", label) is None:
+                        issue("emit_system entries must be keyed by boost labels "
+                              "(lowercase ASCII identifiers)",
+                              ("emit_system", key), label)
+                        continue
+                    if not _is_number(value) or not math.isfinite(value):
+                        issue(f"emit_system.{key}.{label} must be a finite number",
+                              ("emit_system", key, label), value)
+                    elif nonnegative and value < 0:
+                        issue(f"emit_system.K.{label} must be >= 0",
+                              ("emit_system", "K", label), value)
+            if emit is not None and data.get("continue_md"):
+                issue("emit_system is a dry preparation and cannot be combined "
+                      "with continue_md", ("emit_system",), emit)
+    from .kernel.partition import DEFAULT_INCLUDE_BOUNDARY, FORCE_TYPES
+
+    def force_types(raw, spath):
+        """Selected force types, expanding the ``all`` alias; empty on error."""
+        values = [raw] if isinstance(raw, str) else raw
+        if not isinstance(values, (list, tuple)) or not values:
+            issue("force_types must select bond, angle, dihedral or nonbonded, "
+                  "or the scalar 'all'", spath + ("force_types",), raw)
+            return frozenset()
+        if any(not isinstance(t, str) for t in values):
+            issue("force_types entries must be strings", spath + ("force_types",), raw)
+            return frozenset()
+        if "all" in values:
+            if len(values) > 1:
+                issue("'all' already covers every force type; list it alone",
+                      spath + ("force_types",), raw)
+            return FORCE_TYPES
+        unknown_types = set(values) - FORCE_TYPES
+        if unknown_types:
+            issue(f"force_types must select {sorted(FORCE_TYPES)} or 'all'",
+                  spath + ("force_types",), raw)
+            return frozenset()
+        return frozenset(values)
+
+    def include_boundary(raw, types, spath):
+        """Resolved per-type crossing policy, defaulted where unspecified."""
+        resolved = {t: DEFAULT_INCLUDE_BOUNDARY[t] for t in types}
+        if raw is None:
+            return resolved
+        if isinstance(raw, bool):
+            return {t: raw for t in types}
+        if not isinstance(raw, Mapping):
+            issue("include_boundary must be true or false, or a mapping of "
+                  "selected force type to true/false",
+                  spath + ("include_boundary",), raw)
+            return resolved
+        unknown(raw, FORCE_TYPES, spath + ("include_boundary",))
+        for force_type, include in raw.items():
+            if force_type not in FORCE_TYPES:
+                continue
+            if not isinstance(include, bool):
+                issue(f"include_boundary[{force_type!r}] must be true or false",
+                      spath + ("include_boundary", force_type), include)
+            elif force_type not in types:
+                issue(f"include_boundary names {force_type!r}, which this selector "
+                      f"does not select in force_types {sorted(types)}",
+                      spath + ("include_boundary", force_type), include)
+            else:
+                resolved[force_type] = include
+        return resolved
+
     boosts = section.get("boosts")
-    if boosts is not None and section.get("channels"):
-        issue("boosts and legacy channels are mutually exclusive", ("boosts",))
-    if section.get("mode", "total") not in ("total", "dual") and not section.get("channels"):
-        issue("mode must be total or dual", ("mode",))
     if boosts is not None:
         if not isinstance(boosts, (list, tuple)) or not boosts:
             issue("boosts must be a nonempty ordered list", ("boosts",), boosts)
         else:
             labels = set()
             remainder_count = 0
+            claims = []
             for i, entry in enumerate(boosts):
                 path = ("boosts", i)
                 if not isinstance(entry, Mapping):
@@ -1273,14 +1747,25 @@ def _validate_gamd_section(data, problem):
                     if not isinstance(selector, Mapping):
                         issue("selector must be a mapping", spath, selector)
                         continue
-                    unknown(selector, {"atom_indices", "force_types"}, spath)
-                    indices(selector.get("atom_indices"), spath + ("atom_indices",))
-                    types = selector.get("force_types")
-                    if (not isinstance(types, (list, tuple)) or not types or
-                            any(t not in ("bond", "angle", "dihedral", "nonbonded") for t in types)):
-                        issue("force_types must select bond, angle, dihedral or nonbonded", spath + ("force_types",), types)
+                    unknown(selector, {"atom_indices", "force_types", "include_boundary"}, spath)
+                    atoms = selector.get("atom_indices")
+                    if atoms == "all":
+                        # the whole-system alias, expanded against the particle
+                        # count at partition-compile time (kernel/partition.py)
+                        pass
+                    else:
+                        indices(atoms, spath + ("atom_indices",))
+                    types = force_types(selector.get("force_types"), spath)
+                    policies = include_boundary(selector.get("include_boundary"), types, spath)
+                    if "nonbonded" in types and (isinstance(atoms, (list, tuple))
+                                                 or atoms == "all"):
+                        claims.append((label if isinstance(label, str) else i,
+                                       spath,
+                                       "all" if atoms == "all" else frozenset(atoms),
+                                       policies["nonbonded"]))
             if remainder_count > 1:
                 issue("at most one remaining boost is allowed", ("boosts",))
+            _nonbonded_claim_conflicts(claims, issue)
     exchange = section.get("exchange")
     if exchange is not None:
         if not isinstance(exchange, Mapping):
@@ -1500,14 +1985,29 @@ def _derive(raw: Mapping, ctx: _Context) -> dict:
     derived["temperature"] = 298 if temperature is None else temperature
 
     # modify_config: config.steps = int(config.steps)  (the dead "md" gate is
-    # dropped — "md" never passed v1's own whitelist)
+    # dropped — "md" never passed v1's own whitelist).  gamd's per-stage
+    # mapping (ADR-0010) derives the flat total; the mapping itself stays
+    # available as ``plan.gamd_steps``.
     if raw.get("steps") is not None:
-        derived["steps"] = int(raw["steps"])
+        if raw.get("method") == "gamd" and isinstance(raw["steps"], Mapping):
+            # all five stage keys are required (validation enforces it); the
+            # .get default keeps invalid plans raising at validation, not here
+            derived["gamd_steps"] = {
+                name: int(raw["steps"].get(name, 0))
+                for name in _GAMD_STAGE_NAMES}
+            derived["gamd_ntave"] = (int(raw["steps"]["ntave"])
+                                    if "ntave" in raw["steps"] else None)
+            derived["steps"] = sum(derived["gamd_steps"].values())
+        else:
+            derived["steps"] = int(raw["steps"])
 
     # continue_md checkpoint/state resolution
     derived["continue_md"] = bool(raw.get("continue_md", False))
     checkpoint = raw["input_files"].get("checkpoint")
     state = raw["input_files"].get("state")
+    gamd = raw.get("gamd") if isinstance(raw.get("gamd"), dict) else None
+    restart_from = None if gamd is None else gamd.get("restart_from")
+    is_gamd = raw.get("method") == "gamd" and gamd is not None
     if derived["continue_md"]:
         if checkpoint and state:
             raise ctx.error(
@@ -1516,6 +2016,38 @@ def _derive(raw: Mapping, ctx: _Context) -> dict:
                 "specified when continue_md is true",
                 ("input_files", "checkpoint"),
                 checkpoint,
+            )
+        elif is_gamd and restart_from:
+            # Stage-head restart: the entry checkpoint IS that stage's own
+            # restart blob, so no separate input_files.checkpoint is needed.
+            # An explicit one is accepted only as a copy of the same blob
+            # (the method checks byte identity before restoring it).
+            if state:
+                raise ctx.error(
+                    ConfigValueError,
+                    "gamd.restart_from restarts from the stage-head checkpoint "
+                    "restart/<stage>.ckpt; input_files.state is not applicable",
+                    ("input_files", "state"),
+                    state,
+                )
+            output_dir = raw["output"]["output_dir"]
+            input_files["checkpoint"] = (
+                checkpoint
+                if checkpoint
+                else os.path.join(output_dir, "restart", f"{restart_from}.ckpt")
+            )
+            input_files["state"] = None
+        elif is_gamd and not checkpoint and not state:
+            # Mid-stage resume: the user names the checkpoint to restore;
+            # a gamd directory has no implicit default.
+            raise ctx.error(
+                ConfigValueError,
+                "continue_md in a gamd directory without gamd.restart_from is "
+                "a mid-stage resume and needs input_files.checkpoint pointing "
+                "at the checkpoint to restore (for a stage-head restart set "
+                "gamd.restart_from instead)",
+                ("input_files", "checkpoint"),
+                None,
             )
         elif not state:
             output_dir = raw["output"]["output_dir"]
@@ -1539,6 +2071,10 @@ def _derive(raw: Mapping, ctx: _Context) -> dict:
         "trajectory_interval": output.get("trajectory_interval", 0),
         "state_interval": output.get("state_interval", 0),
         "checkpoint_interval": output.get("checkpoint_interval", 0),
+        # console progress cadence (steps): the one knob for "how often does it
+        # print the stage/percent/rate/ETA line", preparation and production
+        "progress_interval": output.get("progress_interval",
+                                        DEFAULT_PROGRESS_INTERVAL),
     }
 
     # restraint_interval mirrors report_interval when a restraint is
@@ -1560,7 +2096,40 @@ def _derive(raw: Mapping, ctx: _Context) -> dict:
     # an explicit false)
     derived_output["wrap_coordinates"] = bool(
         output.get("wrap_coordinates", True))
+
+    # output.gamd: the method's own output detail (its tape switch and the two
+    # step cadences).  ``output``'s direct children stay generic.  The trace
+    # cadence defaults to the trajectory cadence (every saved DCD frame gets a
+    # gamd.tsv row — a sparser tape would strand frames the CE2 reweighting
+    # cannot use; the flat 5000 only when no trajectory is written).
+    written = output.get("gamd")
+    written = written if isinstance(written, Mapping) else {}
+    defaults = dict(_OUTPUT_GAMD_DEFAULTS)
+    if "trace_interval" not in written:
+        trajectory = derived_output.get("trajectory_interval", 0)
+        if isinstance(trajectory, int) and not isinstance(trajectory, bool) \
+                and trajectory > 0:
+            defaults["trace_interval"] = trajectory
+    derived_output["gamd"] = {
+        key: written.get(key, defaults[key])
+        for key, default in _OUTPUT_GAMD_DEFAULTS.items()
+    }
     derived["output"] = derived_output
+
+    # GaMD plan-level defaults: a plan that writes no ``gamd.boosts`` is the
+    # explicit whole-system ``boost1`` (AMBER total boost) — normalized here,
+    # not inside the method, so validation/fingerprint/partition artifacts —
+    # and every other plan consumer — see the synthesized layout.  The CV
+    # energy-model mode defaults to ``dv`` (V0 stays native).
+    if raw.get("method") == "gamd":
+        section = raw.get("gamd")
+        section = section if isinstance(section, Mapping) else {}
+        gamd_defaults: dict = {}
+        if section.get("boosts") is None:
+            gamd_defaults["boosts"] = copy.deepcopy(list(_GAMD_DEFAULT_BOOSTS))
+        if section.get("boost_cv_mode") is None:
+            gamd_defaults["boost_cv_mode"] = "dv"
+        derived["gamd"] = gamd_defaults
 
     return derived
 
@@ -1584,9 +2153,9 @@ class Plan:
     #: flattened attribute conveniences (section-key -> attribute name)
     _FLAT_OUTPUT_KEYS = (
         "output_dir",
+        "progress_interval",  # console progress cadence (steps)
         "report_interval",
         "report_smd",
-        "report_gamd",  # GaMD boost tape switch (driver._TAPE_SWITCHES reads it)
         "trajectory_interval",
         "state_interval",
         "checkpoint_interval",

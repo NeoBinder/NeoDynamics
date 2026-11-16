@@ -54,7 +54,7 @@ def clean_console_state():
     logger.setLevel(saved_level)
 
 
-def fake_plan(**overrides) -> Plan:
+def fake_plan(progress_interval=None, **overrides) -> Plan:
     config = {
         "method": "eq",
         "steps": 100,
@@ -66,6 +66,8 @@ def fake_plan(**overrides) -> Plan:
                    "state_interval": 0, "trajectory_interval": 0,
                    "checkpoint_interval": 0},
     }
+    if progress_interval is not None:
+        config["output"]["progress_interval"] = progress_interval
     config.update(overrides)
     return Plan.from_dict(config)
 
@@ -194,3 +196,21 @@ def test_progress_records_are_inline_until_the_final_line(caplog):
     assert getattr(progress[0], "inline") is True       # 50%: same-line
     assert getattr(progress[1], "inline", False) is False  # 100%: stays
     assert "100.00%" in progress[1].getMessage()
+
+
+def test_output_progress_interval_sets_the_print_cadence(caplog):
+    """``output.progress_interval`` is the one knob for how often it prints.
+
+    It covers both the plain MD runner and every preparation leg of a staged
+    method, and its derived default is 5000 steps.
+    """
+    with caplog.at_level(logging.INFO, logger=DRIVER_LOGGER):
+        run_md(fake_kernel(seed=3), fake_plan(steps=100, progress_interval=20))
+    lines = [r.getMessage() for r in caplog.records
+             if r.name == DRIVER_LOGGER and "已完成" in r.getMessage()]
+    assert [line.split("已完成: ", 1)[1].split(" |", 1)[0] for line in lines] == [
+        "20.00%", "40.00%", "60.00%", "80.00%", "100.00%"]
+
+    # the derived default is 5000 steps, and the value is a plan input
+    assert fake_plan().progress_interval == 5000
+    assert fake_plan(progress_interval=1).progress_interval == 1

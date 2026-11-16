@@ -67,6 +67,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--unwrap", dest="wrap_coordinates", action="store_false",
         help="write raw, unwrapped coordinates (overrides the plan's "
              "output.wrap_coordinates)")
+    run.add_argument("--debug", action="store_true", default=None,
+                     help="enable the generic numerical debug mode for this "
+                          "run (per-step trace, first-NaN/Inf detection, "
+                          "crash snapshot and an interactive post-mortem "
+                          "breakpoint; overrides the plan's debug.enabled)")
     run.add_argument("--silent", action="store_true",
                      help="print nothing: no console logging, no run "
                           "summary (default: progress and the start/end "
@@ -207,6 +212,7 @@ def _cmd_run(args) -> int:
         outcome = md_run(args.target, platform=args.platform,
                          kernel=args.kernel,
                          wrap_coordinates=args.wrap_coordinates,
+                         debug=args.debug,
                          **overrides)
     finally:
         if args.silent:

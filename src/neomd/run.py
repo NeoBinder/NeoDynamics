@@ -275,6 +275,7 @@ def build_kernel_spec(plan: Plan, *, kind: str = "openmm",
         ml_region = dict(ml_region)  # off the frozen plan containers
 
     input_files = plan.input_files
+    gamd = getattr(plan, "gamd", None) or {}
     return KernelSpec(
         kind=kind,
         system_xml=str(input_files["system"]),
@@ -283,6 +284,7 @@ def build_kernel_spec(plan: Plan, *, kind: str = "openmm",
         temperature=float(plan.temperature),
         seed=int(plan.seed),
         platform=platform,
+        boost_cv_mode=str(gamd.get("boost_cv_mode", "dv")),
         resume=resume,
         barostat=barostat,
         particle_masses=_particle_masses(
@@ -297,6 +299,22 @@ def build_kernel_spec(plan: Plan, *, kind: str = "openmm",
 # ---------------------------------------------------------------------------
 # the facade
 # ---------------------------------------------------------------------------
+
+
+def _debug_with_enabled(plan: Plan, enabled: bool) -> Plan:
+    """Set only the debug switch, preserving a detailed YAML ``debug`` section.
+
+    ``--debug`` is an ENABLE override, not a section replacement: a user who
+    tuned ``history``/``full_interval`` in YAML keeps those values when
+    toggling the mode from the command line.
+    """
+    current = plan.raw.get("debug")
+    if isinstance(current, Mapping):
+        debug = dict(current)
+        debug["enabled"] = bool(enabled)
+    else:
+        debug = bool(enabled)
+    return plan.with_(debug=debug)
 
 
 class CompiledRun:
@@ -377,7 +395,8 @@ def compile(plan_or_dict, *, kernel: str = "openmm", platform: str = "cuda",
 
 
 def md_run(target, *, platform: str = "cuda", kernel: str = "openmm",
-           wrap_coordinates: bool | None = None, logger=None, **overrides):
+           wrap_coordinates: bool | None = None,
+           debug: bool | None = None, logger=None, **overrides):
     """Run an experiment; the entry point (see module docstring).
 
     Parameters
@@ -392,6 +411,12 @@ def md_run(target, *, platform: str = "cuda", kernel: str = "openmm",
         coordinate artifacts (``output.dcd`` frames, ``last.pdbx``) into
         the periodic box molecule by molecule, False forces raw/unwrapped;
         None (default) leaves the plan's own value (default True).
+    debug:
+        L1 enable/disable override of the plan's top-level ``debug`` switches
+        (:mod:`neomd.watch`): the per-step numerical trace, first-NaN/Inf
+        detection, crash dump and interactive post-mortem breakpoint.  A
+        detailed YAML ``debug`` mapping keeps its cadence/breakers; only its
+        ``enabled`` flag moves.  None (default) leaves the plan untouched.
     **overrides:
         L1: top-level plan keys replaced via ``plan.with_`` (unknown keys
         raise :class:`~neomd.errors.ConfigKeyError` with a did-you-mean).
@@ -404,5 +429,7 @@ def md_run(target, *, platform: str = "cuda", kernel: str = "openmm",
         output = dict(plan.raw.get("output") or {})
         output["wrap_coordinates"] = bool(wrap_coordinates)
         plan = plan.with_(output=output)
+    if debug is not None:
+        plan = _debug_with_enabled(plan, bool(debug))
     return compile(plan, kernel=kernel, platform=platform,
                    logger=logger).run()

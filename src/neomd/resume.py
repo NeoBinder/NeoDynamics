@@ -26,7 +26,8 @@ import numpy as np
 
 from .sinks import ArtifactSink, trim_dcd
 
-__all__ = ["ResumePlan", "plan_resume", "TAPE_ARTIFACTS"]
+__all__ = ["ResumePlan", "plan_resume", "trim_to", "TAPE_ARTIFACTS",
+           "staged_tape_artifacts"]
 
 
 #: appendable per-run artifacts and their on-disk formats (kind -> trimmer)
@@ -42,6 +43,54 @@ TAPE_ARTIFACTS: dict[str, str] = {
     "kernels.npz": "kernels",
     "ligand_exchange_events.jsonl": "exchange",
 }
+
+
+def staged_tape_artifacts(plan) -> dict[str, str]:
+    """The stage-named tapes of a leg-staged method (gamd, ADR-0010/0011).
+
+    A staged method keeps one time series per stage (``<stage>.dcd`` /
+    ``<stage>.state`` / ``<stage>_restraint.tsv``), and since ADR-0011 each
+    of those files numbers its rows inside its OWN leg, starting at 0.  The
+    set is what :func:`trim_to` bounds — via a per-name mapping supplied by
+    the method, which is the only party that knows which leg is running.  The
+    stage list comes from the plan's per-stage ``steps``; an unstaged plan
+    returns an empty map and keeps the names above.
+    """
+    steps = getattr(plan, "gamd_steps", None)
+    if not steps:
+        return {}
+    staged: dict[str, str] = {}
+    for stage in steps:
+        staged[f"{stage}.state"] = "tsv"
+        staged[f"{stage}.dcd"] = "dcd"
+        staged[f"{stage}_restraint.tsv"] = "tsv"
+    return staged
+
+
+def _tape_kinds(plan=None) -> dict[str, str]:
+    """Every appendable artifact of this run: shared + stage-named.
+
+    This is the set :func:`trim_to` may touch — with a per-artifact bound for
+    a LEG-staged plan, whose per-stage tapes each number their rows from 0
+    (ADR-0011).
+    """
+    return {**TAPE_ARTIFACTS, **staged_tape_artifacts(plan)}
+
+
+def _plan_resume_kinds(plan=None) -> dict[str, str]:
+    """Artifacts :func:`plan_resume` may trim with ONE bound.
+
+    A LEG-staged method's tapes number their rows per stage, so only the
+    method — which reads the running stage from its journal — can bound them
+    (it calls :func:`trim_to` with a per-name mapping).  The ligand-exchange
+    ledger is excluded for the same reason: its rows are ordered by the
+    method's monotone journal clock, not by the per-leg integration step.
+    """
+    kinds = dict(TAPE_ARTIFACTS)
+    if staged_tape_artifacts(plan):
+        kinds.pop("ligand_exchange_events.jsonl", None)
+        kinds.pop("gamd.tsv", None)
+    return kinds
 
 
 @dataclass(frozen=True)
@@ -141,6 +190,34 @@ def _trim_artifact(sink: ArtifactSink, name: str, kind: str,
     sink.write_bytes(name, trimmed)
 
 
+def trim_to(sink: ArtifactSink, last_step, plan=None) -> dict[str, int]:
+    """Re-trim every appendable artifact in the sink to ``last_step``.
+
+    The restart path (gamd's ``restart_from``, ADR-0011) swaps the restored
+    checkpoint AFTER :func:`plan_resume` already trimmed to the rolling
+    checkpoint; this re-applies the same per-format trimming so tapes agree
+    with the rerun state.
+
+    ``last_step`` is either one bound applied to every artifact (the
+    unstaged/historical contract) or a mapping ``{artifact name: bound}``
+    naming a LEG-staged method's per-stage tapes, whose rows each number
+    themselves from 0 — one global bound would truncate a finished stage's
+    tape to a later stage's step (ADR-0011).  Artifacts missing from the
+    mapping are left alone.
+    """
+    staged = isinstance(last_step, Mapping)
+    trims: dict[str, int] = {}
+    for name, kind in _tape_kinds(plan).items():
+        if not sink.exists(name):
+            continue
+        bound = last_step.get(name) if staged else last_step
+        if bound is None:
+            continue
+        _trim_artifact(sink, name, kind, int(bound))
+        trims[name] = int(bound)
+    return trims
+
+
 def trim_exchange_events(sink: ArtifactSink, last_step: int) -> None:
     """Trim sparse completed exchanges; an interrupted final append is uncommitted."""
     name = "ligand_exchange_events.jsonl"
@@ -227,7 +304,7 @@ def plan_resume(plan, kernel, sink: ArtifactSink | None) -> ResumePlan | None:
     remaining = None if steps is None else int(steps) - resume_step
 
     trims: dict[str, int] = {}
-    for name, kind in TAPE_ARTIFACTS.items():
+    for name, kind in _plan_resume_kinds(plan).items():
         if not sink.exists(name):
             continue
         _trim_artifact(sink, name, kind, resume_step)

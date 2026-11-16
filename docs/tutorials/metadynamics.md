@@ -59,7 +59,8 @@ For that guarantee, explicitly select
 Managed isotropic NPT checkpoints also store proposal RNG, width and phase;
 the complete current bias and restraints enter each proposal exactly once.
 Managed and native proposal streams differ and their checkpoints cannot be
-interchanged. GaMD selects managed NPT automatically.
+interchanged. GaMD behaves the same way: it keeps native proposals unless you
+opt in.
 
 `metadynamics_bias_state.json` records every successful Context-table push as
 `{step, n_hills}`, plus the update cadence. This distinguishes accumulated hills

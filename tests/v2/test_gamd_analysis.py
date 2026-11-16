@@ -112,7 +112,7 @@ def test_reader_rejects_incompatible_artifacts(tmp_path, change):
 
 
 def test_reader_exact_join_production_revision_and_exchange_guard(tmp_path):
-    write_tape(tmp_path, phases=['statistics']*2 + ['production']*6)
+    write_tape(tmp_path, phases=['unbiased_production']*2 + ['production']*6)
     tape = read_gamd(tmp_path)
     indices = tape.aligned_indices(np.asarray([2, 4, 8]), [0.004, 0.008, 0.016])
     np.testing.assert_array_equal(tape.production_mask(indices), [False, True, True])
@@ -223,7 +223,7 @@ def test_exchange_identity_is_explicit_and_physical_trajectory_is_reconstructed(
 
 
 def test_cli_and_api_end_to_end_only_production_and_save_provenance(tmp_path):
-    write_tape(tmp_path, phases=['equilibration']*2+['production']*6)
+    write_tape(tmp_path, phases=['biased_eq2']*2+['production']*6)
     frames, config, output = tmp_path/'frames.npz', tmp_path/'config.json', tmp_path/'pmf.npz'
     positions = np.zeros((8, 2, 3))
     positions[:, 1, 0] = np.tile([.5, 1.5], 4)
@@ -296,11 +296,13 @@ def test_actual_fake_gamd_run_dcd_to_analysis(tmp_path):
     from neomd.plan import Plan
     from neomd.sinks import LocalDirSink
     kernel = FakeKernel(KernelSpec(kind='fake', seed=831, integrator={'dt': .002}))
-    config = dict(method='gamd', steps=80, temperature=298, integrator={'dt': .002},
+    config = dict(method='gamd', temperature=298, integrator={'dt': .002},
+        steps={'unbiased_eq': 5, 'unbiased_production': 20, 'biased_eq': 5,
+               'biased_eq2': 5, 'production': 60, 'ntave': 5},
         input_files={'complex': 'unused', 'system': 'unused'},
         output=dict(output_dir=str(tmp_path), trajectory_interval=10,
-                    state_interval=0, checkpoint_interval=0),
-        gamd=dict(calibration_steps=20, calibration_interval=5, frequency=6))
+                    state_interval=0, checkpoint_interval=0,
+                    gamd=dict(sample_interval=5, trace_interval=6)))
     drive(Plan.from_dict(config), kernel_factory=lambda spec: kernel, sink=LocalDirSink(tmp_path))
     tape = read_gamd(tmp_path)
     assert tape.metadata['frame_semantics'] == 'saved_configuration'
@@ -359,9 +361,26 @@ def test_saved_exchange_identities_crosscheck_completed_ledger(tmp_path, cutoff)
         read_gamd(tmp_path)
 
 
-def test_reader_rejects_future_calibration_provenance(tmp_path):
+def test_reader_rejects_miscalibrated_stage_provenance(tmp_path):
+    """A hand-over must sit at the END of its source stage's leg (ADR-0011).
+
+    Stages restart their clocks, so a history entry's step is the source
+    stage's position while a tape step is the production leg's: the check is
+    "the set was fixed at that stage's configured length", not a cross-leg
+    step comparison.
+    """
     write_tape(tmp_path, revisions=['1']*8)
-    calibration = dict(parameter_history=[dict(step=20, channels={'one': {}, 'two': {}})])
+    (tmp_path/'gamd_stages.json').write_text(json.dumps(
+        dict(configured={'unbiased_eq': 0, 'unbiased_production': 10,
+                         'biased_eq': 0, 'biased_eq2': 0, 'production': 60})))
+    calibration = dict(parameter_history={
+        'unbiased_production': dict(revision=1, step=20, channels={'one': {}, 'two': {}})})
+    (tmp_path/'gamd_calibration.json').write_text(json.dumps(calibration))
+    with pytest.raises(AnalysisError, match='source stage'):
+        read_gamd(tmp_path)
+    # a set whose channel set does not match the tape is still stale
+    calibration['parameter_history']['unbiased_production'].update(
+        step=10, channels={'one': {}})
     (tmp_path/'gamd_calibration.json').write_text(json.dumps(calibration))
     with pytest.raises(AnalysisError, match='stale'):
         read_gamd(tmp_path)

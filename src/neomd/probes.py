@@ -55,6 +55,41 @@ _SMD_FILENAME = "smd.tsv"
 _DU_FILENAME = "du.tsv"
 _GAMD_FILENAME = "gamd.tsv"
 
+#: A method that runs in named legs (gamd, ADR-0010/0011) keeps one time series
+#: per stage: the driver hands every reporting probe a ``stage()`` callable and
+#: the tape is named after the stage that produced it.  ``None`` (every other
+#: method) keeps the historical single-artifact names above.  The global
+#: ``output.ckpt`` is still written alongside each ``<stage>.ckpt`` so
+#: resume/adopt keep one unambiguous restore point, and the end-of-run
+#: ``last.ckpt``/``last.pdbx`` are never staged.
+_STAGE_TEMPLATES = {
+    "state": "{stage}.state",
+    "trajectory": "{stage}.dcd",
+    "checkpoint": "{stage}.ckpt",
+    "restraint": "{stage}_restraint.tsv",
+}
+
+
+def _stage_name(stage, legacy: str, kind: str) -> str:
+    """Artifact name for the method's current stage (``legacy`` when unstaged)."""
+    name = None if stage is None else stage()
+    return legacy if not name else _STAGE_TEMPLATES[kind].format(stage=name)
+
+
+def _resume_files(legacy: str, append: bool, trimmed) -> frozenset[str]:
+    """Artifact names the resume planner trimmed to the checkpoint.
+
+    The planner owns append decisions, and membership in its ``trims`` mapping
+    is authoritative PER FILE — that is what lets a staged run resume each
+    stage's tape independently.  The historical ``append`` flag is folded into
+    the name set at construction, so every probe makes exactly one decision.
+    """
+    names = set(trimmed)
+    if append:
+        names.add(legacy)
+    return frozenset(names)
+
+
 #: state header line, byte-identical to openmm StateDataReporter
 #: (step/time/potential/kinetic/total/temperature/volume/speed/remainingTime,
 #: separator "\\t"):  openmm prints '#"%s"' % ('"'+sep+'"').join(headers).
@@ -212,25 +247,36 @@ class StateProbe:
         self,
         sink: ArtifactSink,
         interval: int,
-        total_steps: int,
+        total_steps: int | Callable[[], int],
         dt_ps: float,
         append: bool = False,
         clock: Callable[[], float] = time.perf_counter,
+        stage: Callable[[], str | None] | None = None,
+        trimmed=(),
     ):
         self.sink = sink
         self.interval = _check_interval(interval)
-        self.total_steps = int(total_steps)
+        # a staged method runs LEGS with per-leg step axes (ADR-0011), so the
+        # ETA total has to be resolved at observation time; an int keeps the
+        # unstaged contract unchanged
+        self.total_steps = total_steps if callable(total_steps) else int(total_steps)
         self.dt_ps = float(dt_ps)
-        self.append = bool(append)
         self._clock = clock
+        self.stage = stage
+        self.trimmed = _resume_files(_STATE_FILENAME, append, trimmed)
         self._last_clock: float | None = None
-        self._wrote_header = False
+        self._headers: set[str] = set()
         self._last_step: int | None = None
 
     def progress(self):
         if self._last_step is None:
             return None
-        return (_STATE_FILENAME, self._last_step)
+        return (_stage_name(self.stage, _STATE_FILENAME, "state"), self._last_step)
+
+    def _total(self) -> int:
+        """This leg's (or run's) step target, resolved at observation time."""
+        return (int(self.total_steps()) if callable(self.total_steps)
+                else int(self.total_steps))
 
     def observe(self, view: RunView) -> None:
         report = view.energy()
@@ -245,7 +291,7 @@ class StateProbe:
             speed_ns_day = (self.interval * self.dt_ps / 1000.0) / elapsed * 86400.0
         speed = "--" if speed_ns_day is None else "%.3g" % speed_ns_day
 
-        remaining_ps = (self.total_steps - view.step) * self.dt_ps
+        remaining_ps = (self._total() - view.step) * self.dt_ps
         if speed_ns_day is None or remaining_ps <= 0.0:
             remaining = "0:00" if speed_ns_day is not None else "--"
         else:
@@ -270,10 +316,11 @@ class StateProbe:
             speed,
             remaining,
         ])
-        with self.sink.text_writer(_STATE_FILENAME) as fh:
-            if not self._wrote_header and not self.append:
-                fh.write(STATE_HEADER + "\n")
-                self._wrote_header = True
+        name = _stage_name(self.stage, _STATE_FILENAME, "state")
+        with self.sink.text_writer(name) as fh:
+            if name not in self._headers and name not in self.trimmed:
+                fh.write(_STATE_HEADER + "\n")
+                self._headers.add(name)
             fh.write(row + "\n")
         self._last_step = int(view.step)
 
@@ -331,13 +378,17 @@ class TrajectoryProbe:
         box: bool | Callable[[RunView], "np.ndarray | None"] | None = None,
         append: bool = False,
         wrap: Callable[["np.ndarray", "np.ndarray"], "np.ndarray"] | None = None,
+        stage: Callable[[], str | None] | None = None,
+        trimmed=(),
     ):
         self.sink = sink
         self.interval = _check_interval(interval)
         self.dt_ps = float(dt_ps)
         self._box = box
         self._wrap = wrap
-        self.append = bool(append)
+        self.stage = stage
+        self.trimmed = _resume_files(_DCD_FILENAME, append, trimmed)
+        self._file: str | None = None
         self._initialized = False
         self._periodic = False
         self._last_step: int | None = None
@@ -345,7 +396,8 @@ class TrajectoryProbe:
     def progress(self):
         if self._last_step is None:
             return None
-        return (_DCD_FILENAME, self._last_step)
+        name = self._file or _stage_name(self.stage, _DCD_FILENAME, "trajectory")
+        return (name, self._last_step)
 
     def _box_for(self, view: RunView) -> np.ndarray | None:
         if self._box is None or self._box is True:
@@ -358,32 +410,42 @@ class TrajectoryProbe:
             return None
         return self._box(view)  # type: ignore[misc]
 
-    def _adopt_existing(self) -> None:
+    def _adopt_existing(self, name: str) -> None:
         """Take over a pre-existing DCD (resume): validate, don't recreate."""
-        with self.sink.binary_writer(_DCD_FILENAME) as fh:
+        with self.sink.binary_writer(name) as fh:
             header = read_dcd_header(fh)
         if header.n_atoms != self._n_atoms:
             raise ValueError(
-                f"cannot append to {_DCD_FILENAME}: file has "
+                f"cannot append to {name}: file has "
                 f"{header.n_atoms} atoms, run has {self._n_atoms}")
         if header.interval_steps != self.interval:
             raise ValueError(
-                f"cannot append to {_DCD_FILENAME}: file stride is "
+                f"cannot append to {name}: file stride is "
                 f"{header.interval_steps} steps, probe interval is {self.interval}")
         self._periodic = header.periodic
 
+    def _switch_to(self, name: str) -> None:
+        """Start a fresh DCD when the method moves to another stage."""
+        if name == self._file:
+            return
+        self._file = name
+        self._initialized = False
+        self._periodic = False
+
     def observe(self, view: RunView) -> None:
+        name = _stage_name(self.stage, _DCD_FILENAME, "trajectory")
+        self._switch_to(name)
         positions = view.positions()
         box = self._box_for(view)
         if self._wrap is not None and box is not None:
             positions = self._wrap(positions, box)
         if not self._initialized:
             self._n_atoms = int(positions.shape[0])
-            if self.append and self.sink.exists(_DCD_FILENAME):
-                self._adopt_existing()
+            if name in self.trimmed and self.sink.exists(name):
+                self._adopt_existing(name)
             else:
                 self._periodic = box is not None
-                with self.sink.binary_writer(_DCD_FILENAME, truncate=True) as fh:
+                with self.sink.binary_writer(name, truncate=True) as fh:
                     init_dcd(
                         fh,
                         n_atoms=self._n_atoms,
@@ -398,7 +460,7 @@ class TrajectoryProbe:
                 raise ValueError("box vectors vanished: periodic DCD needs a box every frame")
             if not self._periodic and box is not None:
                 raise ValueError("box vectors appeared: header says non-periodic DCD")
-        with self.sink.binary_writer(_DCD_FILENAME) as fh:
+        with self.sink.binary_writer(name) as fh:
             write_dcd_frame(fh, positions, box if self._periodic else None)
         self._last_step = int(view.step)
 
@@ -407,12 +469,17 @@ class CheckpointProbe:
     """Overwrites ``output.ckpt`` with ``view.kernel.snapshot()`` each observe.
 
     Wholesale overwrite (truncating write);
-    the opaque blob round-trips through ``KernelPort.restore``.
+    the opaque blob round-trips through ``KernelPort.restore``.  A staged
+    method (gamd) additionally keeps ``<stage>.ckpt`` so each stage's last
+    state stays inspectable; ``output.ckpt`` remains the single resume/adopt
+    restore point either way.
     """
 
-    def __init__(self, sink: ArtifactSink, interval: int):
+    def __init__(self, sink: ArtifactSink, interval: int,
+                 stage: Callable[[], str | None] | None = None):
         self.sink = sink
         self.interval = _check_interval(interval)
+        self.stage = stage
         self._last_step: int | None = None
 
     def progress(self):
@@ -421,7 +488,11 @@ class CheckpointProbe:
         return (_CKPT_FILENAME, self._last_step)
 
     def observe(self, view: RunView) -> None:
-        self.sink.write_bytes(_CKPT_FILENAME, view.kernel.snapshot())
+        blob = view.kernel.snapshot()
+        self.sink.write_bytes(_CKPT_FILENAME, blob)
+        name = _stage_name(self.stage, _CKPT_FILENAME, "checkpoint")
+        if name != _CKPT_FILENAME:
+            self.sink.write_bytes(name, blob)
         self._last_step = int(view.step)
 
 
@@ -588,21 +659,27 @@ class RestraintProbe:
         append: bool = False,
         independent: Mapping[str, Sequence[int]] | None = None,
         shared_group: int | None = None,
+        stage: Callable[[], str | None] | None = None,
+        trimmed=(),
     ):
         self.sink = sink
         self.interval = _check_interval(interval)
         self.restraints = list(restraints)
         self.masses = masses
-        self.append = bool(append)
         self.independent = dict(independent) if independent else {}
         self.shared_group = shared_group
-        self._wrote_header = False
+        self.stage = stage
+        self.trimmed = _resume_files(_RESTRAINT_FILENAME, append, trimmed)
+        self._headers: set[str] = set()
         self._last_step: int | None = None
+
+    def _name(self) -> str:
+        return _stage_name(self.stage, _RESTRAINT_FILENAME, "restraint")
 
     def progress(self):
         if self._last_step is None:
             return None
-        return (_RESTRAINT_FILENAME, self._last_step)
+        return (self._name(), self._last_step)
 
     # -- column layout ------------------------------------------------------
 
@@ -643,10 +720,11 @@ class RestraintProbe:
                 row.append(str(self._energy(view, self.independent[name])))
         if self.shared_group is not None:
             row.append(str(self._energy(view, [self.shared_group])))
-        with self.sink.text_writer(_RESTRAINT_FILENAME) as fh:
-            if not self._wrote_header and not self.append:
+        name = self._name()
+        with self.sink.text_writer(name) as fh:
+            if name not in self._headers and name not in self.trimmed:
                 fh.write(self._header() + "\n")
-                self._wrote_header = True
+                self._headers.add(name)
             fh.write("\t".join(row) + "\n")
         self._last_step = int(view.step)
 

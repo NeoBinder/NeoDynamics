@@ -630,10 +630,12 @@ class TestForceFieldBuilderSeam:
     def test_ligands_without_gaff_tools_fail_clearly(self, monkeypatch):
         # simulate the tools layer being absent (a None entry makes the
         # import raise ImportError) — ligand parameterization must then
-        # fail with the GAFF-seam message, not a stack trace
+        # fail with the GAFF-seam message, not a stack trace.  The seam is
+        # the preparation package's lazy import site (the engine keeps only
+        # neomd.tools.port after the ADR-0011 split).
         import sys
 
-        monkeypatch.setitem(sys.modules, "neomd.tools.antechamber", None)
+        monkeypatch.setitem(sys.modules, "neomd_preparation.tools.antechamber", None)
         openff_molecule = pytest.importorskip(
             "openff.toolkit.topology").Molecule
         builder = PlainForceFieldBuilder()

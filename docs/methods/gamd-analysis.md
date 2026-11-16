@@ -38,8 +38,13 @@ Save this as `analysis.json`, replacing the groups and bin edges for your system
 neomd analysis gamd-ce2 run --config analysis.json --out pmf.npz
 ```
 
-By default the command reads `run/output.dcd`, `gamd.tsv` and
-`gamd_metadata.json`. The SDK DCD header supplies actual first step and stride;
+By default the command reads `run/production.dcd`, `gamd.tsv` and
+`gamd_metadata.json`. A staged run keeps one DCD per stage (ADR-0010), and
+production's is the CE2 frame source.  Since ADR-0011 every stage (including
+`production`) is a leg whose step axis and DCD first step start at 0, so
+cross-stage frame indices are never comparable — read production frames from
+`production.dcd` alone. The SDK DCD header supplies actual first
+step and stride;
 its timestep must match full-precision metadata within float32 precision.
 Analysis rejects incomplete frames, trailing bytes, missing matching boost rows,
 invalid box records and incompatible artifact schemas. It selects only

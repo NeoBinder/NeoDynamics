@@ -1,7 +1,17 @@
 # Replace paths and ALL index lists using your prepared-System topology mapping.
 # The displayed indices are illustrative, never automatically inferred.
 method: gamd
-steps: 1000000
+steps:
+  unbiased_eq: 1000
+  unbiased_production: 10000
+  biased_eq: 1000
+  biased_eq2: 10000
+  production: 978000
+  # the two statistics stages are whole multiples of ntave (AMBER's
+  # constraint); unset, the default is ~4x system atoms snapped to 1-2-5
+  # (e.g. 35633 atoms -> 100000) — set it explicitly when stage lengths
+  # are not multiples of that default
+  ntave: 10000
 temperature: 300
 seed: 2026
 integrator: {dt: 0.002, friction_coeff: 1.0}
@@ -13,24 +23,25 @@ output:
   trajectory_interval: 200
   state_interval: 1000
   checkpoint_interval: 1000
+  gamd:                  # GaMD's own output detail (ADR-0011)
+    sample_interval: 100 # equilibration V(P) statistics cadence
+    trace_interval: 200  # production tape cadence
 gamd:
-  preparation_steps: 1000
-  calibration_steps: 10000
-  calibration_interval: 100
-  boost_preparation_steps: 1000
-  equilibration_steps: 10000
-  adaptation_interval: 100
   energy_unit: kcal/mol
-  frequency: 200
   boosts:
     - label: ligand_pocket
       sigma0: 9.0
       threshold_policy: upper
       selectors:
+        # Default include_boundary: internal bond/angle/dihedral terms join this
+        # boost, crossing pocket-boundary bonded terms stay out and fall to
+        # `remaining`; every nonbonded pair with one listed atom joins here.
+        # Add `include_boundary: {bond: true, angle: true, dihedral: true}` to
+        # include the crossing bonded terms instead.
         - atom_indices: [0, 1, 2, 3, 4, 5]
-          force_types: [bond, angle, dihedral, nonbonded]
+          force_types: all
         - atom_indices: [10, 11, 12, 13, 14, 15]
-          force_types: [bond, angle, dihedral, nonbonded]
+          force_types: all
     - label: remaining
       remaining: true
       sigma0: 6.0

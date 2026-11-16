@@ -115,6 +115,163 @@ def test_steps_accepts_integral_strings_and_floats():
     assert Plan.from_dict(base_config(steps=5000.0)).steps == 5000
 
 
+# ---------------------------------------------------------------------------
+# gamd per-stage steps mapping (ADR-0010)
+# ---------------------------------------------------------------------------
+
+GAMD_STAGES = {"unbiased_eq": 10, "unbiased_production": 20, "biased_eq": 5,
+               "biased_eq2": 10, "production": 55}
+
+
+def gamd_config(steps=GAMD_STAGES, *, output_gamd="default", **gamd):
+    """A GaMD plan; the sampling cadence lives in output.gamd (ADR-0011).
+
+    ``output_gamd=None`` omits the namespace entirely, so the plan's own
+    coarse defaults apply.
+    """
+    config = base_config(method="gamd", steps=steps, gamd=gamd or {"sigma0": 1.0})
+    if output_gamd == "default":
+        output_gamd = {"sample_interval": 5}
+    if output_gamd is not None:
+        config["output"] = {**config["output"], "gamd": output_gamd}
+    return config
+
+
+def test_gamd_steps_mapping_derives_the_total():
+    plan = Plan.from_dict(gamd_config())
+    assert plan.steps == sum(GAMD_STAGES.values())
+    assert plan.gamd_steps == GAMD_STAGES
+
+
+def test_output_gamd_owns_the_cadences_with_coarse_defaults():
+    """GaMD's output detail lives under output.gamd; output's children stay
+    generic.  The defaults are coarse on purpose: CE2 can only use tape rows
+    a saved frame matches (ADR-0011)."""
+    from neomd.plan import gamd_output
+
+    plan = Plan.from_dict(gamd_config(output_gamd=None))  # namespace omitted
+    # base_config's trajectory_interval is 50: the trace defaults to the DCD
+    # cadence (every saved frame gets a CE2 row)
+    assert plan.output["gamd"] == {"report": True, "sample_interval": 1000,
+                                  "trace_interval": 50}
+    assert gamd_output(plan) == plan.output["gamd"]
+    tuned = Plan.from_dict(gamd_config(output_gamd={"report": False,
+                                                    "sample_interval": 25,
+                                                    "trace_interval": 250}))
+    assert gamd_output(tuned) == {"report": False, "sample_interval": 25,
+                                  "trace_interval": 250}
+    # no trajectory (interval 0): the flat 5000 is the no-DCD fallback
+    cfg = gamd_config(output_gamd=None)
+    cfg["output"] = {**cfg["output"], "trajectory_interval": 0}
+    no_dcd = Plan.from_dict(cfg)
+    assert gamd_output(no_dcd)["trace_interval"] == 5000
+
+
+def test_gamd_cadence_keys_moved_into_output_gamd():
+    """The old top-level/section spellings are rejected with the new path."""
+    with pytest.raises(ConfigKeyError, match="output.gamd.sample_interval"):
+        Plan.from_dict(gamd_config(calibration_interval=5))
+    with pytest.raises(ConfigKeyError, match="output.gamd.sample_interval"):
+        Plan.from_dict(gamd_config(adaptation_interval=5))
+    with pytest.raises(ConfigKeyError, match="output.gamd.trace_interval"):
+        Plan.from_dict(gamd_config(frequency=5))
+    raw = gamd_config()
+    raw["output"] = {**raw["output"], "report_gamd": False}
+    with pytest.raises(ConfigKeyError, match="output.gamd.report"):
+        Plan.from_dict(raw)
+
+
+def test_output_progress_interval_default_and_validation():
+    """``output.progress_interval`` is the console print cadence (steps)."""
+    assert Plan.from_dict(base_config()).progress_interval == 5000
+    tuned = Plan.from_dict(base_config(output={**base_config()["output"],
+                                               "progress_interval": 250}))
+    assert tuned.progress_interval == 250
+    for bad in (0, -5, 1.5, "fast", True):
+        with pytest.raises(ConfigValueError, match="progress_interval"):
+            Plan.from_dict(base_config(output={**base_config()["output"],
+                                               "progress_interval": bad}))
+
+
+def test_output_gamd_rejects_bad_values():
+    with pytest.raises(ConfigValueError, match="integer >= 1"):
+        Plan.from_dict(gamd_config(output_gamd={"sample_interval": 0}))
+    with pytest.raises(ConfigValueError, match="must be a boolean"):
+        Plan.from_dict(gamd_config(output_gamd={"report": "yes"}))
+    with pytest.raises(ConfigKeyError, match="unknown output.gamd key"):
+        Plan.from_dict(gamd_config(output_gamd={"cadence": 5}))
+
+
+def test_gamd_rejects_a_scalar_steps():
+    with pytest.raises(ConfigValueError, match="per-stage mapping"):
+        Plan.from_dict(gamd_config(steps=100))
+
+
+def test_gamd_steps_ntave_validates_and_derives():
+    """``steps.ntave`` is AMBER's averaging window (steps), optional."""
+    plan = Plan.from_dict(gamd_config(steps={**GAMD_STAGES, "ntave": 250}))
+    assert plan.gamd_ntave == 250
+    assert plan.gamd_steps == GAMD_STAGES  # ntave is not a stage length
+    assert plan.steps == sum(GAMD_STAGES.values())
+    # absent: None rides to the method layer, which derives AMBER's
+    # ~4x-system-size default (default_ntave) from the kernel's particles
+    assert Plan.from_dict(gamd_config()).gamd_ntave is None
+    for bad in (0, -5, 1.5, "500", True):
+        with pytest.raises(ConfigValueError, match="steps.ntave"):
+            Plan.from_dict(gamd_config(steps={**GAMD_STAGES, "ntave": bad}))
+
+
+def test_gamd_boosts_atom_indices_all_alias():
+    """``atom_indices: all`` is the whole-system spelling; anything else that
+    is not a nonempty index list is an error naming the path."""
+    plan = Plan.from_dict(gamd_config(boosts=[{
+        "label": "boost1", "selectors": [
+            {"atom_indices": "all", "force_types": ["dihedral"]}]}]))
+    assert plan.gamd["boosts"][0]["selectors"][0]["atom_indices"] == "all"
+    for bad in ("everything", "", ["all"]):
+        with pytest.raises(ConfigValueError, match="atom_indices"):
+            Plan.from_dict(gamd_config(boosts=[{
+                "label": "boost1", "selectors": [
+                    {"atom_indices": bad, "force_types": ["dihedral"]}]}]))
+
+
+def test_non_gamd_rejects_a_steps_mapping():
+    with pytest.raises(ConfigValueError):
+        Plan.from_dict(base_config(steps=dict(GAMD_STAGES)))
+
+
+def test_gamd_steps_missing_or_unknown_stage_rejected():
+    missing = {k: v for k, v in GAMD_STAGES.items() if k != "biased_eq"}
+    with pytest.raises(ConfigKeyError, match="missing GaMD stage"):
+        Plan.from_dict(gamd_config(steps=missing))
+    with pytest.raises(ConfigKeyError, match="unknown GaMD stage"):
+        Plan.from_dict(gamd_config(steps={**GAMD_STAGES, "equilibration": 5}))
+
+
+def test_gamd_steps_floors():
+    with pytest.raises(ConfigValueError, match="steps.production"):
+        Plan.from_dict(gamd_config(steps={**GAMD_STAGES, "production": 0}))
+    with pytest.raises(ConfigValueError, match="steps.unbiased_production"):
+        Plan.from_dict(gamd_config(steps={**GAMD_STAGES, "unbiased_production": 0}))
+    # an external calibration source lifts the internal statistics floor
+    plan = Plan.from_dict(gamd_config(
+        steps={**GAMD_STAGES, "unbiased_production": 0},
+        calibration_input="source/gamd_calibration.json"))
+    assert plan.steps == sum(GAMD_STAGES.values()) - 20
+    # the five-stage protocol is strict: every stage needs steps
+    for stage in ("unbiased_eq", "biased_eq", "biased_eq2"):
+        with pytest.raises(ConfigValueError, match=f"steps.{stage}"):
+            Plan.from_dict(gamd_config(steps={**GAMD_STAGES, stage: 0}))
+
+
+@pytest.mark.parametrize("old_key", ["preparation_steps", "calibration_steps",
+                                     "boost_preparation_steps",
+                                     "equilibration_steps"])
+def test_gamd_moved_stage_keys_report_the_new_location(old_key):
+    with pytest.raises(ConfigKeyError, match="moved to the per-stage steps"):
+        Plan.from_dict(gamd_config(**{old_key: 10}))
+
+
 @pytest.mark.parametrize("bad_temperature", [-1, -0.001, "hot", True])
 def test_temperature_must_be_non_negative_number(bad_temperature):
     with pytest.raises(ConfigValueError):
@@ -275,6 +432,50 @@ def test_continue_md_checkpoint_and_state_mutually_exclusive():
         Plan.from_dict(config)
     assert "checkpoint" in str(excinfo.value)
     assert "state" in str(excinfo.value)
+
+
+def test_gamd_continue_md_restart_from_derives_the_stage_head_checkpoint():
+    """A stage-head restart needs no entry checkpoint: the plan derives the
+    stage's own restart/<stage>.ckpt blob."""
+    config = gamd_config(restart_from="production")
+    config["continue_md"] = True
+    plan = Plan.from_dict(config)
+    assert plan.checkpoint == os.path.join(
+        "/tmp/neomd-test-out", "restart", "production.ckpt")
+    assert plan.state is None
+
+
+def test_gamd_continue_md_midstage_requires_an_explicit_checkpoint():
+    config = gamd_config()
+    config["continue_md"] = True
+    with pytest.raises(ConfigValueError) as excinfo:
+        Plan.from_dict(config)
+    message = str(excinfo.value)
+    assert "mid-stage" in message
+    assert "input_files.checkpoint" in message
+
+
+def test_gamd_continue_md_midstage_keeps_an_explicit_checkpoint():
+    config = gamd_config()
+    config["continue_md"] = True
+    config["input_files"]["checkpoint"] = "resume/step.ckpt"
+    assert Plan.from_dict(config).checkpoint == "resume/step.ckpt"
+
+
+def test_gamd_continue_md_restart_from_keeps_an_explicit_checkpoint():
+    config = gamd_config(restart_from="biased_eq")
+    config["continue_md"] = True
+    config["input_files"]["checkpoint"] = "restart/biased_eq.ckpt"
+    assert Plan.from_dict(config).checkpoint == "restart/biased_eq.ckpt"
+
+
+def test_gamd_continue_md_restart_from_rejects_a_state_file():
+    config = gamd_config(restart_from="production")
+    config["continue_md"] = True
+    config["input_files"]["state"] = "resume/output.state"
+    with pytest.raises(ConfigValueError) as excinfo:
+        Plan.from_dict(config)
+    assert "input_files.state" in str(excinfo.value)
 
 
 def test_output_intervals_default_to_zero():
@@ -751,3 +952,51 @@ def test_error_rendering_has_no_sentinel_leak():
     with pytest.raises(ConfigValueError) as excinfo:
         Plan.from_dict(config)
     assert "<object" not in str(excinfo.value)
+
+
+def test_gamd_no_boosts_normalizes_to_the_default_boost1():
+    """No ``gamd.boosts`` is plan-level sugar for the explicit whole-system
+    boost1 (every force type, lower policy, sigma0 = 6 kcal/mol)."""
+    plan = Plan.from_dict(gamd_config())
+    boosts = plan.gamd["boosts"]
+    assert isinstance(boosts, (list, tuple)) and len(boosts) == 1
+    entry = boosts[0]
+    assert entry["label"] == "boost1"
+    selector = entry["selectors"][0]
+    assert selector["atom_indices"] == "all"
+    assert tuple(selector["force_types"]) == (
+        "bond", "angle", "dihedral", "nonbonded")
+    assert entry["threshold_policy"] == "lower"
+    assert float(entry["sigma0"]) == 6.0
+    assert entry["energy_unit"] == "kcal/mol"
+    assert plan.gamd["boost_cv_mode"] == "dv"
+    # an explicit layout is preserved verbatim
+    explicit = Plan.from_dict(gamd_config(boosts=[
+        {"label": "boost1", "selectors": [
+            {"atom_indices": "all", "force_types": ["dihedral"]}]}]))
+    assert len(explicit.gamd["boosts"]) == 1
+
+
+def test_gamd_boost_cv_mode_validation():
+    for mode in ("dv", "v0_dv"):
+        assert Plan.from_dict(gamd_config(boost_cv_mode=mode)).gamd["boost_cv_mode"] == mode
+    with pytest.raises(ConfigValueError, match="boost_cv_mode"):
+        Plan.from_dict(gamd_config(boost_cv_mode="fused"))
+
+
+def test_gamd_emit_system_schema():
+    plan = Plan.from_dict(gamd_config(emit_system={
+        "stage": "production", "E": {"boost1": -1000.0},
+        "K": {"boost1": 0.001}}))
+    assert plan.gamd["emit_system"]["stage"] == "production"
+    with pytest.raises(ConfigValueError, match="emit_system.stage"):
+        Plan.from_dict(gamd_config(emit_system={"stage": "min"}))
+    with pytest.raises(ConfigValueError, match="emit_system.E"):
+        Plan.from_dict(gamd_config(emit_system={"E": 1.0}))
+    with pytest.raises(ConfigValueError, match="must be >= 0"):
+        Plan.from_dict(gamd_config(emit_system={"K": {"boost1": -0.1}}))
+    config = gamd_config(emit_system={"stage": "production"})
+    config["continue_md"] = True
+    config["input_files"]["checkpoint"] = "resume.ckpt"
+    with pytest.raises(ConfigValueError, match="continue_md"):
+        Plan.from_dict(config)

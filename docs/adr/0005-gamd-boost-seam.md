@@ -65,7 +65,7 @@ V\*(x) = Σ_g V_g + Σ_c ΔV_c(P_c) 的**精确梯度**；gamd-openmm 的双 boo
   大声失败。两个适配器同一守卫。
 
 **标定预跑是方法侧（插件）逻辑，不是内核缝**：标定只是无偏 MD 采样 +
-每 `calibration_interval` 步读 `energy_forces()` / `group_energy()`（既有
+每 `output.gamd.sample_interval` 步读 `energy_forces()` / `group_energy()`（既有
 port 操作），统计 Vmax/Vmin/Vavg/σV，选 (E, k)（文献两模式：下界
 E = Vmax, k0 = min(1, (σ0/σV)(Vmax−Vmin)/(Vmax−Vavg))；上界
 k0 = (1−σ0/σV)(Vmax−Vmin)/(Vavg−Vmin)，0<k0≤1 可用否则回落下界，
@@ -130,6 +130,13 @@ CustomIntegrator 表达式实现 Welford——可测试性差（fake 与 openmm 
   非等价性文档化即可。
 
 ## 实现补记
+
+> **修订（2026-10）：以下 `torsion_force_groups()`/`gamd.channels` 设计已被
+> 取代并删除。** 布局词汇表统一为 `gamd.boosts` 的选择器声明（独立圈定、
+> 允许重叠；不写 boosts = plan 归一化生成的默认 boost1（全体系四类力），见 ADR-0009
+> 修订）：dual 的二面角通道改由 `atom_indices: all` + `force_types:
+> [dihedral]` 表达，LiGaMD 的配体分组改由原子组选择器表达。原设计留档
+> 如下。
 
 dual boost 的二面角通道需要"哪些 force group 持有扭转能"这一发现能力。
 落在 BoostOps 之外的一个 duck-typed 伴随方法

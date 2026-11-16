@@ -83,16 +83,27 @@ def test_openmm_metadata_direct_and_lazy_resume_preserve_native_state(tmp_path, 
 
     _, _, spec = fixture(tmp_path, periodic=npt)
     if npt:
-        spec = replace(spec, barostat={"frequency": 3, "seed": 419})
+        # Explicit opt-in: only adapter-owned proposal state can be resumed
+        # bit-exactly mid-leg (ADR-0009); native NPT state is not checkpointed.
+        spec = replace(spec, barostat={"frequency": 3, "seed": 419, "managed": True})
 
     def build(settings):
         kernel = OpenMMKernel(settings)
-        kernel.install_boost([BoostChannelIR("total", (), 100., .002)])
+        # A boost channel's P comes from the compiled partition's CV energy
+        # model (ADR-0009), so the whole-system partition must be compiled
+        # before the channel is installed — the public GaMD order.
+        report = kernel.compile_boost_partitions([{
+            "label": "total",
+            "selectors": [{"atom_indices": "all",
+                           "force_types": ("bond", "angle", "dihedral", "nonbonded")}],
+        }])
+        groups = tuple(report["channels"][0]["groups"])
+        kernel.install_boost([BoostChannelIR("total", groups, 100., .002)])
         return kernel
 
     kernel = build(spec)
     assert provides(kernel, CheckpointMetadataOps)
-    kernel.step(7)  # Preserve a nonzero managed NPT scheduling phase.
+    kernel.step(7)  # Preserve a nonzero scheduling phase for the managed case.
     raw = kernel.snapshot()
     kernel.set_checkpoint_metadata(control(0))
     saved = kernel.snapshot()
