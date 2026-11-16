@@ -27,7 +27,7 @@ from neomd_preparation import (
 from neomd_preparation.bundle import PreparationLineage, file_digest, read_prepared_bundle
 
 ALA = Path(__file__).resolve().parents[1] / "data" / "ala2" / "ala2.pdb"
-CONTRACT = Path(__file__).resolve().parents[2] / "tests/contracts" / "prepared-bundle" / "v1"
+CONTRACT = Path(__file__).resolve().parents[2] / "contracts" / "prepared-bundle" / "v1"
 
 
 def peptide(tmp_path, *, hydrogens=True, reverse=False):
