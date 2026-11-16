@@ -12,6 +12,7 @@ from neomd import md_run
 md_run("path/to/run_dir")                # L0: zero-config (reads the plan file in the dir)
 md_run("path/to/run_dir", steps=50000)   # L1: scalar knobs deepen the plan
 md_run(plan_dict)                        # L2: the full experiment spec
+md_run(plan_dict, device_index=1)        # platform/device are call arguments, not plan keys
 ```
 
 The **round-trip law**: L0, L1 and L2 spellings of the same experiment
@@ -23,6 +24,7 @@ fingerprint.
 ```bash
 neomd run path/to/run_dir --steps 50000                  # default: --platform cuda --kernel openmm
 neomd run path/to/run_dir --steps 50000 --platform cpu   # run the OpenMM kernel on CPU
+neomd run path/to/run_dir --device-index 1               # second CUDA device (see running.md)
 neomd prepare prep_config.yaml                            # system preparation (protein+ligand+solvent)
 neomd migrate old_v1_config.yaml -o plan.yaml             # one-shot v1 YAML -> Plan translation
 neomd validate plan.yaml --check-files                    # report every problem, write nothing

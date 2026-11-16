@@ -454,22 +454,30 @@ def _platform_config(spec: KernelSpec) -> dict:
     """Platform selection -> Simulation kwargs.
 
     "cuda" -> CUDA platform with ``CudaPrecision=single`` and
-    ``DeviceIndex`` honoring CUDA_VISIBLE_DEVICES (first visible device);
-    "cpu" -> CPU platform.  Determinism note (empirical, openmm 8.6 / CPU):
-    bit-exact run-to-run reproducibility additionally requires a FIXED
-    thread count — pin ``OPENMM_CPU_THREADS=1`` (or any fixed number)
-    before the first Context is created (the value is cached at first
-    platform load); the golden harness and tests/v2 do exactly this.
+    ``DeviceIndex=spec.device_index``; "cpu" -> CPU platform.
+
+    ``spec.device_index`` is an ORDINAL in the platform's own enumeration, so
+    it is passed through AFTER CUDA_VISIBLE_DEVICES filtered and renumbered
+    the visible devices; this module never rewrites it from that variable.
+    Rewriting it was the old behavior — ``DeviceIndex`` := the first entry of
+    ``CUDA_VISIBLE_DEVICES`` — which names a device openmm cannot see as soon
+    as visibility is narrowed to a nonzero id (``CUDA_VISIBLE_DEVICES=1``
+    asked for device 1 of 1 and raised "Illegal value for DeviceIndex: 1",
+    openmm issue #2613); the variable's own renumbering already makes ordinal
+    0 that device.  An out-of-range ordinal stays openmm's to report.
+
+    Determinism note (empirical, openmm 8.6 / CPU): bit-exact run-to-run
+    reproducibility additionally requires a FIXED thread count — pin
+    ``OPENMM_CPU_THREADS=1`` (or any fixed number) before the first Context
+    is created (the value is cached at first platform load); the golden
+    harness and tests/v2 do exactly this.
     """
     if spec.platform.lower() == "cuda":
-        platform = openmm.Platform.getPlatformByName("CUDA")
-        visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
-        device_index = visible_devices.split(",")[0] if visible_devices else spec.device_index
         return {
-            "platform": platform,
+            "platform": openmm.Platform.getPlatformByName("CUDA"),
             "platformProperties": {
                 "CudaPrecision": "single",
-                "DeviceIndex": device_index,
+                "DeviceIndex": spec.device_index,
             },
         }
     if spec.platform.lower() == "cpu":

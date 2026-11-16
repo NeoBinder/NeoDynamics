@@ -15,9 +15,15 @@ from typing import Iterable, Mapping, Protocol, Sequence, runtime_checkable
 
 import numpy as np
 
+from ..errors import ConfigValueError
+
 #: boost channel labels are spliced into integrator global-variable names —
 #: restrict them to lowercase ASCII identifiers (ADR-0005)
 _BOOST_LABEL = re.compile(r"^[a-z][a-z0-9_]*$")
+
+#: CUDA DeviceIndex spelling: one ordinal, or openmm's comma-separated
+#: multi-device list
+_DEVICE_INDEX = re.compile(r"^[0-9]+(?:,[0-9]+)*$")
 
 __all__ = [
     "BiasIR",
@@ -46,6 +52,7 @@ __all__ = [
     "KernelFactory",
     "MAX_FORCE_GROUPS",
     "pick_free_force_group",
+    "check_device_index",
     "provides",
     "UNITS",
     "CANONICAL_FACTORS",
@@ -307,6 +314,36 @@ class SystemData:
     box_vectors: np.ndarray | None  # (3, 3) nm, None = non-periodic
 
 
+def check_device_index(value) -> str:
+    """Validate a CUDA ``DeviceIndex`` and return its canonical string.
+
+    Hardware, not science: this picks a GPU, so it is deliberately NOT a plan
+    key — the Plan is fingerprinted, and a fingerprint must not change with
+    the machine the plan runs on.  ``value`` is an ``int`` or openmm's
+    comma-separated list spelling (``"0,1"``: several devices sharing one
+    Context); anything else raises
+    :class:`~neomd.errors.ConfigValueError`.
+
+    The number is the ORDINAL of the device in the platform's own
+    enumeration, i.e. AFTER ``CUDA_VISIBLE_DEVICES`` filtered and renumbered
+    the visible devices: CUDA exposes only ordinals ``0..n-1`` of that list,
+    so ``CUDA_VISIBLE_DEVICES=2`` runs on that GPU as ordinal ``0`` and
+    ``DeviceIndex=2`` is not a device there at all.  The range stays the
+    platform's to check; openmm reports an out-of-range ordinal itself.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise ConfigValueError(
+            "device_index must be an integer or a comma-separated list of "
+            "integers", key="device_index", value=value)
+    text = str(value).strip()
+    if not _DEVICE_INDEX.match(text):
+        raise ConfigValueError(
+            "device_index must be a non-negative integer or a comma-separated "
+            "list of them, e.g. '0' or '0,1' (the ordinal among the devices "
+            "CUDA makes visible)", key="device_index", value=value)
+    return text
+
+
 @dataclass(frozen=True)
 class KernelSpec:
     """Everything an adapter needs to build a kernel; produced by Plan
@@ -338,6 +375,14 @@ class KernelSpec:
     #: fixed for the whole run; part of the GaMD journal fingerprint so a
     #: continue cannot silently switch it.
     boost_cv_mode: str = "dv"
+    #: CUDA device selection (openmm's ``DeviceIndex``), as produced by
+    #: :func:`check_device_index`: the ordinal among the devices the platform
+    #: enumerates — i.e. AFTER ``CUDA_VISIBLE_DEVICES`` filtered and
+    #: renumbered them — or a comma-separated list for a multi-device
+    #: Context.  Read by the openmm adapter for platform "cuda" only;
+    #: cpu/fake/replay ignore it.  It is hardware, not plan state: it never
+    #: enters the Plan or its fingerprint, so resume is not gated on it
+    #: (bit-exact continuation still needs the same GPU and driver).
     device_index: str = "0"
     resume: dict | None = None  # {"checkpoint": path} or {"state": path}
     #: system modifications applied before the Context exists (barostat

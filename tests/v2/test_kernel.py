@@ -752,3 +752,50 @@ def test_openmm_dummy_exceptions_zero_the_pair_interaction():
                 + 4.0 * (e0 * e1) ** 0.5
                 * ((sigma / r) ** 12 - (sigma / r) ** 6))
     assert difference == pytest.approx(expected, rel=1e-6, abs=1e-9)
+
+
+# ===========================================================================
+# CUDA DeviceIndex (spec -> openmm platform properties)
+# ===========================================================================
+
+
+def test_cuda_device_index_passes_through_and_ignores_the_visibility_env(
+        monkeypatch):
+    """CUDA_VISIBLE_DEVICES filters AND RENUMBERS the visible devices, so the
+    spec's ordinal is already expressed in the platform's own enumeration and
+    must reach openmm verbatim.
+
+    The seam is ``openmm._platform_config`` (spec -> platform properties): it
+    is where the bug lived — the adapter used to set ``DeviceIndex`` from the
+    first entry of ``CUDA_VISIBLE_DEVICES``, so ``CUDA_VISIBLE_DEVICES=1``
+    asked a one-device platform for device 1 ("Illegal value for
+    DeviceIndex: 1", openmm issue #2613) instead of the ordinal 0 that
+    variable had already assigned it.  No CUDA device is needed to pin the
+    mapping: the platform lookup is stubbed.
+    """
+    from neomd.kernel import openmm as adapter
+    from neomd.kernel.port import KernelSpec
+
+    class _StubPlatform:
+        @staticmethod
+        def getPlatformByName(name):
+            return f"stub:{name}"
+
+    class _StubOpenMM:
+        Platform = _StubPlatform
+
+    monkeypatch.setattr(adapter, "openmm", _StubOpenMM)
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "1")
+
+    default = adapter._platform_config(KernelSpec(platform="cuda"))
+    assert default["platform"] == "stub:CUDA"
+    assert default["platformProperties"] == {"CudaPrecision": "single",
+                                             "DeviceIndex": "0"}
+
+    chosen = adapter._platform_config(
+        KernelSpec(platform="cuda", device_index="2"))
+    assert chosen["platformProperties"]["DeviceIndex"] == "2"
+
+    # cpu ignores device selection entirely
+    assert adapter._platform_config(KernelSpec(platform="cpu")) == {
+        "platform": "stub:CPU"}

@@ -84,6 +84,55 @@ def test_run_platform_defaults_to_cuda():
     assert build_parser().parse_args(["run"]).platform == "cuda"
 
 
+def test_run_device_index_reaches_md_run(tmp_path, monkeypatch):
+    """`--device-index` (and v1's `--cuda-index` spelling) is a hardware call
+    argument: it reaches md_run — and it is not a plan key, so the plan and
+    its fingerprint cannot move with the machine the run lands on."""
+    import neomd.run as run_module
+
+    seen: dict = {}
+
+    class _Outcome:
+        results: tuple = ()
+        phases_run: tuple = ()
+        manifest_path = None
+
+    def fake_md_run(target, **kwargs):
+        seen.update(kwargs)
+        return _Outcome()
+
+    monkeypatch.setattr(run_module, "md_run", fake_md_run)
+
+    assert main(["run", str(tmp_path)]) == 0
+    assert seen["device_index"] == "0"      # default ordinal
+    assert seen["platform"] == "cuda"
+
+    assert main(["run", str(tmp_path), "--platform", "cpu",
+                 "--device-index", "1"]) == 0
+    assert seen["device_index"] == "1"
+
+    assert main(["run", str(tmp_path), "--cuda-index", "3"]) == 0
+    assert seen["device_index"] == "3"
+
+
+def test_run_rejects_a_malformed_device_index_before_anything_runs(
+        tmp_path, capsys):
+    out = tmp_path / "out"
+    plan_dir = write_plan_dir(tmp_path, ala2_plan(out))
+
+    # cpu platform so the value is validated (the ordinal itself is cuda-only)
+    rc = main(["run", str(plan_dir), "--platform", "cpu",
+               "--device-index", "gpu1"])
+
+    assert rc == 2  # a rendered user error, not a traceback
+    captured = capsys.readouterr()
+    assert "config value error" in captured.err
+    assert "device_index" in captured.err
+    assert "Traceback" not in captured.err
+    # nothing was created, let alone run
+    assert not (out / "manifest.json").exists()
+
+
 def test_run_directory_discovery_and_steps_override(tmp_path, capsys):
     out = tmp_path / "out"
     config = ala2_plan(out)
