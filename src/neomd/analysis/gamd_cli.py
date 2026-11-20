@@ -26,7 +26,9 @@ def analyze_gamd(run_dir, frames, config, output, *, allow_experimental_exchange
     try:
         if not isinstance(config, dict):
             config = json.loads(Path(config).read_text())
-        frames = Path(run_dir) / 'output.dcd' if frames is None else Path(frames)
+        # a gamd staged run records one DCD per stage (ADR-0010): production's
+        # is the default frame source for CE2 analysis
+        frames = Path(run_dir) / 'production.dcd' if frames is None else Path(frames)
         if frames.suffix.lower() == '.dcd':
             partition = tape.metadata.get('partition_report') or {}
             masses = config.get('masses')
@@ -106,7 +108,7 @@ def analyze_gamd(run_dir, frames, config, output, *, allow_experimental_exchange
 def add_gamd_parser(sub):
     parser = sub.add_parser('gamd-ce2', help='conditional summed-boost GaMD CE2 PMFs')
     parser.add_argument('run_dir', help='directory containing saved-frame GaMD artifacts')
-    parser.add_argument('--frames', help='SDK DCD or indexed NPZ (default: RUN_DIR/output.dcd)')
+    parser.add_argument('--frames', help='SDK DCD or indexed NPZ (default: RUN_DIR/production.dcd)')
     parser.add_argument('--config', required=True, help='JSON coordinate/bin analysis configuration')
     parser.add_argument('--out', required=True, help='NPZ output with PMF, diagnostics and provenance')
     parser.add_argument('--allow-experimental-exchange', action='store_true',

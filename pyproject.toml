@@ -134,7 +134,7 @@ NeoDynamics = { path = ".", editable = true }
 pytest = "*"
 
 # The scientific stack is separate from the editable engine so a consumer
-# runtime (ADR-0012) can install it without the engine source tree or its test
+# runtime (ADR-0014) can install it without the engine source tree or its test
 # tooling. openmm is pinned to the qualified build because preparation
 # fixtures and golden recordings record this exact loader identity.
 [tool.pixi.feature.science.dependencies]
@@ -148,7 +148,7 @@ pytest = "*"
 jsonschema = ">=4.26,<5"
 pdbfixer = "*"
 
-# Consumer runtime (ADR-0012): the resident service installs this environment
+# Consumer runtime (ADR-0014): the resident service installs this environment
 # from the pinned submodule instead of declaring the scientific stack itself.
 # `pip` installs the service wheel and its PyPI dependencies on top of the
 # conda environment; ambertools supplies the GAFF stages and pdbfixer/jsonschema
@@ -220,7 +220,7 @@ ml = { features = ["ml"], solve-group = "ml", no-default-feature = true }
 # the rbfe env's gate: the default tier (import-gated tests skip there) plus
 # the openmmtools-gated alchemy smoke (tests/v2/test_rbfe_alchemy.py)
 rbfe = { features = ["engine", "science", "rbfe", "test"], solve-group = "rbfe" }
-# Consumer runtime (ADR-0012): the scientific stack, the GAFF stages and pip,
+# Consumer runtime (ADR-0014): the scientific stack, the GAFF stages and pip,
 # without the editable engine install. An image or downstream CI installs the
 # engine wheel separately; `runtime-test` adds the engine test extras.
 runtime = { features = ["science", "runtime"], solve-group = "runtime" }

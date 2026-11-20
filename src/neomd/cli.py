@@ -53,6 +53,13 @@ def build_parser() -> argparse.ArgumentParser:
                      help="L1 override of the plan's top-level 'steps'")
     run.add_argument("--platform", choices=("cuda", "cpu"), default="cuda",
                      help="openmm platform (default: cuda)")
+    run.add_argument("--device-index", "--cuda-index", dest="device_index",
+                     default="0", metavar="IDX",
+                     help="CUDA device to run on: an ordinal among the "
+                          "devices CUDA makes visible (CUDA_VISIBLE_DEVICES "
+                          "filters and renumbers them, so a host pinned to "
+                          "one GPU uses 0); hardware, not plan state — "
+                          "ignored by --platform cpu (default: 0)")
     run.add_argument("--kernel", choices=("openmm", "fake", "replay"),
                      default="openmm",
                      help="kernel adapter (default: openmm; replay plays a "
@@ -67,6 +74,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--unwrap", dest="wrap_coordinates", action="store_false",
         help="write raw, unwrapped coordinates (overrides the plan's "
              "output.wrap_coordinates)")
+    run.add_argument("--debug", action="store_true", default=None,
+                     help="enable the generic numerical debug mode for this "
+                          "run (per-step trace, first-NaN/Inf detection, "
+                          "crash snapshot and an interactive post-mortem "
+                          "breakpoint; overrides the plan's debug.enabled)")
     run.add_argument("--silent", action="store_true",
                      help="print nothing: no console logging, no run "
                           "summary (default: progress and the start/end "
@@ -206,7 +218,9 @@ def _cmd_run(args) -> int:
     try:
         outcome = md_run(args.target, platform=args.platform,
                          kernel=args.kernel,
+                         device_index=args.device_index,
                          wrap_coordinates=args.wrap_coordinates,
+                         debug=args.debug,
                          **overrides)
     finally:
         if args.silent:

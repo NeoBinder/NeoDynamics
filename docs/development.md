@@ -12,7 +12,7 @@ The repository Pixi lock targets Linux. `default` contains the OpenMM engine;
 `ml` and `rbfe` environments carry their own scientific dependencies. Select
 one with `pixi run -e NAME`.
 
-`runtime` and `runtime-test` are the consumer environments (ADR-0012): the
+`runtime` and `runtime-test` are the consumer environments (ADR-0014): the
 qualified scientific stack (OpenMM 8.6.0, OpenFF, PDBFixer, Gemmi, AmberTools)
 plus `pip`, without the editable engine install; `runtime-gpu` adds the
 `cuda-version 13.2` NVRTC tier for the GPU image. A downstream distribution such

@@ -78,4 +78,6 @@ nav:
       - ADR 0009 — ordered potential boosts: adr/0009-ordered-potential-boosts.md
       - ADR 0010 — server repository extraction: adr/0010-server-repository-extraction.md
       - ADR 0011 — preparation package split: adr/0011-preparation-package-split.md
-      - ADR 0012 — qualified runtime environment: adr/0012-qualified-runtime-environment.md
+      - ADR 0012 — gamd staged steps and restarts: adr/0012-gamd-staged-steps-and-restarts.md
+      - ADR 0013 — gamd stage legs: adr/0013-gamd-stage-legs.md
+      - ADR 0014 — qualified runtime environment: adr/0014-qualified-runtime-environment.md

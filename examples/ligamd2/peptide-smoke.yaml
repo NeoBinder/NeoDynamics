@@ -1,7 +1,15 @@
 # Run from the repository root. This is a mechanical peptide partition smoke,
 # not a protein–ligand binding simulation or exact LiGaMD2 paper reproduction.
 method: gamd
-steps: 100
+steps:
+  unbiased_eq: 10
+  unbiased_production: 20
+  biased_eq: 10
+  biased_eq2: 20
+  production: 50
+  # each statistics stage is exactly one ntave window (the AMBER whole-window
+  # constraint); unset, the default is ~4x system atoms snapped to 1-2-5
+  ntave: 20
 temperature: 298
 seed: 2026
 integrator: {dt: 0.002, friction_coeff: 1.0}
@@ -13,21 +21,18 @@ output:
   trajectory_interval: 10
   state_interval: 10
   checkpoint_interval: 10
+  gamd: {sample_interval: 5, trace_interval: 6}  # ADR-0011 cadences
 gamd:
-  calibration_steps: 20
-  calibration_interval: 5
-  boost_preparation_steps: 10
-  equilibration_steps: 20
-  adaptation_interval: 5
-  frequency: 6
   energy_unit: kJ/mol
   boosts:
     - label: selected
       sigma0: 6.0
       threshold_policy: upper
       selectors:
+        # `all` = bond, angle, dihedral, nonbonded. The default include_boundary
+        # keeps crossing bonded terms out (false); nonbonded stays any-member.
         - atom_indices: [0, 1, 2, 3, 4, 5]
-          force_types: [bond, angle, dihedral, nonbonded]
+          force_types: all
     - label: remainder
       remaining: true
       sigma0: 6.0

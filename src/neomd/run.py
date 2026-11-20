@@ -226,7 +226,8 @@ def _global_parameters(alchemical) -> dict | None:
 
 
 def build_kernel_spec(plan: Plan, *, kind: str = "openmm",
-                      platform: str = "cuda") -> KernelSpec:
+                      platform: str = "cuda",
+                      device_index: int | str = "0") -> KernelSpec:
     """Compile the plan into a :class:`~neomd.kernel.port.KernelSpec`.
 
     THE one spec builder: both ``compile()`` and direct ``drive()`` calls
@@ -249,8 +250,15 @@ def build_kernel_spec(plan: Plan, *, kind: str = "openmm",
       BEFORE creating a Context (it must never reach system.xml: the NNP
       Force is not XML-serializable); ``residues`` selectors resolve there
       against the loaded complex topology; the fake kernel ignores it.
+    * ``device_index`` is the CUDA ``DeviceIndex`` — the ordinal among the
+      devices the platform enumerates, i.e. AFTER ``CUDA_VISIBLE_DEVICES``
+      filtered and renumbered them (see
+      :func:`~neomd.kernel.port.check_device_index`).  A call argument, never
+      plan state: hardware must not reach the Plan or its fingerprint.
     """
-    from .kernel.port import KernelSpec
+    from .kernel.port import KernelSpec, check_device_index
+
+    device_index = check_device_index(device_index)
 
     integrator = dict(getattr(plan, "integrator", None) or {})
     integrator.setdefault("integrator_name", "LangevinIntegrator")
@@ -275,6 +283,7 @@ def build_kernel_spec(plan: Plan, *, kind: str = "openmm",
         ml_region = dict(ml_region)  # off the frozen plan containers
 
     input_files = plan.input_files
+    gamd = getattr(plan, "gamd", None) or {}
     return KernelSpec(
         kind=kind,
         system_xml=str(input_files["system"]),
@@ -283,6 +292,8 @@ def build_kernel_spec(plan: Plan, *, kind: str = "openmm",
         temperature=float(plan.temperature),
         seed=int(plan.seed),
         platform=platform,
+        boost_cv_mode=str(gamd.get("boost_cv_mode", "dv")),
+        device_index=device_index,
         resume=resume,
         barostat=barostat,
         particle_masses=_particle_masses(
@@ -297,6 +308,22 @@ def build_kernel_spec(plan: Plan, *, kind: str = "openmm",
 # ---------------------------------------------------------------------------
 # the facade
 # ---------------------------------------------------------------------------
+
+
+def _debug_with_enabled(plan: Plan, enabled: bool) -> Plan:
+    """Set only the debug switch, preserving a detailed YAML ``debug`` section.
+
+    ``--debug`` is an ENABLE override, not a section replacement: a user who
+    tuned ``history``/``full_interval`` in YAML keeps those values when
+    toggling the mode from the command line.
+    """
+    current = plan.raw.get("debug")
+    if isinstance(current, Mapping):
+        debug = dict(current)
+        debug["enabled"] = bool(enabled)
+    else:
+        debug = bool(enabled)
+    return plan.with_(debug=debug)
 
 
 class CompiledRun:
@@ -337,7 +364,7 @@ class CompiledRun:
 
 
 def compile(plan_or_dict, *, kernel: str = "openmm", platform: str = "cuda",
-            logger=None) -> CompiledRun:
+            device_index: int | str = "0", logger=None) -> CompiledRun:
     """
     Plan -> kernel + sink + driver wiring (the L2 companion of md_run).
 
@@ -346,7 +373,9 @@ def compile(plan_or_dict, *, kernel: str = "openmm", platform: str = "cuda",
     ADR-0002 — so installed plugin sections validate and dispatch).
     ``platform`` passes through to the KernelSpec (default ``"cuda"``;
     CPU-only environments pass ``"cpu"`` explicitly, as the CI parity
-    tests do).  Raises
+    tests do).  ``device_index``: CUDA ``DeviceIndex`` for ``platform="cuda"``
+    — the ordinal among the devices CUDA makes visible (see
+    :func:`~neomd.kernel.port.check_device_index`); ignored elsewhere.  Raises
     :class:`NotImplementedError` for ``kernel="fake"``: the fake kernel is
     built from an in-memory ``SystemData``, not from plan input files — for
     fake-kernel runs build the kernel yourself and call
@@ -372,12 +401,15 @@ def compile(plan_or_dict, *, kernel: str = "openmm", platform: str = "cuda",
 
     ensure_adapters()
     created = KernelFactory.create(build_kernel_spec(plan, kind=kernel,
-                                                     platform=platform))
+                                                     platform=platform,
+                                                     device_index=device_index))
     return CompiledRun(plan, created, LocalDirSink(plan.output_dir), logger)
 
 
 def md_run(target, *, platform: str = "cuda", kernel: str = "openmm",
-           wrap_coordinates: bool | None = None, logger=None, **overrides):
+           device_index: int | str = "0",
+           wrap_coordinates: bool | None = None,
+           debug: bool | None = None, logger=None, **overrides):
     """Run an experiment; the entry point (see module docstring).
 
     Parameters
@@ -387,11 +419,26 @@ def md_run(target, *, platform: str = "cuda", kernel: str = "openmm",
         path, or the plan dict / a :class:`Plan` (L2).
     platform:
         openmm platform passed through to the kernel (default ``"cuda"``).
+    device_index:
+        CUDA ``DeviceIndex`` for ``platform="cuda"`` — the ordinal among the
+        devices CUDA makes visible, e.g. ``1`` for the second GPU of a
+        ``CUDA_VISIBLE_DEVICES=0,1`` host, or on a host that narrowed
+        visibility, ordinal ``0`` for ``CUDA_VISIBLE_DEVICES=2``.  Hardware,
+        not science, so it is a call argument rather than a plan key: it never
+        enters the Plan, its fingerprint or the run's artifacts, and a resume
+        may move to another GPU.  Ignored by ``platform="cpu"`` and by the
+        fake/replay kernels.  Default ``"0"``.
     wrap_coordinates:
         L1 scalar override of ``output.wrap_coordinates``: True wraps the
         coordinate artifacts (``output.dcd`` frames, ``last.pdbx``) into
         the periodic box molecule by molecule, False forces raw/unwrapped;
         None (default) leaves the plan's own value (default True).
+    debug:
+        L1 enable/disable override of the plan's top-level ``debug`` switches
+        (:mod:`neomd.watch`): the per-step numerical trace, first-NaN/Inf
+        detection, crash dump and interactive post-mortem breakpoint.  A
+        detailed YAML ``debug`` mapping keeps its cadence/breakers; only its
+        ``enabled`` flag moves.  None (default) leaves the plan untouched.
     **overrides:
         L1: top-level plan keys replaced via ``plan.with_`` (unknown keys
         raise :class:`~neomd.errors.ConfigKeyError` with a did-you-mean).
@@ -404,5 +451,7 @@ def md_run(target, *, platform: str = "cuda", kernel: str = "openmm",
         output = dict(plan.raw.get("output") or {})
         output["wrap_coordinates"] = bool(wrap_coordinates)
         plan = plan.with_(output=output)
+    if debug is not None:
+        plan = _debug_with_enabled(plan, bool(debug))
     return compile(plan, kernel=kernel, platform=platform,
-                   logger=logger).run()
+                   device_index=device_index, logger=logger).run()

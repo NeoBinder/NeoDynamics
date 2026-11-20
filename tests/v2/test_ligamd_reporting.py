@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from neomd.driver import PreparedMethod, prepare_method_stepper
-from neomd.errors import PlanValidationErrors
+from neomd.errors import ConfigKeyError, ConfigValueError, PlanValidationErrors
 from neomd.kernel import KernelSpec
 from neomd.kernel.fake import FakeKernel
 from neomd.kernel.port import BoostChannelIR
@@ -16,12 +16,18 @@ from neomd.probes import GamdProbe
 from neomd.sinks import MemorySink
 
 
-def config(**gamd):
-    return {"method": "gamd", "steps": 30, "temperature": 298,
+def config(steps=None, *, sample_interval=10, trace_interval=10, **gamd):
+    """A LiGaMD plan; the cadences live in output.gamd (ADR-0011)."""
+    return {"method": "gamd", "temperature": 298,
+            "steps": steps or {"unbiased_eq": 2, "unbiased_production": 10,
+                               "biased_eq": 2, "biased_eq2": 2, "production": 20,
+                               "ntave": 2},
             "integrator": {"dt": 0.002},
             "input_files": {"complex": "unused.pdb", "system": "unused.xml"},
             "output": {"output_dir": "unused", "trajectory_interval": 0,
-                       "state_interval": 0, "checkpoint_interval": 0},
+                       "state_interval": 0, "checkpoint_interval": 0,
+                       "gamd": {"sample_interval": sample_interval,
+                                "trace_interval": trace_interval}},
             "gamd": gamd}
 
 
@@ -45,6 +51,70 @@ def test_selection_validation_collects_independent_key_paths():
     text = str(exc.value)
     for token in ("sigma0", "remaining", "atom_indices", "force_types", "label"):
         assert token in text
+
+
+def test_include_boundary_round_trips_and_enters_the_fingerprint():
+    selector = {"atom_indices": [0, 1], "force_types": "all",
+                "include_boundary": {"bond": True, "angle": False}}
+    plan = Plan.from_dict(config(boosts=[{"label": "pocket", "selectors": [selector]}]))
+    stored = plan.gamd["boosts"][0]["selectors"][0]
+    assert stored["force_types"] == "all"
+    assert stored["include_boundary"] == {"bond": True, "angle": False}
+    other = Plan.from_dict(config(boosts=[{"label": "pocket", "selectors": [
+        {**selector, "include_boundary": {"bond": False}}]}]))
+    assert plan.fingerprint != other.fingerprint
+
+
+def test_include_boundary_validation_reports_key_paths():
+    with pytest.raises(PlanValidationErrors) as exc:
+        Plan.from_dict(config(boosts=[
+            {"label": "a", "selectors": [
+                {"atom_indices": [0], "force_types": ["bond"], "include_boundary": "outside"}]},
+            {"label": "b", "selectors": [
+                {"atom_indices": [1], "force_types": "all", "include_boundary": {"vdw": True}}]},
+            {"label": "c", "selectors": [
+                {"atom_indices": [2], "force_types": ["bond"], "include_boundary": {"angle": True}}]},
+            {"label": "d", "selectors": [
+                {"atom_indices": [3], "force_types": ["all", "bond"]}]},
+        ]))
+    text = str(exc.value)
+    for token in ("include_boundary", "force_types", "angle", "all"):
+        assert token in text
+
+
+def test_include_boundary_rejects_a_force_type_outside_force_types():
+    with pytest.raises(ConfigValueError, match="does not select in force_types"):
+        Plan.from_dict(config(boosts=[
+            {"label": "pocket", "selectors": [
+                {"atom_indices": [0, 1], "force_types": ["bond"],
+                 "include_boundary": {"angle": True}}]},
+        ]))
+
+
+def test_cross_boost_nonbonded_overlap_is_legal_in_plan_validation():
+    """Cross-boost overlap is the point of independent claims (AMBER dual);
+    only WITHIN-boost problems are rejected."""
+    plan = Plan.from_dict(config(boosts=[
+        {"label": "a", "selectors": [{"atom_indices": [0, 1], "force_types": ["nonbonded"],
+                                      "include_boundary": False}]},
+        {"label": "b", "selectors": [{"atom_indices": [1, 2], "force_types": ["nonbonded"]}]},
+    ]))
+    assert [boost["label"] for boost in plan.gamd["boosts"]] == ["a", "b"]
+    with pytest.raises(ConfigValueError, match="double-count"):
+        Plan.from_dict(config(boosts=[
+            {"label": "a", "selectors": [
+                {"atom_indices": [0, 1], "force_types": ["nonbonded"],
+                 "include_boundary": False},
+                {"atom_indices": [1, 2], "force_types": ["nonbonded"],
+                 "include_boundary": False}]},
+        ]))
+    with pytest.raises(ConfigValueError, match="mixes include_boundary.nonbonded"):
+        Plan.from_dict(config(boosts=[
+            {"label": "a", "selectors": [
+                {"atom_indices": [0], "force_types": ["nonbonded"]},
+                {"atom_indices": [2], "force_types": ["nonbonded"],
+                 "include_boundary": False}]},
+        ]))
 
 
 def test_probe_union_cadence_total_and_saved_frame_metadata():
@@ -127,7 +197,7 @@ def test_public_md_run_registers_gamd_in_a_fresh_interpreter(tmp_path):
     from pathlib import Path
 
     data = Path(__file__).resolve().parents[1] / "data" / "ala2"
-    plan = config(calibration_steps=10, calibration_interval=2, frequency=5)
+    plan = config(sample_interval=2, trace_interval=5)
     plan["input_files"] = {"complex": str(data / "ala2.pdb"),
                            "system": str(data / "system.xml")}
     plan["output"]["output_dir"] = str(tmp_path / "run")
@@ -171,3 +241,21 @@ def test_checkpoint_commits_only_after_complete_boundary(failure):
     restored.restore(sink.read_bytes("output.ckpt"))
     assert restored.current_step == 0
     assert events == (["report"] if failure == "report" else ["report", "method_update"])
+
+
+def test_all_five_stages_are_required_and_must_have_steps():
+    """The five-stage protocol is strict: omitting a stage or giving it no
+    steps is a validation error naming the path."""
+    plan = Plan.from_dict(config(steps={"unbiased_eq": 2, "unbiased_production": 10,
+                                        "biased_eq": 2, "biased_eq2": 3,
+                                        "production": 20}))
+    assert plan.gamd_steps["biased_eq2"] == 3
+    assert plan.steps == 37
+    with pytest.raises(ConfigKeyError, match="missing GaMD stage"):
+        Plan.from_dict(config(steps={"unbiased_eq": 2, "biased_eq": 2,
+                                     "biased_eq2": 2, "production": 20}))
+    for zero in ("unbiased_eq", "biased_eq", "biased_eq2"):
+        with pytest.raises(ConfigValueError, match=f"steps.{zero}"):
+            Plan.from_dict(config(steps={"unbiased_eq": 2, "unbiased_production": 10,
+                                         "biased_eq": 2, "biased_eq2": 2,
+                                         "production": 20} | {zero: 0}))

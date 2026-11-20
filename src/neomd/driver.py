@@ -48,9 +48,11 @@ __all__ = [
 
     "prepare_method_stepper",
     "advance_preparation",
+    "stage_cursor",
     "run_prepared_method",
     "drive",
     "PROGRESS_INTERVAL",
+    "progress_interval",
     "CHECKPOINT_FILENAME",
     "LAST_STRUCTURE_FILENAME",
     "LAST_CHECKPOINT_FILENAME",
@@ -59,7 +61,17 @@ __all__ = [
 LOG = logging.getLogger("neomd.driver")
 
 #: progress-logging cadence (steps per turn)
-PROGRESS_INTERVAL = 5000
+def _plan_default_progress_interval() -> int:
+    from .plan import DEFAULT_PROGRESS_INTERVAL
+
+    return int(DEFAULT_PROGRESS_INTERVAL)
+
+
+#: Fallback cadence for plans that carry no derived ``output.progress_interval``
+#: (bare mapping plans in tests, direct stepper construction).  The plan's
+#: default is ``neomd.plan.DEFAULT_PROGRESS_INTERVAL`` — one number, two
+#: spellings, so a documented default cannot drift from the code.
+PROGRESS_INTERVAL = _plan_default_progress_interval()
 
 #: checkpoint artifact name (written at run/method end)
 CHECKPOINT_FILENAME = "output.ckpt"
@@ -210,6 +222,103 @@ def _wrap_transform(plan, kernel, log=None):
 # ---------------------------------------------------------------------------
 
 
+def progress_interval(plan) -> int:
+    """Steps between console progress records for ``plan``.
+
+    ``output.progress_interval`` (derived default 5000) is the one knob, and
+    it covers BOTH the preparation legs and the production runner — a plan-less
+    caller falls back to :data:`PROGRESS_INTERVAL`.
+    """
+    value = getattr(plan, "progress_interval", None)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return PROGRESS_INTERVAL
+    return int(value) if float(value).is_integer() and value >= 1 else PROGRESS_INTERVAL
+
+
+#: attribute the engine caches a :class:`LegReporter` under on the method's
+#: preparation object, so one reporter survives every bounded advance turn
+_REPORTER_ATTR = "_driver_leg_reporter"
+
+
+def _cached_reporter(preparation):
+    return getattr(preparation, _REPORTER_ATTR, None)
+
+
+def _cache_reporter(preparation, reporter) -> None:
+    try:
+        setattr(preparation, _REPORTER_ATTR, reporter)
+    except AttributeError:  # pragma: no cover - frozen/slotted preparation
+        pass  # transient reporting: the entry line may repeat per turn
+
+
+class LegReporter:
+    """Console reporting for a staged method's preparation legs.
+
+    ONE instance per run, because a leg spans many bounded
+    :func:`advance_preparation` turns (the driver calls it every ``max_steps``
+    steps): the stage-ENTRY line is printed exactly once per leg, and the
+    elapsed/rate/ETA window survives between turns — a per-call state would
+    re-print "entering stage" every turn and reset the clock.  The engine
+    caches the reporter on the method's preparation object; an interactive
+    session reuses one for its whole run.
+
+    Everything it prints is the CURRENT leg's (ADR-0011 legs restart at 0):
+    the entry line counts the steps THIS session still has to run in that leg,
+    and the progress line is the leg's own percent/rate/ETA.
+    """
+
+    def __init__(self, log: logging.Logger, method: str, *, dt_ns: float,
+                 log_interval: int, clock: Clock = time.time):
+        self.log = log
+        self.method = method or "method"
+        self.dt_ns = float(dt_ns)
+        self.log_interval = max(1, int(log_interval))
+        self.clock = clock
+        self.phase: str | None = None
+        self.entry_step = 0
+        self.started = 0.0
+        self.last_log = 0.0
+        self.since_log = 0
+
+    def begin(self, phase: str, step: int, leg_end: int) -> None:
+        """Print the leg's ONE entry line and open its rate/ETA window."""
+        now = self.clock()
+        self.phase = phase
+        self.entry_step = int(step)
+        self.started = self.last_log = now
+        self.since_log = 0
+        remaining = max(0, int(leg_end) - self.entry_step)
+        if self.entry_step:
+            self.log.info("%s: resuming stage %s at step %d (%d more steps)",
+                          self.method, phase, self.entry_step, remaining)
+        else:
+            self.log.info("%s: entering stage %s (%d steps)", self.method,
+                          phase, remaining)
+
+    def stepped(self, steps: int) -> None:
+        """Accumulate the steps since the last progress line."""
+        self.since_log += int(steps)
+
+    def tick(self, phase: str, step: int, leg_end: int) -> None:
+        """Emit the progress line when the cadence (or the leg end) is due."""
+        leg_end = int(leg_end or 0)
+        if phase != self.phase:
+            # a caller that drives the loop itself cannot lose the entry line
+            self.begin(phase, step, leg_end)
+        if not (step % self.log_interval == 0 or (leg_end and step == leg_end)):
+            return
+        now = self.clock()
+        final = bool(leg_end) and step == leg_end
+        _log_progress(self.log, start_time=self.started,
+                      last_log_time=self.last_log, now=now,
+                      finished_steps=int(step) - self.entry_step,
+                      remaining_steps=max(1, leg_end - self.entry_step),
+                      chunk_steps=self.since_log, dt_ns=self.dt_ns,
+                      final=final, stage=self.phase)
+        if now > self.last_log:
+            self.last_log, self.since_log = now, 0
+
+
 def _log_progress(
     log: logging.Logger,
     *,
@@ -221,7 +330,15 @@ def _log_progress(
     chunk_steps: int,
     dt_ns: float,
     final: bool = False,
+    stage: str | None = None,
 ) -> None:
+    """One progress record: elapsed, stage, percent, rate, wall-clock ETA.
+
+    ``stage`` names the axis the step counts belong to — for a LEG-staged
+    method every stage restarts its own clock (ADR-0011), so ``finished`` and
+    ``remaining`` are the CURRENT leg's, never a run-wide total (which is why
+    the derived ``steps`` sum must not be used here).
+    """
     elapsed_sec = now - start_time
     elapsed_str = str(datetime.timedelta(seconds=int(elapsed_sec)))
 
@@ -242,7 +359,8 @@ def _log_progress(
     # intermediate lines carry inline=True: the console handler renders them
     # as same-line replacements; the final line stays in the scrollback
     log.info(
-        f"已运行: {elapsed_str} | "
+        (f"阶段: {stage} | " if stage else "")
+        + f"已运行: {elapsed_str} | "
         + f"已完成: {progress * 100:.2f}% | "
         + f"速率: {steps_per_day * dt_ns:.1f} ns/day "
         + f"({steps_per_hour * dt_ns:.1f} ns/hour) | "
@@ -358,7 +476,7 @@ def run_md(
     view: ViewFactory | None = None,
     on_step: Callable[[int, RunView], None] | None = None,
     on_step_interval: int = 1,
-    log_interval: int = PROGRESS_INTERVAL,
+    log_interval: int | None = None,
     logger=None,
     clock: Clock = time.time,
     sink=None,
@@ -400,10 +518,11 @@ def run_md(
                  step).  Metadynamics deposits hills here; the boundary
                  arithmetic guarantees exact multiples regardless of what the
                  probes are doing.
-    log_interval: progress-log cadence in steps (``PROGRESS_INTERVAL``);
-                 lines fire on absolute multiples of it (and at the final
-                 step) — matching the legacy output format for fresh runs,
-                 and aligned with probe cadence on resumed runs.
+    log_interval: progress-log cadence in steps; ``None`` (the default) takes
+                 ``output.progress_interval`` (derived default 5000).  Lines
+                 fire on absolute multiples of it (and at the final step) —
+                 matching the legacy output format for fresh runs, and aligned
+                 with probe cadence on resumed runs.
     clock:       injectable wall clock (epoch seconds) driving the
                  statistics; tests inject fakes.
     sink:        optional artifact sink for the per-leg
@@ -438,8 +557,9 @@ class MDStepper:
 
     def __init__(self, kernel, plan, probes=(), *, scheduler=None, view=None,
                  on_step=None, on_step_interval=1, before_step=None, before_step_interval=1,
-                 log_interval=PROGRESS_INTERVAL,
-                 logger=None, clock=time.time, sink=None, on_progress=None, checkpoint=None):
+                 log_interval=None,
+                 logger=None, clock=time.time, sink=None, on_progress=None, checkpoint=None,
+                 total_steps=None, stage_label=None):
         self.kernel, self.plan, self.sink = kernel, plan, sink
         self.checkpoint = checkpoint
         self.log, self.clock = _resolve_logger(logger), clock
@@ -447,7 +567,9 @@ class MDStepper:
         if view is not None and not callable(view):
             raise TypeError("view must be a callable (kernel, step) -> RunView")
         self.view = _default_view_factory(kernel) if view is None else view
-        total = getattr(plan, "steps", None)
+        # a method-computed target (gamd's per-leg accounting, ADR-0011)
+        # overrides the flat plan value; everyone else keeps plan.steps
+        total = total_steps if total_steps is not None else getattr(plan, "steps", None)
         if total is None:
             raise ValueError(f"plan.method {getattr(plan, 'method', None)!r} "
                              "requires a 'steps' key (positive integer)")
@@ -456,11 +578,16 @@ class MDStepper:
         self.on_step_interval = max(1, int(on_step_interval))
         self.before_step = before_step
         self.before_step_interval = max(1, int(before_step_interval))
-        self.log_interval = max(1, int(log_interval))
+        self.log_interval = max(1, int(log_interval if log_interval is not None
+                                       else progress_interval(plan)))
         self.dt_ns = timestep_ps(plan) / 1000.0
         self.start_step = kernel.current_step
         self.remaining = self.total - self.start_step
-        self.log.info(f"current steps:{self.start_step} remaining steps:{self.remaining}")
+        #: name of the stage this leg belongs to (None for an unstaged method)
+        self.stage_label = stage_label
+        self.log.info("current steps:%d remaining steps:%d%s", self.start_step,
+                      self.remaining,
+                      "" if stage_label is None else f" stage:{stage_label}")
         self.start_time = self.clock()
         self.last_log_time = self.start_time
         self.steps_since_log = 0
@@ -519,7 +646,7 @@ class MDStepper:
                               finished_steps=target - self.start_step,
                               remaining_steps=self.remaining,
                               chunk_steps=self.steps_since_log, dt_ns=self.dt_ns,
-                              final=target == self.total)
+                              final=target == self.total, stage=self.stage_label)
                 if now > self.last_log_time:
                     self.last_log_time, self.steps_since_log = now, 0
         return self.kernel.current_step
@@ -563,7 +690,60 @@ def _kernel_spec(plan, kind: str = "openmm") -> KernelSpec:
     return build_kernel_spec(plan, kind=kind)
 
 
-def _default_probes(plan, sink, resume=None, kernel=None, log=None) -> list:
+class _StageCursor:
+    """The method's current stage name, pinnable while a chunk runs.
+
+    Read live, a stage object's ``phase`` already reports the NEXT stage at a
+    stage boundary.  A frame or row written exactly at that boundary belongs to
+    the stage that just ended, so :func:`advance_preparation` pins the stage
+    that produced the chunk *before* stepping; outside preparation (the
+    production runner) the cursor resolves live and production keeps its own
+    name.
+    """
+
+    def __init__(self, preparation):
+        self._preparation = preparation
+        self._pinned: str | None = None
+
+    def __call__(self) -> str | None:
+        return self._pinned if self._pinned is not None else self._preparation.phase
+
+    def pin(self, name: str | None) -> None:
+        self._pinned = name
+
+    def unpin(self) -> None:
+        self._pinned = None
+
+
+def stage_cursor(prepared):
+    """Current stage name for a staged method, else ``None``.
+
+    Only a method that runs in named stages carries a ``preparation`` object
+    with a ``phase`` property (gamd, ADR-0010/0011).  Every other method returns
+    ``None`` here and keeps the historical single-artifact names, so the
+    staging change cannot leak into md/smd/opes/metadynamics/RBFE runs.
+    """
+    preparation = getattr(prepared, "preparation", None)
+    if preparation is None or not hasattr(preparation, "phase"):
+        return None
+    return _StageCursor(preparation)
+
+
+def _leg_total(prepared):
+    """ETA-total resolver for a LEG-staged method (ADR-0011), else None.
+
+    Reads the current leg's length live, because the kernel's step axis
+    restarts at every stage: the run's derived ``steps`` sum would make the
+    state tape's remaining-time column meaningless.
+    """
+    preparation = getattr(prepared, "preparation", None)
+    if preparation is None or not hasattr(preparation, "leg_end"):
+        return None
+    return lambda: int(preparation.leg_end)
+
+
+def _default_probes(plan, sink, resume=None, kernel=None, log=None, stage=None,
+                    leg_total=None) -> list:
     """Probes implied by the plan's derived output intervals ([] without a
     sink — the caller (run.py) owns sink construction, the driver never
     invents one).  The built-in presets are constructed through the probe
@@ -572,7 +752,11 @@ def _default_probes(plan, sink, resume=None, kernel=None, log=None) -> list:
     for a fresh run) owns every append decision: an artifact trimmed by the
     resume planner is appended to, everything else starts fresh — the probes
     themselves never decide append/truncate.  ``kernel``/``log`` resolve the
-    trajectory wrap transform (``output.wrap_coordinates``)."""
+    trajectory wrap transform (``output.wrap_coordinates``).  ``stage`` /
+    ``leg_total`` make a LEG-staged method's artifacts per-stage and per-leg
+    (gamd, ADR-0011): the name comes from the stage cursor and the state
+    probe's ETA total from the current leg's length — ``int(plan.steps)`` is
+    the derived cross-leg sum and is only meaningful for an unstaged run."""
     if sink is None:
         return []
     from . import probes as _probes  # noqa: F401  (import = registration)
@@ -587,25 +771,27 @@ def _default_probes(plan, sink, resume=None, kernel=None, log=None) -> list:
     state_interval = int(getattr(plan, "state_interval", 0) or 0)
     if state_interval > 0:
         probes.append(make("state")(
-            sink=sink, interval=state_interval, total_steps=int(plan.steps),
-            dt_ps=dt_ps, append="output.state" in trims))
+            sink=sink, interval=state_interval,
+            total_steps=(leg_total if leg_total is not None else int(plan.steps)),
+            dt_ps=dt_ps, append="output.state" in trims, stage=stage, trimmed=trims))
     trajectory_interval = int(getattr(plan, "trajectory_interval", 0) or 0)
     if trajectory_interval > 0:
         probes.append(make("trajectory")(
             sink=sink, interval=trajectory_interval,
             dt_ps=dt_ps,
             append="output.dcd" in trims,
-            wrap=trajectory_wrap))
+            wrap=trajectory_wrap, stage=stage, trimmed=trims))
     checkpoint_interval = int(getattr(plan, "checkpoint_interval", 0) or 0)
     if checkpoint_interval > 0:
         probes.append(make("checkpoint")(sink=sink,
-                                         interval=checkpoint_interval))
+                                         interval=checkpoint_interval,
+                                         stage=stage))
     return probes
 
 
 def _append_restraint_probe(probes: list, plan, sink, kernel,
                             resume=None, independent=None,
-                            shared_group=None) -> None:
+                            shared_group=None, stage=None) -> None:
     """Append the :class:`~neomd.probes.RestraintProbe` the plan's derived
     ``restraint_interval`` asks for (> 0 only when a restraint is configured
     AND ``output.report_restraint`` is truthy — the plan-level
@@ -637,6 +823,8 @@ def _append_restraint_probe(probes: list, plan, sink, kernel,
         independent=independent or None,
         shared_group=shared_group,
         append="restraint.tsv" in trims,
+        stage=stage,
+        trimmed=trims,
     ))
 
 
@@ -743,6 +931,10 @@ class PreparedMethod:
       parameters, their units/ranges/phase and method-owned validation.
     * ``checkpoint`` — flush method state such as an empty initial hill
       ledger without finalizing the method or closing reporting tapes.
+    * ``total_steps`` — optional method-computed production target
+      overriding ``int(plan.steps)`` (gamd's per-leg accounting: the
+      production leg's own length, ADR-0011); ``None`` keeps the plan value
+      for every other method.
     """
 
     on_step: Callable[[int, RunView], None] | None = None
@@ -758,50 +950,159 @@ class PreparedMethod:
     controls: Mapping = field(default_factory=dict)
     update_parameter: Callable | None = None
     checkpoint: Callable | None = None
+    total_steps: int | None = None
 
 
-#: method-tape artifact filename -> the output switch gating its inclusion
-#: in a method run's probe list (the reporting policy the DRIVER owns:
-#: methods BUILD their tapes, the driver decides whether they RUN).  An
-#: absent entry — or the key missing from the plan — means the tape runs.
+#: method-tape artifact filename -> the TOP-LEVEL output key gating its
+#: inclusion in a method run's probe list (the reporting policy the DRIVER
+#: owns: methods BUILD their tapes, the driver decides whether they RUN).
+#: An absent entry — or the key missing from the plan — means the tape runs.
 #: ``restraint.tsv`` is not here: the driver already owns it end to end
 #: (derived ``restraint_interval`` mirrors ``output.report_restraint``).
-_TAPE_SWITCHES = {"smd.tsv": "report_smd", "gamd.tsv": "report_gamd"}
+_TAPE_SWITCHES = {"smd.tsv": "report_smd"}
+
+#: method tapes whose switch lives in the method's own output namespace
+#: (``output.gamd.report``) instead of a top-level output key
+_NAMESPACED_TAPES = {"gamd.tsv": "gamd"}
 
 
-def _tape_enabled(plan, filename: str) -> bool:
+def method_tape_enabled(plan, filename: str) -> bool:
+    """Does this method tape run under ``plan``?  The driver's policy only."""
+    from .plan import gamd_output
+
+    namespace = _NAMESPACED_TAPES.get(filename)
+    if namespace == "gamd":
+        return bool(gamd_output(plan)["report"])
     switch = _TAPE_SWITCHES.get(filename)
     return True if switch is None else bool(getattr(plan, switch, True))
 
 
-def advance_preparation(kernel, plan, prepared, max_steps, *, sink=None, on_progress=None):
+
+def advance_preparation(kernel, plan, prepared, max_steps, *, sink=None,
+                        on_progress=None, probes=None, stage=None,
+                        logger=None, log_interval=None, reporter=None):
     """Advance scientific stages while honoring the driver's checkpoint cadence.
 
     Preparation owns its scientific update boundaries; production trajectory
     tapes still start after it finishes. Every checkpoint follows completed
     exchanges/statistics updates and the method's state flush.
+
+    A staged method (gamd, ADR-0011) runs PREPARATION AS LEGS: each stage is
+    one integration leg with its own Context and its own step axis starting
+    at 0, so this loop is leg-scoped — it stops exactly at the current leg's
+    last step, lets the reporting probes record that stage's own rows under
+    its own name and step number, and only then asks the method to enter the
+    next leg (``begin_next_leg``: ``kernel.start_leg`` + boundary checkpoint
+    + journal flush).  ``probes`` (the staged path, gamd) therefore run
+    DURING the preparation legs too, so a staged method records one artifact
+    per stage (``<stage>.dcd`` / ``<stage>.state`` / ``<stage>_restraint.tsv``
+    / ``<stage>.ckpt``).  Without ``probes`` — every unstaged method, and the
+    historical behaviour — preparation only commits ``output.ckpt``; the
+    method's own tapes never run here either way.
+
+    It also REPORTS (see :class:`LegReporter`): a leg-staged method's
+    preparation can be tens of millions of steps, so silence until production
+    is not acceptable.  Every leg gets exactly ONE ``entering stage`` line,
+    then a same-line progress record every ``log_interval`` steps of that leg
+    (elapsed / stage / percent / rate / wall-clock ETA) and a final non-inline
+    record when the leg ends.  The counts are the leg's own (ADR-0011): each
+    stage restarts its clock, so no cross-stage total is ever printed.
+
+    ``reporter`` carries that state across calls, because this function is
+    called once per bounded turn; when it is omitted the reporter is cached on
+    ``prepared.preparation`` so the entry line still fires exactly once.
     """
     if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < 1:
         raise ValueError("max_steps must be a positive integer")
+    log = _resolve_logger(logger)
+    if log_interval is None:
+        log_interval = progress_interval(plan)
     preparation = prepared.preparation
+    reporter = reporter if reporter is not None else _cached_reporter(preparation)
+    if reporter is None:
+        reporter = LegReporter(log, getattr(plan, "method", None),
+                               dt_ns=timestep_ps(plan) / 1000.0,
+                               log_interval=log_interval)
+        _cache_reporter(preparation, reporter)
+    reporter.log = log
+    reporter.log_interval = max(1, int(log_interval))
     cap = kernel.current_step + max_steps
     interval = int(getattr(plan, "checkpoint_interval", 0) or 0)
-    probe = CheckpointProbe(sink, interval) if sink is not None and interval > 0 else None
-    while preparation is not None and not preparation.done and kernel.current_step < cap:
-        target = cap
-        if probe is not None:
-            target = min(target, (kernel.current_step // interval + 1) * interval)
-        before = kernel.current_step
-        preparation.advance(target - before)
-        step = kernel.current_step
-        if step <= before:
-            raise RuntimeError("method preparation did not advance")
-        if probe is not None and step % interval == 0:
-            if prepared.checkpoint is not None:
-                prepared.checkpoint()
-            probe.observe(KernelView(kernel, step))
-            if on_progress is not None:
-                on_progress(step, {CHECKPOINT_FILENAME: step})
+    view_factory = _default_view_factory(kernel)
+    if probes is not None:
+        scheduler = ProbeScheduler(probes)
+    else:
+        scheduler = None
+        probes = [CheckpointProbe(sink, interval)] if sink is not None and interval > 0 else []
+    try:
+        while preparation is not None and not preparation.done and kernel.current_step < cap:
+            if stage is not None:
+                # the chunk that ends ON a boundary belongs to the stage it ran in
+                stage.pin(preparation.phase)
+            # the current leg's last step is an observation point in its own
+            # right: a stage shorter than every reporting interval still gets
+            # its own artifact, and the leg must not be crossed here
+            leg_end = int(getattr(preparation, "leg_end", 0) or 0)
+            if preparation.phase != reporter.phase:
+                # one line per leg, before any stepping: the stage name is the
+                # only thing a long preparation run would otherwise not reveal
+                reporter.begin(preparation.phase, kernel.current_step, leg_end)
+            if leg_end and kernel.current_step >= leg_end:
+                # the leg is already complete (a previous call stopped on its
+                # last step): swap in the next Context before stepping again
+                preparation.begin_next_leg()
+                continue
+            # the log cadence is a boundary of its own: without it a chunk
+            # spans the whole turn and the progress line only fires at the leg
+            # end (MDStepper.advance adds its log_interval for the same reason)
+            boundaries = {probe.interval for probe in probes}
+            boundaries.add(log_interval)
+            target = min(cap, _next_boundary(kernel.current_step, boundaries, cap))
+            if leg_end:
+                target = min(target, leg_end)
+            before = kernel.current_step
+            preparation.advance(target - before)
+            step = kernel.current_step
+            if step <= before:
+                raise RuntimeError("method preparation did not advance")
+            reporter.stepped(step - before)
+            # the SAME box accessor the production loop hands its probes:
+            # without it a staged method's <stage>.dcd is created with the
+            # header's non-periodic flag, so it carries no unit-cell record
+            # and skips molecule wrapping
+            view = view_factory(kernel, step)
+            boundary_hit = bool(leg_end) and step == leg_end
+            # A leg boundary is an extra observation point for the reporting
+            # tapes, but ``output.ckpt`` is committed and reported only where
+            # a checkpoint probe is actually due — never faked at a boundary.
+            checkpoint_due = any(isinstance(probe, CheckpointProbe)
+                                 and step % probe.interval == 0 for probe in probes)
+            if scheduler is not None:
+                scheduler.tick(step, view, checkpoint_phase=False)
+                if boundary_hit:
+                    for probe in probes:
+                        if (not isinstance(probe, CheckpointProbe)
+                                and step % probe.interval != 0):
+                            probe.observe(view)
+            if checkpoint_due:
+                if prepared.checkpoint is not None:
+                    prepared.checkpoint()
+                if scheduler is not None:
+                    scheduler.tick(step, view, checkpoint_phase=True)
+                else:
+                    for probe in probes:
+                        probe.observe(view)
+                if on_progress is not None:
+                    on_progress(step, {CHECKPOINT_FILENAME: step})
+            reporter.tick(preparation.phase, step, leg_end)
+            if boundary_hit and not preparation.done:
+                # the closing stage's rows are on disk; now swap in the next
+                # leg's Context (step axis back to 0) and flush the journal
+                preparation.begin_next_leg()
+    finally:
+        # the runner reads the live phase (production), never a pinned stage
+        if stage is not None:
+            stage.unpin()
     return kernel.current_step
 
 
@@ -827,13 +1128,47 @@ def run_prepared_method(kernel: KernelPort, plan, prepared: PreparedMethod, *,
     ``finish``.
     """
     preparation = prepared.preparation
+    stage = stage_cursor(prepared)
+    log = _resolve_logger(logger)
+    # one reporter for the whole method run: a leg spans many bounded turns
+    reporter = None
     if preparation is not None:
+        reporter = _cached_reporter(preparation)
+        if reporter is None:
+            reporter = LegReporter(log, getattr(plan, "method", None),
+                                   dt_ns=timestep_ps(plan) / 1000.0,
+                                   log_interval=progress_interval(plan))
+            _cache_reporter(preparation, reporter)
+    reporting = None
+    if preparation is not None:
+        if sink is not None:
+            # a staged method records one artifact per stage: its reporting
+            # probes run during the preparation stages too (the method's own
+            # tapes do not — gamd.tsv stays production-only)
+            reporting = _default_probes(plan, sink, resume=prepared.resume_plan,
+                                        kernel=kernel, log=logger, stage=stage,
+                                        leg_total=_leg_total(prepared))
+            _append_restraint_probe(reporting, plan, sink, kernel,
+                                    resume=prepared.resume_plan,
+                                    independent=restraint_independent,
+                                    shared_group=restraint_shared_group,
+                                    stage=stage)
+        # the preparation stages always run, with or without a sink
         while not preparation.done:
-            advance_preparation(kernel, plan, prepared, 5000, sink=sink, on_progress=on_progress)
+            advance_preparation(kernel, plan, prepared, 5000, sink=sink,
+                                on_progress=on_progress, probes=reporting,
+                                stage=stage, logger=log, reporter=reporter)
+    runner_probes = None
+    if reporting is not None:
+        runner_probes = list(reporting)
+        for filename, probe in prepared.tapes.items():
+            if method_tape_enabled(plan, filename):
+                runner_probes.append(probe)
     runner = prepare_method_stepper(kernel, plan, prepared, sink=sink,
-                                    logger=logger, on_progress=on_progress,
+                                    logger=log, on_progress=on_progress,
                                     restraint_independent=restraint_independent,
-                                    restraint_shared_group=restraint_shared_group)
+                                    restraint_shared_group=restraint_shared_group,
+                                    probes=runner_probes)
     while not runner.done:
         runner.advance(max(1, runner.total - kernel.current_step))
     result = runner.finish()
@@ -850,15 +1185,19 @@ def prepare_method_stepper(kernel, plan, prepared, *, sink=None, logger=None,
     sequence replaces that reporting list only; scientific hooks, checkpoints
     and finalization remain independent and can still write artifacts.
     """
+    stage = stage_cursor(prepared)
+    stage_label = None if stage is None else (stage() or None)
     if probes is None:
         probes = _default_probes(plan, sink, resume=prepared.resume_plan,
-                                 kernel=kernel, log=logger)
+                                 kernel=kernel, log=logger, stage=stage,
+                                 leg_total=_leg_total(prepared))
         _append_restraint_probe(probes, plan, sink, kernel,
                                 resume=prepared.resume_plan,
                                 independent=restraint_independent,
-                                shared_group=restraint_shared_group)
+                                shared_group=restraint_shared_group,
+                                stage=stage)
         for filename, probe in prepared.tapes.items():
-            if _tape_enabled(plan, filename):
+            if method_tape_enabled(plan, filename):
                 probes.append(probe)
 
     # compose the method's own artifact progress (e.g. the hills ledger)
@@ -885,6 +1224,8 @@ def prepare_method_stepper(kernel, plan, prepared, *, sink=None, logger=None,
                     before_step=prepared.before_step,
                     before_step_interval=prepared.before_step_interval,
                     checkpoint=prepared.checkpoint,
+                    total_steps=prepared.total_steps,
+                    stage_label=stage_label,
                     logger=logger, sink=sink, on_progress=on_progress)
 
 
@@ -907,11 +1248,12 @@ def _manifest_recorder(manifest, sink):
     return record
 
 
-def drive(
+def _drive(
     plan,
     kernel_factory: Callable[[KernelSpec], KernelPort] = KernelFactory.create,
     sink=None,
     logger=None,
+    _watch_holder: dict | None = None,
 ) -> RunOutcome:
     """Execute what ``plan`` says, one call: kernel → restraints → method →
     manifest.
@@ -972,6 +1314,23 @@ def drive(
         ensure_adapters()  # the default factory needs the adapter registry
 
     kernel = kernel_factory(_kernel_spec(plan))
+
+    from .watch import attach_watch
+
+    # opt-in generic numerical debug (plan.debug / --debug / legacy
+    # NEOMD_WATCH); None — and free — by default.  The holder lets the public
+    # driver boundary below dump the scene and enter the post-mortem with the
+    # ORIGINAL traceback for failures raised outside kernel.step (method
+    # sampling checks, probes, preparation).
+    watch = attach_watch(kernel, plan, sink, log)
+    if _watch_holder is not None:
+        _watch_holder["kernel"] = kernel
+        _watch_holder["watch"] = watch
+    if watch is not None:
+        import os as _os
+        log.info("watchdog provenance: platform request=%s CUDA "
+                 "precision request=%s", getattr(plan, "platform", "cuda"),
+                 _os.environ.get("NEOMD_CUDA_PRECISION", "single"))
 
     from .manifest import RunManifest
 
@@ -1062,20 +1421,45 @@ def drive(
         entry = registry.get("method", method)  # KeyError w/ did-you-mean
         prepared = entry.prepare(kernel=kernel, plan=plan, sink=sink,
                                  logger=log)
-        if prepared.resume_plan is not None:
-            resume = prepared.resume_plan
-            log.info("resuming from step %d (checkpoint %s); tapes trimmed: %s",
-                     resume.resume_step, resume.checkpoint,
-                     sorted(resume.trims) or "none")
-            manifest.add_epoch(f"resume:{resume.resume_step}",
-                               steps_so_far=resume.resume_step)
-        results.append(run_prepared_method(
-            kernel, plan, prepared, sink=sink, logger=log,
-            on_progress=record_progress,
-            restraint_independent=independent_fgroups or None,
-            restraint_shared_group=shared_group))
+        emit = None
+        if method == "gamd":
+            emit = (getattr(plan, "gamd", None) or {}).get("emit_system")
+        if emit is not None:
+            # emit_system is a dry preparation: the method built the System
+            # (requested CV mode, user E/k defaults) but no Context or
+            # integration exists yet.  Serialize through the kernel seam and
+            # stop — no production loop, no trajectory.
+            serialize = getattr(kernel, "system_xml", None)
+            if serialize is None:
+                raise NotImplementedError(
+                    f"kernel {getattr(kernel, 'name', type(kernel).__name__)!r} "
+                    "cannot emit a System XML")
+            if sink is None:
+                raise ValueError("gamd.emit_system requires an output directory")
+            stage = str(emit.get("stage", "production"))
+            filename = f"{stage}_system.xml"
+            sink.write_bytes(filename, serialize().encode())
+            log.info("gamd.emit_system: wrote %s (cv_mode=%s, no simulation run)",
+                     filename, (getattr(plan, "gamd", None) or {}).get(
+                         "boost_cv_mode", "dv"))
+            results.append({"emit_system": filename})
+        else:
+            if prepared.resume_plan is not None:
+                resume = prepared.resume_plan
+                log.info("resuming from step %d (checkpoint %s); tapes trimmed: %s",
+                         resume.resume_step, resume.checkpoint,
+                         sorted(resume.trims) or "none")
+                manifest.add_epoch(f"resume:{resume.resume_step}",
+                                   steps_so_far=resume.resume_step)
+            results.append(run_prepared_method(
+                kernel, plan, prepared, sink=sink, logger=log,
+                on_progress=record_progress,
+                restraint_independent=independent_fgroups or None,
+                restraint_shared_group=shared_group))
 
     manifest.add_epoch(f"done:{method}", steps_so_far=kernel.current_step)
+    if watch is not None:
+        watch.close(kernel.current_step)
     _log_run_end(log, started)
 
     manifest_path = None
@@ -1092,3 +1476,42 @@ def drive(
         results=results,
         manifest_path=manifest_path,
     )
+
+
+def drive(
+    plan,
+    kernel_factory: Callable[[KernelSpec], KernelPort] = KernelFactory.create,
+    sink=None,
+    logger=None,
+) -> RunOutcome:
+    """Execute what ``plan`` says, one call: kernel → restraints → method →
+    manifest (see :func:`_drive` for the phase contract).
+
+    This public boundary is also the method-agnostic debug failure boundary:
+    when ``debug`` is enabled, a runtime exception is dumped by the attached
+    :mod:`neomd.watch` observer and then raised through ``pdb.post_mortem``
+    with its ORIGINAL traceback.  The driver does not catch-and-continue, so
+    an unmodified simulation-only failure still terminates after the user
+    leaves the debugger; a batch run sets ``debug.break_on_error: false``.
+    """
+    holder: dict = {}
+    try:
+        return _drive(plan, kernel_factory=kernel_factory, sink=sink,
+                      logger=logger, _watch_holder=holder)
+    except Exception as error:
+        watch = holder.get("watch")
+        if watch is not None:
+            kernel = holder.get("kernel")
+            try:
+                step = None if kernel is None else int(kernel.current_step) + 1
+            except Exception:  # pragma: no cover - damaged kernel state
+                step = None
+            try:
+                watch.handle_exception(step, error)
+            except Exception:  # pragma: no cover - dump is best effort
+                LOG.exception("numeric debug: crash dump failed")
+            try:
+                watch.debug(error)
+            except Exception:  # pragma: no cover - debugger is best effort
+                LOG.exception("numeric debug: post-mortem debugger failed")
+        raise
